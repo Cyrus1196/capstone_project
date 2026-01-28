@@ -1,0 +1,11 @@
+Place the supplied PHINMA logo image in this folder with the exact filename `phinma-logo.png`.
+
+Steps:
+1. Copy the image you attached into this path:
+   front-end/public/phinma-logo.png
+
+2. Restart the front-end dev server (if running) so the new public asset is served.
+
+Notes:
+- The LandingPage will use `/phinma-logo.png` (PUBLIC_URL + '/phinma-logo.png') and will fallback to the bundled `logo.svg` if the file is not found.
+- If you prefer a different filename, update `front-end/src/components/LandingPage.js` to reference the new path.
