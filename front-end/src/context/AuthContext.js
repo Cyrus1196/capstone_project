@@ -59,9 +59,14 @@ export const AuthProvider = ({ children }) => {
       setUser(response.data.user);
       return { success: true, data: response.data };
     } catch (error) {
+      const data = error.response?.data;
+      const msg =
+        (data?.errors && typeof data.errors === 'object' && Object.values(data.errors)[0]?.[0]) ||
+        data?.message ||
+        error.message;
       return {
         success: false,
-        error: error.response?.data?.message || error.message,
+        error: msg,
       };
     }
   };

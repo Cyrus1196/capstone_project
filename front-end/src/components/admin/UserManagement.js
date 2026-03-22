@@ -3,26 +3,34 @@ import api from '../../api/axios';
 import './UserManagement.css';
 
 const UserManagement = () => {
+  const [activeTab, setActiveTab] = useState('users');
   const [users, setUsers] = useState([]);
   const [filteredUsers, setFilteredUsers] = useState([]);
   const [roles, setRoles] = useState([]);
   const [accessLevels, setAccessLevels] = useState([]);
   const [programs, setPrograms] = useState([]);
+  const [permissions, setPermissions] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [showModal, setShowModal] = useState(false);
   const [editingUser, setEditingUser] = useState(null);
+  const [editingItem, setEditingItem] = useState(null);
   const [formData, setFormData] = useState({});
   const [searchTerm, setSearchTerm] = useState('');
   const [roleFilter, setRoleFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
 
   useEffect(() => {
-    fetchUsers();
-    fetchRoles();
-    fetchAccessLevels();
-    fetchPrograms();
-  }, []);
+    if (activeTab === 'users') {
+      fetchUsers();
+      fetchRoles();
+      fetchAccessLevels();
+      fetchPrograms();
+    } else if (activeTab === 'permissions') {
+      fetchPermissions();
+      fetchRoles();
+    }
+  }, [activeTab]);
 
   const fetchUsers = async () => {
     try {
@@ -116,6 +124,60 @@ const UserManagement = () => {
       setPrograms(programsData);
     } catch (error) {
       console.warn('Could not fetch programs:', error);
+    }
+  };
+
+  const fetchPermissions = async () => {
+    try {
+      setLoading(true);
+      const response = await api.get('/permissions');
+      const permissionsData = response.data?.data || response.data || [];
+      setPermissions(Array.isArray(permissionsData) ? permissionsData : []);
+    } catch (error) {
+      console.error('Error fetching permissions:', error);
+      setError('Failed to fetch permissions');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleAddPermission = () => {
+    setEditingItem(null);
+    setFormData({ permission_name: '', description: '' });
+    setShowModal(true);
+  };
+
+  const handleEditPermission = (item) => {
+    setEditingItem(item);
+    setFormData(item);
+    setShowModal(true);
+  };
+
+  const handleDeletePermission = async (id) => {
+    if (!window.confirm('Are you sure you want to delete this permission?')) {
+      return;
+    }
+    try {
+      await api.delete(`/permissions/${id}`);
+      fetchPermissions();
+    } catch (error) {
+      setError(error.response?.data?.message || 'Failed to delete permission');
+    }
+  };
+
+  const handleSubmitPermission = async (e) => {
+    e.preventDefault();
+    try {
+      setError('');
+      if (editingItem) {
+        await api.put(`/permissions/${editingItem.permission_id}`, formData);
+      } else {
+        await api.post('/permissions', formData);
+      }
+      setShowModal(false);
+      fetchPermissions();
+    } catch (error) {
+      setError(error.response?.data?.message || `Failed to ${editingItem ? 'update' : 'create'} permission`);
     }
   };
 
@@ -373,13 +435,38 @@ const UserManagement = () => {
   }
 
   return (
-    <div className="user-management">
+      <div className="user-management">
       <div className="management-header">
         <h2>User Management</h2>
-        <button className="add-button" onClick={handleAdd}>
-          Add User
+        {activeTab === 'users' && (
+          <button className="add-button" onClick={handleAdd}>
+            Add User
+          </button>
+        )}
+        {activeTab === 'permissions' && (
+          <button className="add-button" onClick={handleAddPermission}>
+            Add Permission
+          </button>
+        )}
+      </div>
+
+      <div className="user-tabs">
+        <button
+          className={activeTab === 'users' ? 'tab active' : 'tab'}
+          onClick={() => setActiveTab('users')}
+        >
+          Users
+        </button>
+        <button
+          className={activeTab === 'permissions' ? 'tab active' : 'tab'}
+          onClick={() => setActiveTab('permissions')}
+        >
+          Permissions
         </button>
       </div>
+
+      {activeTab === 'users' && (
+        <>
 
       {error && <div className="error-message">{error}</div>}
 
@@ -730,6 +817,97 @@ const UserManagement = () => {
                 </button>
                 <button type="submit" className="submit-button">
                   {editingUser ? 'Update' : 'Create'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+        </>
+      )}
+      
+      {activeTab === 'permissions' && (
+        <div className="table-section">
+          {loading ? (
+            <div className="loading">Loading permissions...</div>
+          ) : error ? (
+            <div className="error-message">{error}</div>
+          ) : (
+            <div className="table-container">
+              <table className="data-table">
+                <thead>
+                  <tr>
+                    <th>Permission Name</th>
+                    <th>Description</th>
+                    <th>Assigned Roles</th>
+                    <th>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {permissions.length === 0 ? (
+                    <tr>
+                      <td colSpan="4" className="no-data">No permissions found</td>
+                    </tr>
+                  ) : (
+                    permissions.map((item) => (
+                      <tr key={item.permission_id}>
+                        <td>{item.permission_name}</td>
+                        <td>{item.description || '-'}</td>
+                        <td>
+                          {item.roles && item.roles.length > 0
+                            ? item.roles.map(r => r.role_name).join(', ')
+                            : 'None'}
+                        </td>
+                        <td className="actions">
+                          <button className="edit-button" onClick={() => handleEditPermission(item)}>
+                            Edit
+                          </button>
+                          <button className="delete-button" onClick={() => handleDeletePermission(item.permission_id)}>
+                            Delete
+                          </button>
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      )}
+
+      {showModal && activeTab === 'permissions' && (
+        <div className="modal-overlay" onClick={() => setShowModal(false)}>
+          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3>{editingItem ? 'Edit' : 'Add'} Permission</h3>
+              <button className="close-button" onClick={() => setShowModal(false)}>×</button>
+            </div>
+            <form onSubmit={handleSubmitPermission} className="modal-form">
+              {error && <div className="error-message">{error}</div>}
+              <div className="form-group">
+                <label>Permission Name <span className="required">*</span></label>
+                <input
+                  type="text"
+                  value={formData.permission_name || ''}
+                  onChange={(e) => setFormData({ ...formData, permission_name: e.target.value })}
+                  required
+                />
+              </div>
+              <div className="form-group">
+                <label>Description</label>
+                <textarea
+                  value={formData.description || ''}
+                  onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+                  rows="3"
+                />
+              </div>
+              <div className="form-actions">
+                <button type="button" className="cancel-button" onClick={() => setShowModal(false)}>
+                  Cancel
+                </button>
+                <button type="submit" className="submit-button">
+                  {editingItem ? 'Update' : 'Create'}
                 </button>
               </div>
             </form>

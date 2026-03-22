@@ -15,6 +15,13 @@ use App\Http\Controllers\FacultyController;
 use App\Http\Controllers\StudentEvaluationController;
 use App\Http\Controllers\EvaluationController;
 use App\Http\Controllers\EvaluationReportController;
+use App\Http\Controllers\CreditEvaluationController;
+use App\Http\Controllers\SchoolController;
+use App\Http\Controllers\OtherSchoolSubjectController;
+use App\Http\Controllers\SubjectEquivalenceController;
+use App\Http\Controllers\PermissionController;
+use App\Http\Controllers\AuditLogController;
+use App\Http\Controllers\ElectiveSlotController;
 
 // Public routes
 Route::post('/login', [AuthController::class, 'login']);
@@ -118,6 +125,7 @@ Route::middleware('auth')->group(function () {
         Route::get('/semesters', [LookupDataController::class, 'getSemesters']);
         Route::post('/semesters', [LookupDataController::class, 'createSemester']);
         Route::put('/semesters/{id}', [LookupDataController::class, 'updateSemester']);
+        Route::patch('/semesters/{id}/toggle-status', [LookupDataController::class, 'toggleSemesterStatus']);
         Route::delete('/semesters/{id}', [LookupDataController::class, 'deleteSemester']);
         
         // Academic Years
@@ -163,6 +171,67 @@ Route::middleware('auth')->group(function () {
         Route::delete('/elective-subjects/{id}', [LookupDataController::class, 'deleteElectiveSubject']);
     });
 
+    // Credit Evaluation Management (admin only)
+    Route::prefix('credit-evaluations')->group(function () {
+        Route::get('/', [CreditEvaluationController::class, 'index']);
+        Route::post('/', [CreditEvaluationController::class, 'store']);
+        Route::get('/{id}', [CreditEvaluationController::class, 'show']);
+        Route::put('/{id}', [CreditEvaluationController::class, 'update']);
+        Route::delete('/{id}', [CreditEvaluationController::class, 'destroy']);
+    });
+
+    // Schools Management (admin only)
+    Route::prefix('schools')->group(function () {
+        Route::get('/', [SchoolController::class, 'index']);
+        Route::post('/', [SchoolController::class, 'store']);
+        Route::put('/{id}', [SchoolController::class, 'update']);
+        Route::delete('/{id}', [SchoolController::class, 'destroy']);
+    });
+
+    // Other School Subjects Management (admin only)
+    Route::prefix('other-school-subjects')->group(function () {
+        Route::get('/', [OtherSchoolSubjectController::class, 'index']);
+        Route::post('/', [OtherSchoolSubjectController::class, 'store']);
+        Route::put('/{id}', [OtherSchoolSubjectController::class, 'update']);
+        Route::delete('/{id}', [OtherSchoolSubjectController::class, 'destroy']);
+    });
+
+    // Subject Equivalence Management (admin only)
+    Route::prefix('subject-equivalences')->group(function () {
+        Route::get('/', [SubjectEquivalenceController::class, 'index']);
+        Route::post('/', [SubjectEquivalenceController::class, 'store']);
+        Route::put('/{id}', [SubjectEquivalenceController::class, 'update']);
+        Route::delete('/{id}', [SubjectEquivalenceController::class, 'destroy']);
+    });
+
+    // Permissions Management (admin only)
+    Route::prefix('permissions')->group(function () {
+        Route::get('/', [PermissionController::class, 'index']);
+        Route::get('/for-role/{roleId}', [PermissionController::class, 'forRole']);
+        Route::put('/sync-role/{roleId}', [PermissionController::class, 'syncRole']);
+        Route::post('/', [PermissionController::class, 'store']);
+        Route::put('/{id}', [PermissionController::class, 'update']);
+        Route::delete('/{id}', [PermissionController::class, 'destroy']);
+        Route::post('/assign', [PermissionController::class, 'assignToRole']);
+        Route::delete('/role/{roleId}/permission/{permissionId}', [PermissionController::class, 'removeFromRole']);
+    });
+
+    // Audit Logs (admin only)
+    Route::prefix('audit-logs')->group(function () {
+        Route::get('/', [AuditLogController::class, 'index']);
+    });
+
+    // Elective Slots Management (admin only)
+    Route::prefix('elective-slots')->group(function () {
+        Route::get('/', [ElectiveSlotController::class, 'index']);
+        Route::post('/', [ElectiveSlotController::class, 'store']);
+        Route::get('/{id}', [ElectiveSlotController::class, 'show']);
+        Route::put('/{id}', [ElectiveSlotController::class, 'update']);
+        Route::delete('/{id}', [ElectiveSlotController::class, 'destroy']);
+        Route::post('/{slotId}/assign-subject', [ElectiveSlotController::class, 'assignSubject']);
+        Route::delete('/{slotId}/subjects/{subjectId}', [ElectiveSlotController::class, 'removeSubject']);
+    });
+
     // Student routes (authenticated students)
     Route::prefix('students')->group(function () {
         Route::get('/profile', [StudentController::class, 'getProfile']);
@@ -170,6 +239,7 @@ Route::middleware('auth')->group(function () {
         Route::put('/profile', [StudentController::class, 'updateProfile']);
         Route::get('/enrollments', [StudentController::class, 'getEnrollments']);
         Route::get('/curriculum', [StudentController::class, 'getCurriculum']);
+        Route::get('/eligible-subjects', [StudentController::class, 'getEligibleSubjects']);
     });
 
     // Dean routes (authenticated deans)

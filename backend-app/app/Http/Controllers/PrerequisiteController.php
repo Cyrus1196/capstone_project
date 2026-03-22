@@ -42,11 +42,24 @@ class PrerequisiteController extends Controller
                 }
             }
 
+            // Normalize input names for the required subject ID
+            $requiredSubjectId = $request->input('required_subject_id') 
+                              ?? $request->input('requisites_subject_id') 
+                              ?? $request->input('requiredSubjectId');
+
+            // Validate inputs
             $validated = $request->validate([
                 'subject_id' => 'required|exists:tbl_subjects,subject_id',
-                'required_subject_id' => 'required|exists:tbl_subjects,subject_id',
                 'requisite_type' => 'required|in:prerequisite,corequisite',
+                'required_subject_id' => 'required|exists:tbl_subjects,subject_id', // Using alias for validation
+            ], [
+                'required_subject_id.required' => 'The required subject field is required.',
+                'required_subject_id.exists' => 'The selected required subject is invalid.',
             ]);
+
+            // Override the validated 'required_subject_id' with our resolved value
+            // This ensures if the user sent 'requisites_subject_id', it maps correctly to 'required_subject_id' logic
+            $validated['required_subject_id'] = $requiredSubjectId;
 
             // Validate that a subject is not a requisite of itself
             if ($validated['subject_id'] == $validated['required_subject_id']) {
@@ -55,8 +68,8 @@ class PrerequisiteController extends Controller
 
             $type = $validated['requisite_type'];
 
-            // Check if this requisite already exists
             if ($type === 'prerequisite') {
+                // Check if this prerequisite already exists
                 $existing = Prerequisite::where('subject_id', $validated['subject_id'])
                     ->where('requisite_type', 'prerequisite')
                     ->where('requisites_subject_id', $validated['required_subject_id'])
@@ -79,14 +92,14 @@ class PrerequisiteController extends Controller
             } else { // corequisite
                 // Check if corequisite exists in either direction
                 $existing = Prerequisite::where(function($query) use ($validated) {
-                    $query->where(function($q) use ($validated) {
-                        $q->where('subject_id', $validated['subject_id'])
-                          ->where('requisites_subject_id', $validated['required_subject_id']);
-                    })->orWhere(function($q) use ($validated) {
-                        $q->where('subject_id', $validated['required_subject_id'])
-                          ->where('requisites_subject_id', $validated['subject_id']);
-                    });
-                })->where('requisite_type', 'corequisite')->first();
+                        $query->where(function($q) use ($validated) {
+                                $q->where('subject_id', $validated['subject_id'])
+                                    ->where('requisites_subject_id', $validated['required_subject_id']);
+                        })->orWhere(function($q) use ($validated) {
+                                $q->where('subject_id', $validated['required_subject_id'])
+                                    ->where('requisites_subject_id', $validated['subject_id']);
+                        });
+                    })->where('requisite_type', 'corequisite')->first();
 
                 if ($existing) {
                     return response()->json(['message' => 'This corequisite already exists'], 422);
@@ -99,7 +112,7 @@ class PrerequisiteController extends Controller
                     'requisites_subject_id' => $validated['required_subject_id'],
                 ]);
 
-                $requisite2 = Prerequisite::create([
+                Prerequisite::create([
                     'subject_id' => $validated['required_subject_id'],
                     'requisite_type' => 'corequisite',
                     'requisites_subject_id' => $validated['subject_id'],
@@ -143,7 +156,6 @@ class PrerequisiteController extends Controller
         } catch (\Exception $e) {
             Log::error('PrerequisiteController@getBySubject error: ' . $e->getMessage());
             
-            // In local development, return empty array on error
             if (app()->environment('local')) {
                 return response()->json([], 200);
             }

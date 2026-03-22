@@ -7,6 +7,8 @@ use App\Models\Evaluation;
 use App\Models\Curriculum;
 use App\Models\Prerequisite;
 use App\Models\TblUser;
+use App\Models\OfferedSubject;
+use App\Models\Subject;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
@@ -69,7 +71,14 @@ class StudentController extends Controller
                 'address' => 'nullable|string',
                 'academic_status' => 'nullable|string|max:50',
                 'current_program' => 'nullable|integer|exists:tbl_program,program_id',
+                'Current_Program' => 'nullable|integer|exists:tbl_program,program_id', // Accept both formats
             ]);
+
+            // Map current_program to Current_Program if provided
+            if (isset($validated['current_program'])) {
+                $validated['Current_Program'] = $validated['current_program'];
+                unset($validated['current_program']);
+            }
 
             // Determine which user_id to use
             $targetUserId = $validated['user_id'] ?? $user->user_id;
@@ -222,11 +231,11 @@ class StudentController extends Controller
                 ->with('program')
                 ->first();
 
-            if (!$profile || !$profile->current_program) {
+            if (!$profile || !$profile->Current_Program) {
                 return response()->json(['curriculum' => []]);
             }
 
-            $curriculum = Curriculum::where('program_id', $profile->current_program)
+            $curriculum = Curriculum::where('program_id', $profile->Current_Program)
                 ->with([
                     'subject.prerequisites.requiredSubject',
                     'yearLevel',
@@ -278,6 +287,222 @@ class StudentController extends Controller
                 'message' => $e->getMessage()
             ], 500);
         }
+    }
+
+    /**
+     * Get eligible subjects for enrollment based on year level, semester, offered status, and prerequisite validation
+     * This implements the instructor's requirement:
+     * 1. Get subjects from curriculum based on year level and semester
+     * 2. Check if each subject is offered
+     * 3. Check prerequisites recursively for each subject
+     * 4. Validate which subjects can be taken (passed prerequisite validation)
+     */
+    public function getEligibleSubjects(Request $request)
+    {
+        try {
+            $user = $request->user();
+            if (!$user) {
+                return response()->json(['message' => 'Unauthorized'], 401);
+            }
+
+            // Get student profile
+            $profile = StudentProfile::where('user_id', $user->user_id)->first();
+            if (!$profile || !$profile->Current_Program) {
+                return response()->json(['message' => 'Student profile or program not found'], 404);
+            }
+
+            // Get parameters from request
+            $yearLevelId = $request->input('year_level_id');
+            $semesterId = $request->input('semester_id');
+            $academicYearId = $request->input('academic_year_id');
+
+            if (!$yearLevelId || !$semesterId) {
+                return response()->json([
+                    'error' => 'year_level_id and semester_id are required'
+                ], 400);
+            }
+
+            // Get all completed subjects from tbl_evaluation
+            // A subject is considered passed if:
+            // 1. evaluation_status is 'Passed', 'Pass', or 'Credit'
+            // 2. OR grade >= 75 (default passing grade)
+            $completedSubjects = Evaluation::where('student_id', $profile->student_id)
+                ->where(function($query) {
+                    $query->whereIn('evaluation_status', ['Passed', 'Pass', 'Credit', 'passed', 'pass', 'credit'])
+                        ->orWhere(function($q) {
+                            $q->whereNotNull('grade')
+                              ->whereRaw('CAST(grade AS DECIMAL(10,2)) >= 75');
+                        });
+                })
+                ->pluck('subject_id')
+                ->toArray();
+
+            // Get subjects from curriculum based on year level and semester
+            $curriculumSubjects = Curriculum::where('program_id', $profile->Current_Program)
+                ->where('year_level', $yearLevelId)
+                ->where('semester_id', $semesterId)
+                ->with([
+                    'subject.prerequisites.requiredSubject',
+                    'subject.offeredSubjects' => function($query) use ($academicYearId, $semesterId) {
+                        if ($academicYearId) {
+                            $query->where('academic_year_id', $academicYearId);
+                        }
+                        if ($semesterId) {
+                            $query->where('semester_id', $semesterId);
+                        }
+                        $query->where('status', 'active');
+                    }
+                ])
+                ->get();
+
+            $eligibleSubjects = [];
+
+            foreach ($curriculumSubjects as $curriculumItem) {
+                $subject = $curriculumItem->subject;
+                if (!$subject) continue;
+
+                $subjectId = $subject->subject_id;
+
+                // Step 2: Check if subject is offered
+                $isOffered = false;
+                if ($academicYearId) {
+                    $offeredSubject = OfferedSubject::where('subject_id', $subjectId)
+                        ->where('academic_year_id', $academicYearId)
+                        ->where('semester_id', $semesterId)
+                        ->where('status', 'active')
+                        ->where('program_id', $profile->Current_Program)
+                        ->first();
+                    $isOffered = $offeredSubject !== null;
+                } else {
+                    // If no academic year specified, check if it's offered in any active academic year
+                    $offeredSubject = OfferedSubject::where('subject_id', $subjectId)
+                        ->where('semester_id', $semesterId)
+                        ->where('status', 'active')
+                        ->where('program_id', $profile->Current_Program)
+                        ->first();
+                    $isOffered = $offeredSubject !== null;
+                }
+
+                if (!$isOffered) {
+                    continue; // Skip subjects that are not offered
+                }
+
+                // Step 3: Check prerequisites recursively
+                $prerequisiteValidation = $this->validatePrerequisitesRecursive(
+                    $subjectId,
+                    $completedSubjects,
+                    []
+                );
+
+                // Step 4: Validate if subject can be taken (all prerequisites passed)
+                $canTake = $prerequisiteValidation['allPassed'];
+                $missingPrerequisites = $prerequisiteValidation['missing'];
+
+                $eligibleSubjects[] = [
+                    'curriculum_id' => $curriculumItem->curriculum_id,
+                    'subject_id' => $subjectId,
+                    'subject_code' => $subject->subject_code,
+                    'subject_name' => $subject->subject_name,
+                    'number_of_units' => $subject->number_of_units,
+                    'number_of_hrs' => $subject->number_of_hrs,
+                    'is_offered' => $isOffered,
+                    'can_take' => $canTake,
+                    'missing_prerequisites' => $missingPrerequisites,
+                    'all_prerequisites' => $prerequisiteValidation['allPrerequisites'],
+                    'passing_grade' => $curriculumItem->passing_grade,
+                    'subject_type' => $curriculumItem->subject_type,
+                ];
+            }
+
+            return response()->json([
+                'eligible_subjects' => $eligibleSubjects,
+                'year_level_id' => $yearLevelId,
+                'semester_id' => $semesterId,
+                'academic_year_id' => $academicYearId,
+                'completed_subjects_count' => count($completedSubjects)
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'error' => 'Failed to fetch eligible subjects',
+                'message' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * Recursively validate prerequisites for a subject
+     * Returns array with:
+     * - allPassed: boolean indicating if all prerequisites are met
+     * - missing: array of missing prerequisite subject codes
+     * - allPrerequisites: array of all prerequisite subject codes (for display)
+     */
+    private function validatePrerequisitesRecursive($subjectId, $completedSubjects, $visited = [])
+    {
+        // Prevent infinite loops in case of circular dependencies
+        if (in_array($subjectId, $visited)) {
+            return [
+                'allPassed' => true, // Assume passed to avoid blocking
+                'missing' => [],
+                'allPrerequisites' => []
+            ];
+        }
+
+        $visited[] = $subjectId;
+
+        // Get all prerequisites for this subject
+        $prerequisites = Prerequisite::where('subject_id', $subjectId)
+            ->where('requisite_type', 'prerequisite')
+            ->with('requiredSubject')
+            ->get();
+
+        $allPrerequisites = [];
+        $missingPrerequisites = [];
+
+        foreach ($prerequisites as $prereq) {
+            $requiredSubjectId = $prereq->requisites_subject_id;
+            $requiredSubject = $prereq->requiredSubject;
+
+            if (!$requiredSubject) continue;
+
+            $requiredSubjectCode = $requiredSubject->subject_code;
+
+            // Recursively check if the prerequisite's prerequisites are met
+            $nestedValidation = $this->validatePrerequisitesRecursive(
+                $requiredSubjectId,
+                $completedSubjects,
+                $visited
+            );
+
+            // Collect all prerequisites (including nested ones)
+            $allPrerequisites[] = $requiredSubjectCode;
+            $allPrerequisites = array_merge($allPrerequisites, $nestedValidation['allPrerequisites']);
+
+            // Check if the prerequisite itself is completed
+            if (in_array($requiredSubjectId, $completedSubjects)) {
+                // Prerequisite is completed, but check if nested prerequisites are also met
+                if (!$nestedValidation['allPassed']) {
+                    $missingPrerequisites = array_merge($missingPrerequisites, $nestedValidation['missing']);
+                }
+                // If both the prerequisite and its nested prerequisites are met, continue
+                continue;
+            }
+
+            // Prerequisite is not completed
+            // If nested prerequisites are also not all passed, add both this and nested missing prerequisites
+            if (!$nestedValidation['allPassed']) {
+                $missingPrerequisites[] = $requiredSubjectCode;
+                $missingPrerequisites = array_merge($missingPrerequisites, $nestedValidation['missing']);
+            } else {
+                // Nested prerequisites are met, but this prerequisite itself is missing
+                $missingPrerequisites[] = $requiredSubjectCode;
+            }
+        }
+
+        return [
+            'allPassed' => empty($missingPrerequisites),
+            'missing' => array_unique($missingPrerequisites),
+            'allPrerequisites' => array_unique($allPrerequisites)
+        ];
     }
 }
 

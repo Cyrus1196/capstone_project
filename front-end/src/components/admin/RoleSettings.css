@@ -1,0 +1,259 @@
+/* Role Settings - two-panel layout like Hospital Billing Role Settings */
+
+.role-settings {
+  font-family: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  background: linear-gradient(180deg, #f6f8fa 0%, #fff 100%);
+  color: #0f172a;
+  padding: 20px;
+  min-height: 100%;
+  box-sizing: border-box;
+}
+
+.role-settings-header {
+  margin-bottom: 20px;
+}
+
+.role-settings-header h2 {
+  margin: 0 0 4px 0;
+  font-size: 1.5rem;
+  color: #0b1220;
+}
+
+.role-settings-subtitle {
+  margin: 0;
+  font-size: 0.9rem;
+  color: #64748b;
+}
+
+.role-settings-error {
+  background: #fef2f2;
+  color: #b91c1c;
+  padding: 10px 14px;
+  border-radius: 8px;
+  margin-bottom: 16px;
+  border: 1px solid #fecaca;
+}
+
+.role-settings-success {
+  background: #f0fdf4;
+  color: #15803d;
+  padding: 10px 14px;
+  border-radius: 8px;
+  margin-bottom: 16px;
+  border: 1px solid #bbf7d0;
+}
+
+.role-settings-loading {
+  padding: 24px;
+  text-align: center;
+  color: #64748b;
+}
+
+.role-settings-panels {
+  display: grid;
+  grid-template-columns: 320px 1fr;
+  gap: 24px;
+  align-items: start;
+}
+
+@media (max-width: 900px) {
+  .role-settings-panels {
+    grid-template-columns: 1fr;
+  }
+}
+
+.role-settings-panel {
+  background: #fff;
+  border-radius: 10px;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.06);
+  border: 1px solid #e2e8f0;
+  overflow: hidden;
+}
+
+.role-panel-header {
+  padding: 14px 18px;
+  background: #f8fafc;
+  border-bottom: 1px solid #e2e8f0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.role-panel-header h3 {
+  margin: 0;
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: #0f172a;
+}
+
+.role-panel-header-actions {
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.role-save-button {
+  background: #16a34a;
+  color: #fff;
+  border: 0;
+  padding: 8px 16px;
+  border-radius: 8px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.role-save-button:hover:not(:disabled) {
+  background: #15803d;
+}
+
+.role-save-button:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
+}
+
+.role-table-wrap {
+  overflow-x: auto;
+}
+
+.role-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.role-table th,
+.role-table td {
+  padding: 12px 16px;
+  text-align: left;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.role-table th {
+  font-weight: 600;
+  color: #475569;
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.role-table tbody tr {
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.role-table tbody tr:hover {
+  background: #f1f5f9;
+}
+
+.role-table tbody tr.selected {
+  background: #eff6ff;
+  border-left: 3px solid #2563eb;
+}
+
+.role-table tbody tr.selected td {
+  padding-left: 13px;
+}
+
+.access-badge {
+  display: inline-block;
+  padding: 2px 10px;
+  border-radius: 999px;
+  background: #e0f2fe;
+  color: #0369a1;
+  font-weight: 500;
+  font-size: 0.9rem;
+}
+
+.role-table .no-data {
+  color: #94a3b8;
+  padding: 24px;
+  text-align: center;
+}
+
+.permissions-for-label {
+  padding: 12px 18px;
+  margin: 0;
+  font-size: 0.95rem;
+  color: #475569;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.permissions-placeholder {
+  padding: 32px 18px;
+  color: #94a3b8;
+  text-align: center;
+}
+
+.permissions-list {
+  padding: 16px 18px 24px;
+  max-height: 70vh;
+  overflow-y: auto;
+}
+
+.permission-category {
+  margin-bottom: 24px;
+}
+
+.permission-category:last-child {
+  margin-bottom: 0;
+}
+
+.permission-category-title {
+  margin: 0 0 10px 0;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #475569;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding-bottom: 6px;
+  border-bottom: 1px solid #e2e8f0;
+}
+
+.permission-items {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.permission-item {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px;
+  padding: 8px 0;
+  border-bottom: 1px solid #f1f5f9;
+}
+
+.permission-item:last-child {
+  border-bottom: 0;
+}
+
+.permission-checkbox-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+  font-weight: 500;
+  color: #0f172a;
+}
+
+.permission-checkbox-label input {
+  width: 18px;
+  height: 18px;
+  accent-color: #2563eb;
+  cursor: pointer;
+}
+
+.permission-name {
+  flex-shrink: 0;
+}
+
+.permission-desc {
+  font-size: 0.85rem;
+  color: #64748b;
+  font-weight: 400;
+}
+
+.permissions-list .no-data {
+  color: #94a3b8;
+  padding: 16px 0;
+}

@@ -107,7 +107,7 @@ const CurriculumEvaluation = () => {
 
     const handleStudentSelect = (student) => {
         setSelectedStudent(student);
-        fetchStudentCurriculum(student.student_id);
+        fetchStudentCurriculum(student.student_id_number || student.student_id);
         setEditMode(false);
     };
 
@@ -199,7 +199,7 @@ const CurriculumEvaluation = () => {
 
             setSuccess('Evaluations saved successfully!');
             setEditMode(false);
-            fetchStudentCurriculum(selectedStudent.student_id);
+            fetchStudentCurriculum(selectedStudent.student_id_number || selectedStudent.student_id);
         } catch (err) {
             setError('Failed to save evaluations');
         } finally {

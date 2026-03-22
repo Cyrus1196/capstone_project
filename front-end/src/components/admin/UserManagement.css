@@ -40,6 +40,33 @@
   color: #0b1220;
 }
 
+.user-tabs {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 20px;
+  border-bottom: 2px solid var(--table-border);
+}
+
+.user-tabs .tab {
+  padding: 10px 20px;
+  background: none;
+  border: none;
+  border-bottom: 3px solid transparent;
+  cursor: pointer;
+  font-weight: 500;
+  color: var(--muted);
+  transition: all 0.2s;
+}
+
+.user-tabs .tab:hover {
+  color: var(--accent);
+}
+
+.user-tabs .tab.active {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+}
+
 .add-button {
   background: var(--accent);
   color: #fff;

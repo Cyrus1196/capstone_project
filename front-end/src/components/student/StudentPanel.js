@@ -4,6 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import StudentProfile from './StudentProfile';
 import StudentEnrollments from './StudentEnrollments';
 import StudentCurriculum from './StudentCurriculum';
+import EligibleSubjects from './EligibleSubjects';
 import './StudentPanel.css';
 
 const StudentPanel = () => {
@@ -60,12 +61,19 @@ const StudentPanel = () => {
         >
           My Curriculum
         </button>
+        <button
+          className={activeTab === 'eligible-subjects' ? 'tab active' : 'tab'}
+          onClick={() => setActiveTab('eligible-subjects')}
+        >
+          Eligible Subjects
+        </button>
       </div>
 
       <div className="student-content">
         {activeTab === 'profile' && <StudentProfile />}
         {activeTab === 'enrollments' && <StudentEnrollments />}
         {activeTab === 'curriculum' && <StudentCurriculum />}
+        {activeTab === 'eligible-subjects' && <EligibleSubjects />}
       </div>
     </div>
   );

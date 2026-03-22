@@ -86,7 +86,7 @@ class LookupDataController extends Controller
             if ($resp = $this->denyIfNotAdmin($request)) {
                 return $resp;
             }
-            return response()->json(Department::all());
+            return response()->json(Department::with('campus')->get());
         } catch (\Exception $e) {
             return response()->json(['error' => 'Failed to fetch departments', 'message' => $e->getMessage()], 500);
         }
@@ -102,6 +102,7 @@ class LookupDataController extends Controller
             }
 
             $validated = $request->validate([
+                'campus_id' => 'required|exists:tbl_campus,campus_id',
                 'department_name' => 'required|string|max:100',
                 'department_code' => 'required|string|max:255',
             ]);
@@ -109,6 +110,7 @@ class LookupDataController extends Controller
             \Log::info('Validated data:', $validated);
 
             $department = Department::create($validated);
+            $department->load('campus');
             \Log::info('Department created:', $department->toArray());
 
             return response()->json($department, 201);
@@ -130,10 +132,12 @@ class LookupDataController extends Controller
         }
         $department = Department::findOrFail($id);
         $validated = $request->validate([
+            'campus_id' => 'required|exists:tbl_campus,campus_id',
             'department_name' => 'required|string|max:100',
             'department_code' => 'required|string|max:255',
         ]);
         $department->update($validated);
+        $department->load('campus');
         return response()->json($department);
     }
 
@@ -154,7 +158,7 @@ class LookupDataController extends Controller
             if ($resp = $this->denyIfNotAdmin($request)) {
                 return $resp;
             }
-            return response()->json(Program::with(['department', 'campus'])->get());
+            return response()->json(Program::with('department')->get());
         } catch (\Exception $e) {
             return response()->json(['error' => 'Failed to fetch programs', 'message' => $e->getMessage()], 500);
         }
@@ -167,13 +171,12 @@ class LookupDataController extends Controller
         }
         $validated = $request->validate([
             'department_id' => 'required|exists:tbl_departments,department_id',
-            'campus_id' => 'required|exists:tbl_campus,campus_id',
             'program_code' => 'nullable|string|max:50',
             'program_name' => 'nullable|string|max:100',
             'total_units_required' => 'nullable|integer',
         ]);
         $program = Program::create($validated);
-        $program->load(['department', 'campus']);
+        $program->load('department');
         return response()->json($program, 201);
     }
 
@@ -185,13 +188,12 @@ class LookupDataController extends Controller
         $program = Program::findOrFail($id);
         $validated = $request->validate([
             'department_id' => 'required|exists:tbl_departments,department_id',
-            'campus_id' => 'required|exists:tbl_campus,campus_id',
             'program_code' => 'nullable|string|max:50',
             'program_name' => 'nullable|string|max:100',
             'total_units_required' => 'nullable|integer',
         ]);
         $program->update($validated);
-        $program->load(['department', 'campus']);
+        $program->load('department');
         return response()->json($program);
     }
 
@@ -310,7 +312,14 @@ class LookupDataController extends Controller
             if ($resp = $this->denyIfNotAdmin($request)) {
                 return $resp;
             }
-            return response()->json(Semester::all());
+            $semesters = Semester::all()->map(function ($semester) {
+                if ($semester->status === null || $semester->status === '') {
+                    $semester->status = 'inactive';
+                }
+                return $semester;
+            });
+
+            return response()->json($semesters);
         } catch (\Exception $e) {
             return response()->json(['error' => 'Failed to fetch semesters', 'message' => $e->getMessage()], 500);
         }
@@ -400,8 +409,25 @@ class LookupDataController extends Controller
         if (!$request->user()->isAdmin()) {
             return response()->json(['message' => 'Unauthorized'], 403);
         }
-        $validated = $request->validate(['semester_name' => 'required|string|max:50']);
-        $semester = Semester::create($validated);
+        $validated = $request->validate([
+            'semester_name' => 'required|string|max:50',
+            'status' => 'nullable|in:active,inactive',
+        ]);
+
+        $status = $validated['status'] ?? null;
+        if ($status === null || $status === '') {
+            $status = 'inactive';
+        }
+
+        // If activating this semester, deactivate all others
+        if ($status === 'active') {
+            Semester::where('status', 'active')->update(['status' => 'inactive']);
+        }
+
+        $semester = Semester::create([
+            'semester_name' => $validated['semester_name'],
+            'status' => $status,
+        ]);
         return response()->json($semester, 201);
     }
 
@@ -411,8 +437,44 @@ class LookupDataController extends Controller
             return response()->json(['message' => 'Unauthorized'], 403);
         }
         $semester = Semester::findOrFail($id);
-        $validated = $request->validate(['semester_name' => 'required|string|max:50']);
-        $semester->update($validated);
+        $validated = $request->validate([
+            'semester_name' => 'required|string|max:50',
+            'status' => 'nullable|in:active,inactive',
+        ]);
+
+        $status = $validated['status'] ?? null;
+        if ($status === null || $status === '') {
+            $status = 'inactive';
+        }
+
+        // If activating this semester, deactivate all others
+        if ($status === 'active') {
+            Semester::where('semester_id', '!=', $id)->update(['status' => 'inactive']);
+        }
+
+        $semester->update([
+            'semester_name' => $validated['semester_name'],
+            'status' => $status,
+        ]);
+        return response()->json($semester);
+    }
+
+    public function toggleSemesterStatus(Request $request, $id)
+    {
+        if (!$request->user()->isAdmin()) {
+            return response()->json(['message' => 'Unauthorized'], 403);
+        }
+        
+        $semester = Semester::findOrFail($id);
+        $newStatus = $semester->status === 'active' ? 'inactive' : 'active';
+        
+        // If activating this semester, deactivate all others
+        if ($newStatus === 'active') {
+            Semester::where('semester_id', '!=', $id)->update(['status' => 'inactive']);
+        }
+        
+        $semester->update(['status' => $newStatus]);
+        
         return response()->json($semester);
     }
 

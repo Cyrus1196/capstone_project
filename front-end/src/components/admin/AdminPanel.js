@@ -2,8 +2,12 @@ import React, { useState, useEffect } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { useNavigate } from 'react-router-dom';
 import UserManagement from './UserManagement';
+import RoleSettings from './RoleSettings';
 import CurriculumManagement from './CurriculumManagement';
 import LookupDataManagement from './LookupDataManagement';
+import CreditEvaluationManagement from './CreditEvaluationManagement';
+import SystemManagement from './SystemManagement';
+import ElectiveSlotManagement from './ElectiveSlotManagement';
 import './AdminPanel.css';
 
 const AdminPanel = () => {
@@ -54,17 +58,45 @@ const AdminPanel = () => {
           User Management
         </button>
         <button
+          className={activeTab === 'role-settings' ? 'tab active' : 'tab'}
+          onClick={() => setActiveTab('role-settings')}
+        >
+          Role Settings
+        </button>
+        <button
           className={activeTab === 'curriculum' ? 'tab active' : 'tab'}
           onClick={() => setActiveTab('curriculum')}
         >
           Curriculum Management
+        </button>
+        <button
+          className={activeTab === 'credit-evaluation' ? 'tab active' : 'tab'}
+          onClick={() => setActiveTab('credit-evaluation')}
+        >
+          Credit Evaluation
+        </button>
+        <button
+          className={activeTab === 'system' ? 'tab active' : 'tab'}
+          onClick={() => setActiveTab('system')}
+        >
+          System Management
+        </button>
+        <button
+          className={activeTab === 'elective-slots' ? 'tab active' : 'tab'}
+          onClick={() => setActiveTab('elective-slots')}
+        >
+          Elective Slots
         </button>
       </div>
 
       <div className="admin-content">
         {activeTab === 'lookup' && <LookupDataManagement />}
         {activeTab === 'users' && <UserManagement />}
+        {activeTab === 'role-settings' && <RoleSettings />}
         {activeTab === 'curriculum' && <CurriculumManagement />}
+        {activeTab === 'credit-evaluation' && <CreditEvaluationManagement />}
+        {activeTab === 'system' && <SystemManagement />}
+        {activeTab === 'elective-slots' && <ElectiveSlotManagement />}
       </div>
     </div>
   );

@@ -15,6 +15,7 @@ class ElectiveSubject extends Model
 
     protected $fillable = [
         'track_id',
+        'elective_slot_id',
         'subject_id',
         'description',
     ];
@@ -22,6 +23,11 @@ class ElectiveSubject extends Model
     public function track()
     {
         return $this->belongsTo(Track::class, 'track_id', 'track_id');
+    }
+
+    public function electiveSlot()
+    {
+        return $this->belongsTo(ElectiveSlot::class, 'elective_slot_id', 'elective_slot_id');
     }
 
     public function subject()

@@ -1,0 +1,38 @@
+<?php
+
+namespace Database\Seeders;
+
+use Illuminate\Database\Seeder;
+use App\Models\Permission;
+
+class DefaultPermissionsSeeder extends Seeder
+{
+    public function run(): void
+    {
+        $permissions = [
+            ['permission_name' => 'Admin Dashboard', 'category' => 'Dashboard', 'description' => 'Display admin statistics and overview'],
+            ['permission_name' => 'User Management', 'category' => 'User Management', 'description' => 'Create, update, or deactivate system users'],
+            ['permission_name' => 'Role Settings', 'category' => 'User Management', 'description' => 'Manage roles and assign permissions to roles'],
+            ['permission_name' => 'Lookup Data', 'category' => 'User Management', 'description' => 'Manage programs, subjects, campus, and other lookup data'],
+            ['permission_name' => 'Curriculum Management', 'category' => 'Curriculum', 'description' => 'View and manage curriculum and subjects'],
+            ['permission_name' => 'Credit Evaluation', 'category' => 'Evaluation', 'description' => 'Access credit evaluation for transfer students'],
+            ['permission_name' => 'Student Evaluation', 'category' => 'Evaluation', 'description' => 'View and manage student evaluations and grades'],
+            ['permission_name' => 'Evaluation Reports', 'category' => 'Evaluation', 'description' => 'View evaluation reports and analytics'],
+            ['permission_name' => 'Elective Slots', 'category' => 'Curriculum', 'description' => 'Manage elective slots and assignments'],
+            ['permission_name' => 'System Management', 'category' => 'System', 'description' => 'Manage permissions and system settings'],
+            ['permission_name' => 'Audit Logs', 'category' => 'System', 'description' => 'View audit logs'],
+        ];
+
+        foreach ($permissions as $p) {
+            Permission::firstOrCreate(
+                ['permission_name' => $p['permission_name']],
+                [
+                    'category' => $p['category'] ?? null,
+                    'description' => $p['description'] ?? null,
+                ]
+            );
+        }
+
+        $this->command->info('Default permissions seeded.');
+    }
+}

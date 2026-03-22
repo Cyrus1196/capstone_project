@@ -17,7 +17,7 @@ class AuthController extends Controller
             'password' => 'required',
         ]);
 
-        $user = TblUser::where('email', $request->email)->first();
+        $user = TblUser::whereEmail($request->email)->first();
 
         if (!$user || !Hash::check($request->password, $user->password)) {
             throw ValidationException::withMessages([

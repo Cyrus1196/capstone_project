@@ -35,7 +35,7 @@ class StudentEvaluationController extends Controller
                 return response()->json(['message' => 'Forbidden'], 403);
             }
 
-            $profile = StudentProfile::where('student_id_number', $studentIdNumber)
+            $profile = StudentProfile::whereStudentIdNumber($studentIdNumber)
                 ->with(['program'])
                 ->first();
 
@@ -194,7 +194,10 @@ class StudentEvaluationController extends Controller
             if ($user->hasRole('Dean')) {
                 $deanProfile = DeanProfile::where('user_id', $user->user_id)->first();
                 if ($deanProfile && $deanProfile->program_id) {
-                    $query->where('current_program', $deanProfile->program_id);
+                    $query->where(function ($q) use ($deanProfile) {
+                        $q->where('Current_Program', $deanProfile->program_id)
+                          ->orWhere('current_program', $deanProfile->program_id);
+                    });
                 }
             }
 
@@ -212,7 +215,9 @@ class StudentEvaluationController extends Controller
             // Apply program filter if provided
             $programId = $request->query('program_id');
             if ($programId) {
-                $query->where('current_program', $programId);
+                $query->where(function ($q) use ($programId) {
+                    $q->where('Current_Program', $programId)->orWhere('current_program', $programId);
+                });
             }
 
             $students = $query->orderBy('last_name')

@@ -19,6 +19,7 @@ const LookupDataManagement = () => {
     curriculumHeaders: [],
     offeredSubjects: [],
     electiveSubjects: [],
+    auditLogs: [],
   });
 
   const [loading, setLoading] = useState(true);
@@ -48,20 +49,24 @@ const LookupDataManagement = () => {
         campusResp,
         academicYearsResp,
         departmentsResp,
+        semestersResp,
         tracksResp,
         curriculumHeadersResp,
         offeredSubjectsResp,
         electiveSubjectsResp,
+        auditLogsResp,
       ] = await Promise.allSettled([
         api.get('/curriculum/lookup/data'),
         api.get('/lookup/roles'),
         api.get('/lookup/campus'),
         api.get('/lookup/academic-years'),
         api.get('/lookup/departments'),
+        api.get('/lookup/semesters'),
         api.get('/lookup/tracks'),
         api.get('/lookup/curriculum-headers'),
         api.get('/lookup/offered-subjects'),
         api.get('/lookup/elective-subjects'),
+        api.get('/audit-logs'),
       ]);
 
       const combinedData = combinedResp.status === 'fulfilled' ? combinedResp.value.data || {} : {};
@@ -76,6 +81,10 @@ const LookupDataManagement = () => {
         roles: rolesResp.status === 'fulfilled' ? getArrayData(rolesResp.value) : combinedData.roles || [],
         campus: campusData,
         campuses: campusData,
+        semesters:
+          semestersResp.status === 'fulfilled'
+            ? getArrayData(semestersResp.value)
+            : combinedData.semesters || [],
         academicYears:
           academicYearsResp.status === 'fulfilled'
             ? getArrayData(academicYearsResp.value)
@@ -97,6 +106,10 @@ const LookupDataManagement = () => {
           electiveSubjectsResp.status === 'fulfilled'
             ? getArrayData(electiveSubjectsResp.value)
             : combinedData.electiveSubjects || [],
+        auditLogs:
+          auditLogsResp.status === 'fulfilled'
+            ? getArrayData(auditLogsResp.value)
+            : [],
       };
 
       setLookupData(normalized);
@@ -109,6 +122,7 @@ const LookupDataManagement = () => {
   };
 
   const handleAdd = () => {
+    if (activeTab === 'auditLogs') return; // Audit logs are read-only
     setEditingItem(null);
     setFormData(getDefaultFormData(activeTab));
     setShowModal(true);
@@ -120,7 +134,22 @@ const LookupDataManagement = () => {
     setShowModal(true);
   };
 
+  const handleToggleSemesterStatus = async (item) => {
+    try {
+      const semesterId = item.semester_id || item.id;
+      const url = `/lookup/semesters/${semesterId}/toggle-status`;
+      await api.patch(url);
+      fetchLookupData();
+    } catch (error) {
+      const data = error.response?.data;
+      const errorMessage = data?.message || data?.error || 'Failed to toggle semester status';
+      setError(errorMessage);
+      setTimeout(() => setError(''), 5000);
+    }
+  };
+
   const handleDelete = async (id) => {
+    if (activeTab === 'auditLogs') return; // Audit logs are read-only
     if (!window.confirm(`Are you sure you want to delete this ${formatTabTitle(activeTab).toLowerCase()}?`)) {
       return;
     }
@@ -174,6 +203,75 @@ const LookupDataManagement = () => {
     setError('');
 
     try {
+      // Special handling for requisites with multiple required subjects
+      if (activeTab === 'requisites') {
+        const requiredSubjects = formData.required_subjects || [];
+        const filteredRequiredSubjects = requiredSubjects.filter(id => id && id !== '');
+
+        if (!formData.subject_id || !formData.requisite_type) {
+          setError('Subject and Requisite Type are required');
+          return;
+        }
+
+        if (filteredRequiredSubjects.length === 0) {
+          setError('At least one required subject is needed');
+          return;
+        }
+
+        const base = '/lookup/requisites';
+
+        // If editing, update the existing requisite and create new ones for additional subjects
+        if (editingItem) {
+          const itemId = editingItem.requisites_id || editingItem.requisite_id || editingItem.id;
+          
+          // Update the first requisite
+          if (filteredRequiredSubjects.length > 0) {
+            await api.put(`${base}/${itemId}`, {
+              subject_id: formData.subject_id,
+              requisite_type: formData.requisite_type,
+              requisites_subject_id: filteredRequiredSubjects[0],
+            });
+
+            // Create additional requisites for the rest
+            for (let i = 1; i < filteredRequiredSubjects.length; i++) {
+              try {
+                await api.post(base, {
+                  subject_id: formData.subject_id,
+                  requisite_type: formData.requisite_type,
+                  requisites_subject_id: filteredRequiredSubjects[i],
+                });
+              } catch (err) {
+                // If it's a duplicate error, skip it
+                if (err.response?.status !== 422 && err.response?.status !== 409) {
+                  throw err;
+                }
+              }
+            }
+          }
+        } else {
+          // Create multiple requisites
+          const createPromises = filteredRequiredSubjects.map(requiredSubjectId =>
+            api.post(base, {
+              subject_id: formData.subject_id,
+              requisite_type: formData.requisite_type,
+              requisites_subject_id: requiredSubjectId,
+            }).catch(err => {
+              // If it's a duplicate error, return null instead of throwing
+              if (err.response?.status === 422 || err.response?.status === 409) {
+                return null;
+              }
+              throw err;
+            })
+          );
+
+          await Promise.all(createPromises);
+        }
+
+        setShowModal(false);
+        fetchLookupData();
+        return;
+      }
+
       // Determine the correct API endpoint and prefix for each tab
       let apiEndpoint = activeTab;
       let prefix = '';
@@ -237,15 +335,15 @@ const LookupDataManagement = () => {
 
   const getDefaultFormData = (section) => {
     const defaults = {
-      programs: { department_id: '', campus_id: '', program_code: '', program_name: '', total_units_required: '' },
+      programs: { department_id: '', program_code: '', program_name: '', total_units_required: '' },
       departments: { campus_id: '', department_name: '', department_code: '' },
-      subjects: { subject_code: '', subject_name: '', units: 3, hours: 3 },
+      subjects: { subject_code: '', subject_name: '', number_of_units: 3, number_of_hrs: 3 },
       yearLevels: { year_level: '' },
       semesters: { semester_name: '', status: '' },
       roles: { role_name: '', description: '', access_level: '' },
       campus: { campus_name: '' },
       academicYears: { name: '', status: '' },
-      requisites: { requisite_type: '', subject_id: '', requisites_subject_id: '' },
+      requisites: { requisite_type: '', subject_id: '', required_subjects: [] },
       tracks: { track_code: '', track_name: '' },
       curriculumHeaders: { program_id: '', Effective_Year: '', description: '' },
       offeredSubjects: { subject_id: '', academic_year_id: '', semester_id: '', program_id: '', track_id: '', year_level_id: '', status: '' },
@@ -258,7 +356,6 @@ const LookupDataManagement = () => {
     if (section === 'programs') {
       return {
         department_id: item.department_id ?? '',
-        campus_id: item.campus_id ?? '',
         program_code: item.program_code ?? '',
         program_name: item.program_name ?? '',
         total_units_required: item.total_units_required ?? '',
@@ -288,10 +385,12 @@ const LookupDataManagement = () => {
     }
 
     if (section === 'requisites') {
+      // For editing, we'll show a single requisite but allow adding more
+      const requiredSubjectId = item.requisites_subject_id ?? item.required_subject_id ?? '';
       return {
         requisite_type: item.requisite_type ?? '',
         subject_id: item.subject_id ?? '',
-        requisites_subject_id: item.requisites_subject_id ?? item.required_subject_id ?? '',
+        required_subjects: requiredSubjectId ? [requiredSubjectId] : [],
       };
     }
 
@@ -300,10 +399,12 @@ const LookupDataManagement = () => {
 
   // Helper to correctly format the tab title (e.g., "departments" -> "Department")
   const formatTabTitle = (tab) => {
+    if (tab === 'requisites') return 'Requisite';
     if (tab === 'programs') return 'Program';
     if (tab === 'academicYears') return 'Academic Year';
     if (tab === 'roles') return 'Role';
     if (tab === 'campus') return 'Campus';
+    if (tab === 'auditLogs') return 'Audit Log';
     if (tab === 'curriculumHeaders') return 'Curriculum Header';
     if (tab === 'offeredSubjects') return 'Offered Subject';
     if (tab === 'electiveSubjects') return 'Elective Subject';
@@ -327,22 +428,6 @@ const LookupDataManagement = () => {
               {(lookupData.departments || []).map((dept) => (
                 <option key={dept.department_id} value={dept.department_id}>
                   {dept.department_name} ({dept.department_code})
-                </option>
-              ))}
-            </select>
-          </div>
-
-          <div className="form-group">
-            <label>Campus</label>
-            <select
-              value={formData.campus_id || ''}
-              onChange={(e) => setFormData({ ...formData, campus_id: e.target.value ? parseInt(e.target.value) : '' })}
-              required
-            >
-              <option value="">Select Campus</option>
-              {(lookupData.campus || lookupData.campuses || []).map((campus) => (
-                <option key={campus.campus_id} value={campus.campus_id}>
-                  {campus.campus_name}
                 </option>
               ))}
             </select>
@@ -441,8 +526,8 @@ const LookupDataManagement = () => {
               type="number"
               min="1"
               max="10"
-              value={formData.units || 3}
-              onChange={(e) => setFormData({ ...formData, units: parseInt(e.target.value) })}
+              value={formData.number_of_units ?? 3}
+              onChange={(e) => setFormData({ ...formData, number_of_units: parseInt(e.target.value) })}
             />
           </div>
           <div className="form-group">
@@ -451,8 +536,8 @@ const LookupDataManagement = () => {
               type="number"
               min="1"
               max="100"
-              value={formData.hours || 3}
-              onChange={(e) => setFormData({ ...formData, hours: parseInt(e.target.value) })}
+              value={formData.number_of_hrs ?? 3}
+              onChange={(e) => setFormData({ ...formData, number_of_hrs: parseInt(e.target.value) })}
             />
           </div>
         </>
@@ -593,19 +678,78 @@ const LookupDataManagement = () => {
             </select>
           </div>
           <div className="form-group">
-            <label>Required Subject</label>
-            <select
-              value={formData.requisites_subject_id || ''}
-              onChange={(e) => setFormData({ ...formData, requisites_subject_id: e.target.value ? parseInt(e.target.value) : '' })}
-              required
+            <label>Required Subjects</label>
+            <div style={{ marginBottom: '10px' }}>
+              {(formData.required_subjects || []).map((reqSubjectId, index) => {
+                const selectedSubject = (lookupData.subjects || []).find(s => s.subject_id === reqSubjectId);
+                return (
+                  <div key={index} style={{ display: 'flex', alignItems: 'center', marginBottom: '8px', gap: '8px' }}>
+                    <select
+                      value={reqSubjectId || ''}
+                      onChange={(e) => {
+                        const newRequiredSubjects = [...(formData.required_subjects || [])];
+                        newRequiredSubjects[index] = e.target.value ? parseInt(e.target.value) : '';
+                        setFormData({ ...formData, required_subjects: newRequiredSubjects });
+                      }}
+                      required
+                      style={{ flex: 1 }}
+                    >
+                      <option value="">Select Required Subject</option>
+                      {(lookupData.subjects || [])
+                        .filter(subject => 
+                          subject.subject_id.toString() !== (formData.subject_id || '').toString() &&
+                          !formData.required_subjects?.some((id, idx) => idx !== index && id === subject.subject_id)
+                        )
+                        .map((subject) => (
+                          <option key={subject.subject_id} value={subject.subject_id}>
+                            {subject.subject_code} - {subject.subject_name}
+                          </option>
+                        ))}
+                    </select>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const newRequiredSubjects = formData.required_subjects?.filter((_, idx) => idx !== index) || [];
+                        setFormData({ ...formData, required_subjects: newRequiredSubjects });
+                      }}
+                      style={{
+                        padding: '5px 10px',
+                        backgroundColor: '#dc3545',
+                        color: 'white',
+                        border: 'none',
+                        borderRadius: '4px',
+                        cursor: 'pointer'
+                      }}
+                    >
+                      Remove
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+            <button
+              type="button"
+              onClick={() => {
+                const newRequiredSubjects = [...(formData.required_subjects || []), ''];
+                setFormData({ ...formData, required_subjects: newRequiredSubjects });
+              }}
+              style={{
+                padding: '8px 16px',
+                backgroundColor: '#28a745',
+                color: 'white',
+                border: 'none',
+                borderRadius: '4px',
+                cursor: 'pointer',
+                marginTop: '5px'
+              }}
             >
-              <option value="">Select Required Subject</option>
-              {(lookupData.subjects || []).map((subject) => (
-                <option key={subject.subject_id} value={subject.subject_id}>
-                  {subject.subject_code} - {subject.subject_name}
-                </option>
-              ))}
-            </select>
+              + Add Required Subject
+            </button>
+            {(!formData.required_subjects || formData.required_subjects.length === 0) && (
+              <div style={{ color: '#dc3545', fontSize: '12px', marginTop: '5px' }}>
+                At least one required subject is needed
+              </div>
+            )}
           </div>
         </>
       ),
@@ -820,7 +964,7 @@ const LookupDataManagement = () => {
   //diri maka ilis og mga table headers sa table
   const renderTable = (section, data) => {
     const tableHeaders = {
-      programs: ['Program Code', 'Program Name', 'Department', 'Campus', 'Total Units'],
+      programs: ['Program Code', 'Program Name', 'Department', 'Total Units'],
       departments: ['Campus', 'Department Name', 'Department Code'],
       subjects: ['Subject Code', 'Subject Name', 'Units', 'Hours'],
       yearLevels: ['Year Level'],
@@ -833,6 +977,7 @@ const LookupDataManagement = () => {
       curriculumHeaders: ['Program', 'Effective Year', 'Description'],
       offeredSubjects: ['Subject', 'Academic Year', 'Semester', 'Program', 'Track', 'Year Level', 'Status'],
       electiveSubjects: ['Track', 'Subject', 'Description'],
+      auditLogs: ['User', 'Action', 'Table', 'Record ID', 'Timestamp'],
     };
 
     const getRowData = (section, item) => {
@@ -841,7 +986,6 @@ const LookupDataManagement = () => {
           item.program_code,
           item.program_name,
           item.department?.department_name || item.department_name || item.department_id || '-',
-          item.campus?.campus_name || item.campus_name || item.campus_id || '-',
           (item.total_units_required === null || item.total_units_required === undefined) ? '-' : item.total_units_required,
         ],
         departments: [
@@ -856,11 +1000,11 @@ const LookupDataManagement = () => {
         subjects: [
           item.subject_code,
           item.subject_name,
-          (item.units === null || item.units === undefined) ? '-' : item.units,
-          (item.hours === null || item.hours === undefined) ? '-' : item.hours
+          (item.number_of_units === null || item.number_of_units === undefined) ? '-' : item.number_of_units,
+          (item.number_of_hrs === null || item.number_of_hrs === undefined) ? '-' : item.number_of_hrs
         ],
         yearLevels: [item.year_level],
-        semesters: [item.semester_name, item.status || '-'],
+        semesters: [item.semester_name, item.status || item.Status || '-'],
         roles: [
           item.role_name || item.name || '-',
           (item.access_level === null || item.access_level === undefined) ? '-' : item.access_level,
@@ -940,6 +1084,13 @@ const LookupDataManagement = () => {
           })(),
           item.description || '-',
         ],
+        auditLogs: [
+          item.user?.email || item.user?.Email || '-',
+          item.actions || '-',
+          item.table_name || '-',
+          item.record_id || '-',
+          item.action_timestamp || '-',
+        ],
       };
       return rowData[section] || [];
     };
@@ -948,9 +1099,11 @@ const LookupDataManagement = () => {
       <div className="table-section">
         <div className="section-header">
           <h3>{formatTabTitle(section)}</h3>
-          <button className="add-button" onClick={handleAdd}>
-            Add {formatTabTitle(section)}
-          </button>
+          {section !== 'auditLogs' && (
+            <button className="add-button" onClick={handleAdd}>
+              Add {formatTabTitle(section)}
+            </button>
+          )}
         </div>
         <div className="table-container">
           <table className="data-table">
@@ -959,56 +1112,78 @@ const LookupDataManagement = () => {
                 {tableHeaders[section].map((header, index) => (
                   <th key={index}>{header}</th>
                 ))}
-                <th>Actions</th>
+                {section !== 'auditLogs' && <th>Actions</th>}
               </tr>
             </thead>
             <tbody>
               {data.length === 0 ? (
                 <tr>
-                  <td colSpan={tableHeaders[section].length + 1} className="no-data">
-                    No {section === 'academicYears' ? 'Academic Years' : section} found
+                  <td colSpan={section === 'auditLogs' ? tableHeaders[section].length : tableHeaders[section].length + 1} className="no-data">
+                    No {section === 'academicYears' ? 'Academic Years' : section === 'auditLogs' ? 'audit logs' : section} found
                   </td>
                 </tr>
               ) : (
                 data.map((item, index) => (
-                  <tr key={item.id || item[`${section.slice(0, -1)}_id`] || index}>
+                  <tr key={item.id || item[`${section.slice(0, -1)}_id`] || item.audit_logs_id || index}>
                     {getRowData(section, item).map((cell, cellIndex) => (
                       <td key={cellIndex}>{cell}</td>
                     ))}
-                    <td className="actions">
-                      <button
-                        className="edit-button"
-                        onClick={() => handleEdit(item)}
-                      >
-                        Edit
-                      </button>
-                      <button
-                        className="delete-button"
-                        onClick={() => {
-                          let deleteId;
-                          if (section === 'campus') {
-                            deleteId = item.campus_id || item.id;
-                          } else if (section === 'yearLevels') {
-                            deleteId = item.year_level_id || item.id;
-                          } else if (section === 'requisites') {
-                            deleteId = item.requisites_id || item.requisite_id || item.id;
-                          } else if (section === 'tracks') {
-                            deleteId = item.track_id || item.id;
-                          } else if (section === 'curriculumHeaders') {
-                            deleteId = item.curriculum_header_id || item.id;
-                          } else if (section === 'offeredSubjects') {
-                            deleteId = item.offered_subject_id || item.id;
-                          } else if (section === 'electiveSubjects') {
-                            deleteId = item.elective_subject_id || item.id;
-                          } else {
-                            deleteId = item.id || item[`${section.slice(0, -1)}_id`];
-                          }
-                          handleDelete(deleteId);
-                        }}
-                      >
-                        Delete
-                      </button>
-                    </td>
+                    {section !== 'auditLogs' && (
+                      <td className="actions">
+                        {section === 'semesters' ? (
+                          <button
+                            className={item.status === 'active' ? 'deactivate-button' : 'activate-button'}
+                            onClick={() => handleToggleSemesterStatus(item)}
+                            style={{
+                              backgroundColor: item.status === 'active' ? '#dc3545' : '#28a745',
+                              color: 'white',
+                              border: 'none',
+                              padding: '6px 12px',
+                              borderRadius: '4px',
+                              cursor: 'pointer',
+                              fontSize: '14px'
+                            }}
+                          >
+                            {item.status === 'active' ? 'Deactivate' : 'Activate'}
+                          </button>
+                        ) : (
+                          <>
+                            <button
+                              className="edit-button"
+                              onClick={() => handleEdit(item)}
+                            >
+                              Edit
+                            </button>
+                            <button
+                              className="delete-button"
+                              onClick={() => {
+                                let deleteId;
+                              if (section === 'campus') {
+                                deleteId = item.campus_id || item.id;
+                              } else if (section === 'yearLevels') {
+                                deleteId = item.year_level_id || item.id;
+                              } else if (section === 'requisites') {
+                                deleteId = item.requisites_id || item.requisite_id || item.id;
+                              } else if (section === 'tracks') {
+                                deleteId = item.track_id || item.id;
+                              } else if (section === 'curriculumHeaders') {
+                                deleteId = item.curriculum_header_id || item.id;
+                              } else if (section === 'offeredSubjects') {
+                                deleteId = item.offered_subject_id || item.id;
+                              } else if (section === 'electiveSubjects') {
+                                deleteId = item.elective_subject_id || item.id;
+                              } else {
+                                deleteId = item.id || item[`${section.slice(0, -1)}_id`];
+                              }
+                              handleDelete(deleteId);
+                            }}
+                          >
+                            Delete
+                          </button>
+                          </>
+                        )}
+                      </td>
+                    )}
                   </tr>
                 ))
               )}
@@ -1080,7 +1255,7 @@ const LookupDataManagement = () => {
           className={activeTab === 'requisites' ? 'tab active' : 'tab'}
           onClick={() => setActiveTab('requisites')}
         >
-          Requisites
+          Prerequisites
         </button>
         <button
           className={activeTab === 'academicYears' ? 'tab active' : 'tab'}
@@ -1105,6 +1280,12 @@ const LookupDataManagement = () => {
           onClick={() => setActiveTab('offeredSubjects')}
         >
           Offered Subjects
+        </button>
+        <button
+          className={activeTab === 'auditLogs' ? 'tab active' : 'tab'}
+          onClick={() => setActiveTab('auditLogs')}
+        >
+          Audit Logs
         </button>
       </div>
 
@@ -1139,9 +1320,10 @@ const LookupDataManagement = () => {
         {activeTab === 'curriculumHeaders' && renderTable('curriculumHeaders', lookupData.curriculumHeaders || [])}
         {activeTab === 'offeredSubjects' && renderTable('offeredSubjects', lookupData.offeredSubjects || [])}
         {activeTab === 'electiveSubjects' && renderTable('electiveSubjects', lookupData.electiveSubjects || [])}
+        {activeTab === 'auditLogs' && renderTable('auditLogs', lookupData.auditLogs || [])}
       </div>
 
-      {showModal && (
+      {showModal && activeTab !== 'auditLogs' && (
         <div className="modal-overlay">
           <div className="modal">
             <div className="modal-header">

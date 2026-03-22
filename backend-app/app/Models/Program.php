@@ -15,7 +15,6 @@ class Program extends Model
 
     protected $fillable = [
         'department_id',
-        'campus_id',
         'program_code',
         'program_name',
         'total_units_required',
@@ -24,11 +23,6 @@ class Program extends Model
     public function department()
     {
         return $this->belongsTo(Department::class, 'department_id', 'department_id');
-    }
-
-    public function campus()
-    {
-        return $this->belongsTo(Campus::class, 'campus_id', 'campus_id');
     }
 
     public function curricula()

@@ -1,4 +1,4 @@
-  import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import api from '../../api/axios';
 import './CurriculumManagement.css';
 
@@ -12,6 +12,7 @@ const CurriculumManagement = () => {
     prerequisites: [],
     corequisites: [],
     curriculumHeaders: [],
+    electiveSlots: [],
   });
   
   // Ensure lookupData is always an object with arrays
@@ -28,14 +29,17 @@ const CurriculumManagement = () => {
     corequisites: Array.isArray(lookupData.corequisites) ? lookupData.corequisites : [],
     curriculumHeaders: Array.isArray(lookupData.curriculumHeaders) ? lookupData.curriculumHeaders : [],
     requisites: Array.isArray(lookupData.requisites) ? lookupData.requisites : [],
+    electiveSlots: Array.isArray(lookupData.electiveSlots) ? lookupData.electiveSlots : [],
   };
+
   // caches for per-subject requisites (keyed by subject id string)
   const [availablePrerequisites, setAvailablePrerequisites] = useState({});
   const [availableCorequisites, setAvailableCorequisites] = useState({});
 
   // Helper: resolve requisite's required subject id and label (subject code/name) from various shapes
+  // FIX: Added fallback to look up subject code from safeLookupData if requiredSubject is missing
   const resolveRequisiteLabel = (requisite) => {
-    if (!requisite || !requisite.requiredSubject) {
+    if (!requisite) {
       return { id: null, label: '-' };
     }
 
@@ -46,11 +50,32 @@ const CurriculumManagement = () => {
         ? 'Co:'
         : 'REQ:';
 
+    const id = requisite.requisites_id || requisite.requisite_id || requisite.prerequisite_id || requisite.corequisite_id || requisite.prereq_id || requisite.coreq_id || null;
+    
+    let subjectCode = '-';
+    
+    // Try to get code from nested relationship first
+    if (requisite.requiredSubject && requisite.requiredSubject.subject_code) {
+      subjectCode = requisite.requiredSubject.subject_code;
+    } else {
+      // Fallback: Manually find the subject in the global list using the ID
+      // This fixes the issue where dropdown options show "-" because the global lookup
+      // didn't eager load the requiredSubject relationship.
+      const requiredSubjectId = requisite.requisites_subject_id || requisite.required_subject_id || requisite.coreq_subject_id;
+      if (requiredSubjectId) {
+        const found = safeLookupData.subjects.find(s => s.subject_id?.toString() === requiredSubjectId.toString());
+        if (found) {
+          subjectCode = found.subject_code;
+        }
+      }
+    }
+
     return {
-      id: requisite.requisites_id,
-      label: `${prefix} ${requisite.requiredSubject.subject_code}` 
+      id,
+      label: subjectCode !== '-' ? `${prefix} ${subjectCode}` : '-'
     };
   };
+
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
   const [editingCurriculum, setEditingCurriculum] = useState(null);
@@ -66,6 +91,8 @@ const CurriculumManagement = () => {
   const [subjectRows, setSubjectRows] = useState([
     {
       subject_id: '',
+      elective_slot_id: '',
+      is_elective_slot: false,
       passing_grade: '',
       custom_grade: '',
       subject_type: '',
@@ -92,8 +119,20 @@ const CurriculumManagement = () => {
 
   const fetchCurricula = async () => {
     try {
-  const response = await api.get('/curriculum');
-  setCurricula(response.data);
+      const response = await api.get('/curriculum');
+      // Debug: Log elective slots to see if they're loaded
+      const curriculaWithElectives = response.data.filter(c => c.elective_slot_id);
+      if (curriculaWithElectives.length > 0) {
+        console.log('Curriculum with elective slots:', curriculaWithElectives);
+        curriculaWithElectives.forEach(c => {
+          console.log(`Elective Slot ${c.elective_slot_id}:`, {
+            electiveSlot: c.electiveSlot,
+            electiveSubjects: c.electiveSlot?.electiveSubjects,
+            elective_subjects: c.electiveSlot?.elective_subjects
+          });
+        });
+      }
+      setCurricula(response.data);
     } catch (error) {
       console.error('Error fetching curriculum:', error);
       setError('Failed to fetch curriculum');
@@ -104,9 +143,10 @@ const CurriculumManagement = () => {
 
   const fetchLookupData = async () => {
     try {
-      const [combinedResp, curriculumHeadersResp] = await Promise.allSettled([
+      const [combinedResp, curriculumHeadersResp, electiveSlotsResp] = await Promise.allSettled([
         api.get('/curriculum/lookup/data'),
         api.get('/lookup/curriculum-headers', { silent: true }),
+        api.get('/elective-slots'),
       ]);
 
       const combinedData = combinedResp.status === 'fulfilled' ? (combinedResp.value.data || {}) : {};
@@ -118,7 +158,11 @@ const CurriculumManagement = () => {
           : [];
 
       // Normalize lookup data: backend returns 'requisites' (mixed prerequisites/corequisites)
-      let normalizedLookup = { ...combinedData, curriculumHeaders: curriculumHeadersData };
+      let normalizedLookup = { 
+        ...combinedData, 
+        curriculumHeaders: curriculumHeadersData,
+        electiveSlots: electiveSlotsResp.status === 'fulfilled' ? (electiveSlotsResp.value.data || []) : [],
+      };
       if (combinedData.requisites && Array.isArray(combinedData.requisites)) {
         const requisites = combinedData.requisites;
         normalizedLookup.prerequisites = requisites.filter(r => (r.requisite_type || r.type || '').toString().toLowerCase() === 'prerequisite');
@@ -186,11 +230,10 @@ const CurriculumManagement = () => {
 
     const subjectIdStr = subjectId.toString();
     
-    
     // Check if prerequisites are already loaded from pre-population
     const existingPrereqs = availablePrerequisites[subjectIdStr];
-    if (existingPrereqs && existingPrereqs.length > 0) {
-      return existingPrereqs; // Return existing prerequisites
+    if (existingPrereqs) {
+      return existingPrereqs; // Return existing prerequisites (even if empty array)
     }
     
     try {
@@ -198,50 +241,37 @@ const CurriculumManagement = () => {
       const response = await api.get(`/prerequisites/subject/${subjectId}`);
       const apiPrereqs = response.data || [];
       
+      // FIX: Always update state, even if empty, to prevent repeated fetches
+      setAvailablePrerequisites(prev => {
+        const updated = { ...prev, [subjectIdStr]: apiPrereqs };
+        return updated;
+      });
       
-      if (apiPrereqs.length > 0) {
-        setAvailablePrerequisites(prev => {
-          const updated = { ...prev, [subjectIdStr]: apiPrereqs };
-        
-          return updated;
-        });
-        return apiPrereqs;
-      } else {
-        
-      }
+      return apiPrereqs;
     } catch (error) {
       console.error('Error fetching prerequisites from API for subject', subjectIdStr, ':', error);
     }
     
     // Fallback: use prerequisites from lookup data
     const lookupPrereqs = safeLookupData.prerequisites || [];
-    
-    
     const lookupPrereqsForSubject = lookupPrereqs.filter(prereq => {
-      if (!prereq) {
-        return false;
-      }
-      if (!prereq.subject_id) {
-        return false;
-      }
+      if (!prereq) return false;
+      if (!prereq.subject_id) return false;
       const prereqSubjectId = parseInt(prereq.subject_id);
       const subjectIdInt = parseInt(subjectIdStr);
-      const matches = prereqSubjectId === subjectIdInt;
-      
-      return matches;
+      return prereqSubjectId === subjectIdInt;
     });
-    
     
     // Only update if we found prerequisites - don't overwrite with empty array
     if (lookupPrereqsForSubject.length > 0) {
       setAvailablePrerequisites(prev => {
         const updated = { ...prev, [subjectIdStr]: lookupPrereqsForSubject };
-      
         return updated;
       });
       return lookupPrereqsForSubject;
     } else {
-      
+      // FIX: Cache empty array to prevent fallback loop if API also failed
+      setAvailablePrerequisites(prev => ({ ...prev, [subjectIdStr]: [] }));
       return [];
     }
   };
@@ -253,19 +283,14 @@ const CurriculumManagement = () => {
 
     const subjectIdStr = subjectId.toString();
     
-    
     // Check if corequisites are already loaded from pre-population
     const existingCoreqs = availableCorequisites[subjectIdStr];
-    if (existingCoreqs && existingCoreqs.length > 0) {
-      return existingCoreqs; // Return existing corequisites
+    if (existingCoreqs) {
+      return existingCoreqs; 
     }
     
     // Fallback: use corequisites from lookup data
     const lookupCoreqs = safeLookupData.corequisites || [];
-    
-    
-    // Be permissive: coreq objects may have subject_id, coreq_subject_id, nested requiredSubject,
-    // or different key naming (camelCase). Match any of those fields and also allow symmetric relations
     const subjectIdInt = parseInt(subjectIdStr);
     const lookupCoreqsForSubject = lookupCoreqs.filter(coreq => {
       if (!coreq) return false;
@@ -279,21 +304,18 @@ const CurriculumManagement = () => {
       if (coreq.coreq_subject?.subject_id !== undefined) candidates.push(parseInt(coreq.coreq_subject.subject_id));
 
       const matches = candidates.some(c => !isNaN(c) && c === subjectIdInt);
-      
       return matches;
     });
     
-    
-    // Only update if we found corequisites - don't overwrite with empty array
+    // Only update if we found corequisites
     if (lookupCoreqsForSubject.length > 0) {
       setAvailableCorequisites(prev => {
         const updated = { ...prev, [subjectIdStr]: lookupCoreqsForSubject };
-      
         return updated;
       });
       return lookupCoreqsForSubject;
     } else {
-      
+      setAvailableCorequisites(prev => ({ ...prev, [subjectIdStr]: [] }));
       return [];
     }
   };
@@ -301,6 +323,8 @@ const CurriculumManagement = () => {
   const handleAddRow = () => {
     setSubjectRows([...subjectRows, {
       subject_id: '',
+      elective_slot_id: '',
+      is_elective_slot: false,
       passing_grade: '',
       custom_grade: '',
       subject_type: '',
@@ -319,10 +343,35 @@ const CurriculumManagement = () => {
     const newRows = [...subjectRows];
     newRows[index][field] = value;
     
+    // If is_elective_slot is toggled, clear the other field
+    if (field === 'is_elective_slot') {
+      if (value) {
+        // Switching to elective slot - clear subject_id and set subject_type
+        newRows[index].subject_id = '';
+        newRows[index].subject_type = 'elective subject';
+      } else {
+        // Switching to regular subject - clear elective_slot_id
+        newRows[index].elective_slot_id = '';
+      }
+    }
+    
+    // If elective_slot_id is selected, automatically set subject_type to elective
+    if (field === 'elective_slot_id' && value) {
+      newRows[index].subject_type = 'elective subject';
+      newRows[index].is_elective_slot = true;
+    }
+    
     // If subject changed, fetch requisites for this subject
     if (field === 'subject_id' && value) {
-      // For now, don't auto-select requisites - let user choose manually
+      // Clear any previously selected requisite for this row
       newRows[index].requisite_id = '';
+      // Load prerequisites/corequisites for this subject so the dropdown is populated
+      try {
+        await fetchPrerequisitesForSubject(value);
+        await fetchCorequisitesForSubject(value);
+      } catch (err) {
+        // ignore - fetch functions already log errors
+      }
     }
     
     setSubjectRows(newRows);
@@ -338,35 +387,56 @@ const CurriculumManagement = () => {
       return;
     }
 
-    // Filter out empty rows (rows without subject_id)
-    const validRows = subjectRows.filter(row => row.subject_id);
+    // Filter out empty rows (rows without subject_id or elective_slot_id)
+    const validRows = subjectRows.filter(row => row.subject_id || row.elective_slot_id);
 
     if (validRows.length === 0) {
-      setError('Please add at least one subject');
+      setError('Please add at least one subject or elective slot');
       return;
     }
 
     try {
-      // Batch create all curriculum entries at once
-      await api.post('/curriculum/batch', {
+      // Prepare subjects data
+      const subjectsData = validRows.map(row => {
+        let finalPassingGrade = row.passing_grade;
+        
+        // If passing_grade is 'other', use the custom_grade value
+        if (row.passing_grade === 'other' && row.custom_grade) {
+          finalPassingGrade = row.custom_grade;
+        }
+        
+        // Convert passing_grade to integer if it's a numeric string, otherwise set to null
+        // Backend expects integer or null, not strings like "pass" or "failed"
+        if (finalPassingGrade) {
+          const numericGrade = parseInt(finalPassingGrade, 10);
+          finalPassingGrade = isNaN(numericGrade) ? null : numericGrade;
+        } else {
+          finalPassingGrade = null;
+        }
+        
+        return {
+          subject_id: row.is_elective_slot ? null : (row.subject_id ? parseInt(row.subject_id, 10) : null),
+          elective_slot_id: row.is_elective_slot ? (row.elective_slot_id ? parseInt(row.elective_slot_id, 10) : null) : null,
+          passing_grade: finalPassingGrade,
+          subject_type: row.subject_type || null,
+          requisite_id: row.requisite_id ? parseInt(row.requisite_id, 10) : null,
+        };
+      });
+      
+      // Log the data being sent for debugging
+      console.log('Sending curriculum data:', {
         program_id: bulkFormData.program_id,
         year_level: bulkFormData.year_level,
         semester_id: bulkFormData.semester_id,
-        subjects: validRows.map(row => {
-          let finalPassingGrade = row.passing_grade;
-          
-          // If passing_grade is 'other', use the custom_grade value
-          if (row.passing_grade === 'other' && row.custom_grade) {
-            finalPassingGrade = row.custom_grade;
-          }
-          
-          return {
-            subject_id: row.subject_id,
-            passing_grade: finalPassingGrade || null,
-            subject_type: row.subject_type || null,
-            requisite_id: row.requisite_id || null,
-          };
-        })
+        subjects: subjectsData
+      });
+      
+      // Batch create all curriculum entries at once
+      const response = await api.post('/curriculum/batch', {
+        program_id: parseInt(bulkFormData.program_id, 10),
+        year_level: parseInt(bulkFormData.year_level, 10),
+        semester_id: parseInt(bulkFormData.semester_id, 10),
+        subjects: subjectsData
       });
 
       setShowModal(false);
@@ -374,7 +444,24 @@ const CurriculumManagement = () => {
       fetchCurricula();
       fetchLookupData(); // Refresh lookup data to include any new requisites
     } catch (error) {
-      setError(error.response?.data?.message || error.response?.data?.error || 'Failed to save curriculum');
+      console.error('Error saving curriculum:', error);
+      console.error('Error response:', error.response?.data);
+      
+      // Extract detailed error messages
+      let errorMessage = 'Failed to save curriculum';
+      if (error.response?.data) {
+        if (error.response.data.errors) {
+          // Validation errors
+          const errorMessages = Object.values(error.response.data.errors).flat();
+          errorMessage = errorMessages.join(', ') || errorMessage;
+        } else if (error.response.data.message) {
+          errorMessage = error.response.data.message;
+        } else if (error.response.data.error) {
+          errorMessage = error.response.data.error;
+        }
+      }
+      
+      setError(errorMessage);
     }
   };
 
@@ -386,6 +473,8 @@ const CurriculumManagement = () => {
     });
     setSubjectRows([{
       subject_id: '',
+      elective_slot_id: '',
+      is_elective_slot: false,
       passing_grade: '',
       custom_grade: '',
       subject_type: '',
@@ -393,8 +482,6 @@ const CurriculumManagement = () => {
     }]);
     setError('');
   };
-
-  // handleEdit was removed because inline handlers are used when Edit is clicked.
 
   const handleUpdate = async (e) => {
     if (e) e.preventDefault();
@@ -415,7 +502,9 @@ const CurriculumManagement = () => {
       const desiredProgramId = bulkFormData.program_id || baseCurriculum.program_id;
       const desiredYearLevel = bulkFormData.year_level || baseCurriculum.year_level;
       const desiredSemesterId = bulkFormData.semester_id || baseCurriculum.semester_id;
-      const desiredSubjectId = row.subject_id || baseCurriculum.subject_id;
+      const isElectiveSlot = row.is_elective_slot || !!baseCurriculum.elective_slot_id;
+      const desiredSubjectId = isElectiveSlot ? null : (row.subject_id || baseCurriculum.subject_id);
+      const desiredElectiveSlotId = isElectiveSlot ? (row.elective_slot_id || baseCurriculum.elective_slot_id) : null;
 
       const resolvedCurriculumToUpdate = Array.isArray(curricula)
         ? (curricula.find(c =>
@@ -423,7 +512,9 @@ const CurriculumManagement = () => {
             c.program_id?.toString() === desiredProgramId?.toString() &&
             c.year_level?.toString() === desiredYearLevel?.toString() &&
             c.semester_id?.toString() === desiredSemesterId?.toString() &&
-            c.subject_id?.toString() === desiredSubjectId?.toString()
+            (isElectiveSlot 
+              ? c.elective_slot_id?.toString() === desiredElectiveSlotId?.toString()
+              : c.subject_id?.toString() === desiredSubjectId?.toString())
           ) || baseCurriculum)
         : baseCurriculum;
 
@@ -432,8 +523,9 @@ const CurriculumManagement = () => {
         year_level: desiredYearLevel,
         semester_id: desiredSemesterId,
         subject_id: desiredSubjectId,
+        elective_slot_id: desiredElectiveSlotId,
         passing_grade: finalPassingGrade ? finalPassingGrade : (resolvedCurriculumToUpdate.passing_grade || null),
-        subject_type: row.subject_type || resolvedCurriculumToUpdate.subject_type || null,
+        subject_type: row.subject_type || resolvedCurriculumToUpdate.subject_type || (isElectiveSlot ? 'elective subject' : null),
         requisite_id: row.requisite_id || resolvedCurriculumToUpdate.requisite_id || null,
       });
       setShowModal(false);
@@ -442,7 +534,7 @@ const CurriculumManagement = () => {
       setSelectedCurriculum(null);
       resetBulkForm();
       fetchCurricula();
-      fetchLookupData(); // Refresh lookup data to include any updated requisites
+      fetchLookupData(); 
     } catch (error) {
       setError(error.response?.data?.message || 'Failed to update curriculum');
     }
@@ -492,7 +584,7 @@ const CurriculumManagement = () => {
       await api.post('/corequisites', corequisiteForm);
       setShowCorequisiteModal(false);
       setCorequisiteForm({ subject_id: '', coreq_subject_id: '' });
-      fetchLookupData(); // Refresh lookup data to include new co-requisites
+      fetchLookupData(); 
     } catch (error) {
       setError(error.response?.data?.message || 'Failed to create co-requisite');
     }
@@ -554,7 +646,6 @@ const CurriculumManagement = () => {
       const headerEffectiveYear = header?.Effective_Year || header?.effective_year || null;
 
       const yearLevelId = curriculum.year_level?.year_level_id || curriculum.year_level;
-      // Try to get year level from relationship first, then from lookup data
       let yearLevelName = curriculum.year_level?.year_level;
       if (!yearLevelName && yearLevelId && safeLookupData.yearLevels) {
         const yearLevel = safeLookupData.yearLevels.find(yl => yl.year_level_id === parseInt(yearLevelId));
@@ -563,7 +654,6 @@ const CurriculumManagement = () => {
       yearLevelName = yearLevelName || `Year ${yearLevelId}`;
       
       const semesterId = curriculum.semester_id;
-      // Try to get semester from relationship first, then from lookup data
       let semesterName = curriculum.semester?.semester_name;
       if (!semesterName && semesterId && safeLookupData.semesters) {
         const semester = safeLookupData.semesters.find(s => s.semester_id === parseInt(semesterId));
@@ -597,7 +687,6 @@ const CurriculumManagement = () => {
       grouped[key].semesters[semesterId].curricula.push(curriculum);
     });
 
-    // Convert to array and sort
     return Object.values(grouped).sort((a, b) => {
       if (a.programName !== b.programName) {
         return a.programName.localeCompare(b.programName);
@@ -636,7 +725,6 @@ const CurriculumManagement = () => {
       return resolved?.label || '-';
     }
 
-    // Case 3: curriculum row doesn't store requisite_id, but lookup defines requisites for this subject
     return '-';
   };
 
@@ -652,10 +740,7 @@ const CurriculumManagement = () => {
   const buildCurriculumHeaderModel = (yearGroup) => {
     const desc = (yearGroup?.curriculumHeaderDescription || '').toString().trim();
     const effectiveLine = formatEffectiveSY(yearGroup?.curriculumHeaderEffectiveYear);
-
     const programLine = `${(yearGroup?.programName || 'Unknown Program').toString()} Curriculum`;
-
-    // description in tbl_curriculum_header is intended to be the "Based on ..." line
     const basisLine = desc || defaultBasisLine;
 
     return {
@@ -736,14 +821,11 @@ const CurriculumManagement = () => {
                   <button
                     className="edit-group-button"
                     onClick={async () => {
-                      // Get all curricula for this year group
                       const allCurricula = [];
                       Object.values(yearGroup.semesters).forEach(semester => {
                         allCurricula.push(...semester.curricula);
                       });
-                      // Refresh lookup data to ensure latest requisite relationships are loaded
                       await fetchLookupData();
-                      // Open edit panel with first curriculum (or show bulk edit)
                       if (allCurricula.length > 0) {
                         setSelectedCurriculum(allCurricula[0]);
                         setBulkFormData({
@@ -773,12 +855,9 @@ const CurriculumManagement = () => {
                           className="delete-semester-button"
                           onClick={async () => {
                             if (semester.curricula.length === 0) return;
-                            
                             const confirmMessage = `Are you sure you want to delete all subjects in:\n\nProgram: ${yearGroup.programName}\nYear Level: ${yearGroup.yearLevelName}\nSemester: ${semester.semesterName}\n\nThis will delete ${semester.curricula.length} subject(s).\n\nThis action cannot be undone!`;
-                            
                             if (window.confirm(confirmMessage)) {
                               try {
-                                // Delete all curricula in this semester
                                 const deletePromises = semester.curricula.map(curriculum => 
                                   api.delete(`/curriculum/${curriculum.curriculum_id}`)
                                 );
@@ -817,19 +896,73 @@ const CurriculumManagement = () => {
                               semester.curricula.map((curriculum) => {
                                 if (!curriculum) return null;
                                 const subject = curriculum.subject;
-                                
-                                // Get requisite information from the single requisite relationship
+                                const electiveSlot = curriculum.electiveSlot;
+                                const isElectiveSlot = !!curriculum.elective_slot_id;
                                 const preCoRequisiteDisplay = getCurriculumRequisiteDisplay(curriculum);
                                 
                                 return (
                                   <tr key={curriculum.curriculum_id}>
-                                    <td>{subject?.subject_code || '-'}</td>
+                                    <td>
+                                      {isElectiveSlot ? (
+                                        <span style={{ fontWeight: 'bold', color: '#0066cc' }}>
+                                          {electiveSlot?.slot_name || `Elective Slot #${curriculum.elective_slot_id}`}
+                                        </span>
+                                      ) : (
+                                        subject?.subject_code || '-'
+                                      )}
+                                    </td>
                                     <td>{preCoRequisiteDisplay}</td>
-                                    <td>{subject?.subject_name || '-'}</td>
-                                    <td>{subject?.number_of_units || '-'}</td>
-                                    <td>{subject?.number_of_hrs || '-'}</td>
+                                    <td>
+                                      {isElectiveSlot ? (
+                                        (() => {
+                                          const electiveSubjects = electiveSlot?.electiveSubjects || [];
+                                          
+                                          if (electiveSubjects.length === 0) {
+                                            return (
+                                              <span style={{ fontStyle: 'italic', color: '#999' }}>
+                                                No subjects assigned
+                                              </span>
+                                            );
+                                          }
+                                          
+                                          // Display all subjects assigned to this elective slot
+                                          return (
+                                            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                                              {electiveSubjects.map((es, idx) => {
+                                                const subjectName = es.subject?.subject_name || es.subject?.subject_code || 'Unknown Subject';
+                                                const trackName = es.track?.track_name || '';
+                                                return (
+                                                  <span key={es.elective_subject_id || idx} style={{ fontSize: '13px' }}>
+                                                    {subjectName}
+                                                    {trackName && (
+                                                      <span style={{ color: '#666', marginLeft: '5px' }}>
+                                                        ({trackName})
+                                                      </span>
+                                                    )}
+                                                  </span>
+                                                );
+                                              })}
+                                            </div>
+                                          );
+                                        })()
+                                      ) : (
+                                        subject?.subject_name || '-'
+                                      )}
+                                    </td>
+                                    <td>
+                                      {isElectiveSlot ? '-' : (subject?.number_of_units || '-')}
+                                    </td>
+                                    <td>
+                                      {isElectiveSlot ? '-' : (subject?.number_of_hrs || '-')}
+                                    </td>
                                     <td>{curriculum.passing_grade || '-'}</td>
-                                    <td>{curriculum.subject_type || '-'}</td>
+                                    <td>
+                                      {isElectiveSlot ? (
+                                        <span style={{ color: '#0066cc', fontWeight: 'bold' }}>Elective Subject</span>
+                                      ) : (
+                                        curriculum.subject_type || '-'
+                                      )}
+                                    </td>
                                     <td>
                                       <div className="action-buttons">
                                         <button
@@ -844,6 +977,8 @@ const CurriculumManagement = () => {
                                             });
                                             setSubjectRows([{
                                               subject_id: curriculum.subject_id?.toString() || '',
+                                              elective_slot_id: curriculum.elective_slot_id?.toString() || '',
+                                              is_elective_slot: !!curriculum.elective_slot_id,
                                               passing_grade: curriculum.passing_grade?.toString() || '',
                                               subject_type: curriculum.subject_type || '',
                                               requisite_id: (curriculum.requisite_id ?? curriculum.prerequisite_id ?? curriculum.requisites_id)?.toString() || '',
@@ -860,7 +995,10 @@ const CurriculumManagement = () => {
                                         <button
                                           className="delete-button"
                                           onClick={async () => {
-                                            if (window.confirm(`Are you sure you want to delete this curriculum entry?\n\nSubject: ${subject?.subject_code || 'N/A'}\nProgram: ${curriculum.program?.program_name || 'N/A'}\nYear: ${curriculum.yearLevel?.year_level || 'N/A'}\nSemester: ${curriculum.semester?.semester_name || 'N/A'}`)) {
+                                            const displayName = isElectiveSlot 
+                                              ? (electiveSlot?.slot_name || `Elective Slot #${curriculum.elective_slot_id}`)
+                                              : (subject?.subject_code || 'N/A');
+                                            if (window.confirm(`Are you sure you want to delete this curriculum entry?\n\n${isElectiveSlot ? 'Elective Slot' : 'Subject'}: ${displayName}\nProgram: ${curriculum.program?.program_name || 'N/A'}\nYear: ${curriculum.yearLevel?.year_level || 'N/A'}\nSemester: ${curriculum.semester?.semester_name || 'N/A'}`)) {
                                               await handleDelete(curriculum.curriculum_id);
                                             }
                                           }}
@@ -954,7 +1092,8 @@ const CurriculumManagement = () => {
                 <table className="subjects-table">
                   <thead>
                     <tr>
-                      <th>Course Code</th>
+                      <th>Is Elective</th>
+                      <th>Course Code / Elective Slot</th>
                       <th>Subject Title</th>
                       <th>Units</th>
                       <th>Hours</th>
@@ -967,49 +1106,155 @@ const CurriculumManagement = () => {
                   <tbody>
                     {subjectRows.map((row, index) => {
                       const selectedSubject = getSubjectDetails(row.subject_id);
+                      
+                      // Filter elective slots based on selected program, year level, and semester
+                      const filteredElectiveSlots = safeLookupData.electiveSlots.filter(slot => {
+                        if (!bulkFormData.program_id || !bulkFormData.year_level || !bulkFormData.semester_id) {
+                          return false;
+                        }
+                        return (
+                          slot.program_id?.toString() === bulkFormData.program_id.toString() &&
+                          slot.year_level_id?.toString() === bulkFormData.year_level.toString() &&
+                          slot.semester_id?.toString() === bulkFormData.semester_id.toString()
+                        );
+                      });
+                      
                       return (
                         <tr key={index}>
                           <td>
-                            <select
-                              value={row.subject_id}
-                              onChange={(e) => handleRowChange(index, 'subject_id', e.target.value)}
-                              required={index === 0}
-                              className="subject-select"
-                            >
-                              <option value="">Select Subject</option>
-                              {safeLookupData.subjects.map((subject) => (
-                                <option key={subject.subject_id} value={subject.subject_id}>
-                                  {subject.subject_code}
-                                </option>
-                              ))}
-                            </select>
+                            <label style={{ display: 'flex', alignItems: 'center', gap: '5px', cursor: 'pointer' }}>
+                              <input
+                                type="checkbox"
+                                checked={row.is_elective_slot || false}
+                                onChange={(e) => handleRowChange(index, 'is_elective_slot', e.target.checked)}
+                                style={{ cursor: 'pointer' }}
+                              />
+                              <span style={{ fontSize: '12px' }}>Elective</span>
+                            </label>
                           </td>
                           <td>
-                            <input
-                              type="text"
-                              value={selectedSubject?.subject_name || ''}
-                              readOnly
-                              className="subject-name-readonly"
-                              placeholder="Auto-filled"
-                            />
+                            {row.is_elective_slot ? (
+                              <select
+                                value={row.elective_slot_id || ''}
+                                onChange={(e) => handleRowChange(index, 'elective_slot_id', e.target.value)}
+                                required={index === 0 && row.is_elective_slot}
+                                className="subject-select"
+                              >
+                                <option value="">Select Elective Slot</option>
+                                {filteredElectiveSlots.length > 0 ? (
+                                  filteredElectiveSlots.map((slot) => (
+                                    <option key={slot.elective_slot_id} value={slot.elective_slot_id}>
+                                      {slot.slot_name || `Slot ${slot.elective_slot_id}`}
+                                    </option>
+                                  ))
+                                ) : (
+                                  <option value="" disabled>
+                                    {bulkFormData.program_id && bulkFormData.year_level && bulkFormData.semester_id
+                                      ? 'No elective slots available'
+                                      : 'Select Program, Year Level, and Semester first'}
+                                  </option>
+                                )}
+                              </select>
+                            ) : (
+                              <select
+                                value={row.subject_id}
+                                onChange={(e) => handleRowChange(index, 'subject_id', e.target.value)}
+                                required={index === 0 && !row.is_elective_slot}
+                                className="subject-select"
+                              >
+                                <option value="">Select Subject</option>
+                                {safeLookupData.subjects.map((subject) => (
+                                  <option key={subject.subject_id} value={subject.subject_id}>
+                                    {subject.subject_code}
+                                  </option>
+                                ))}
+                              </select>
+                            )}
                           </td>
                           <td>
-                            <input
-                              type="number"
-                              value={selectedSubject?.number_of_units || ''}
-                              readOnly
-                              className="units-hours-input"
-                              placeholder="Auto-filled"
-                            />
+                            {row.is_elective_slot ? (
+                              (() => {
+                                const selectedSlot = filteredElectiveSlots.find(s => s.elective_slot_id?.toString() === row.elective_slot_id?.toString());
+                                const electiveSubjects = selectedSlot?.electiveSubjects || [];
+                                
+                                if (electiveSubjects.length === 0) {
+                                  return (
+                                    <input
+                                      type="text"
+                                      value="No subjects assigned"
+                                      readOnly
+                                      className="subject-name-readonly"
+                                      placeholder="Elective Slot"
+                                      style={{ color: '#999', fontStyle: 'italic' }}
+                                    />
+                                  );
+                                }
+                                
+                                // Display all subjects assigned to this elective slot
+                                const subjectsList = electiveSubjects.map(es => {
+                                  const subjectName = es.subject?.subject_name || es.subject?.subject_code || 'Unknown Subject';
+                                  const trackName = es.track?.track_name || '';
+                                  return trackName ? `${subjectName} (${trackName})` : subjectName;
+                                }).join(', ');
+                                
+                                return (
+                                  <input
+                                    type="text"
+                                    value={subjectsList}
+                                    readOnly
+                                    className="subject-name-readonly"
+                                    placeholder="Elective Slot"
+                                    title={subjectsList}
+                                  />
+                                );
+                              })()
+                            ) : (
+                              <input
+                                type="text"
+                                value={selectedSubject?.subject_name || ''}
+                                readOnly
+                                className="subject-name-readonly"
+                                placeholder="Auto-filled"
+                              />
+                            )}
                           </td>
                           <td>
-                            <input
-                              type="number"
-                              value={selectedSubject?.number_of_hrs || ''}
-                              readOnly
-                              className="units-hours-input"
-                              placeholder="Auto-filled"
-                            />
+                            {row.is_elective_slot ? (
+                              <input
+                                type="text"
+                                value="-"
+                                readOnly
+                                className="units-hours-input"
+                                placeholder="N/A"
+                              />
+                            ) : (
+                              <input
+                                type="number"
+                                value={selectedSubject?.number_of_units || ''}
+                                readOnly
+                                className="units-hours-input"
+                                placeholder="Auto-filled"
+                              />
+                            )}
+                          </td>
+                          <td>
+                            {row.is_elective_slot ? (
+                              <input
+                                type="text"
+                                value="-"
+                                readOnly
+                                className="units-hours-input"
+                                placeholder="N/A"
+                              />
+                            ) : (
+                              <input
+                                type="number"
+                                value={selectedSubject?.number_of_hrs || ''}
+                                readOnly
+                                className="units-hours-input"
+                                placeholder="Auto-filled"
+                              />
+                            )}
                           </td>
                           <td>
                             <select
@@ -1041,12 +1286,18 @@ const CurriculumManagement = () => {
                               value={row.subject_type}
                               onChange={(e) => handleRowChange(index, 'subject_type', e.target.value)}
                               className="subject-select"
+                              disabled={row.is_elective_slot}
                             >
                               <option value="">Select Type</option>
                               <option value="minor">Minor</option>
                               <option value="core">Core</option>
                               <option value="elective subject">Elective Subject</option>
                             </select>
+                            {row.is_elective_slot && (
+                              <span style={{ fontSize: '10px', color: '#666', display: 'block', marginTop: '2px' }}>
+                                Auto-set to Elective
+                              </span>
+                            )}
                           </td>
                           <td>
                             <select
@@ -1056,7 +1307,9 @@ const CurriculumManagement = () => {
                             >
                               <option value="">None</option>
                               {(() => {
-                                // Show available requisites relevant to this subject row.
+                                const subjectIdForRow = (row && row.subject_id) ? row.subject_id.toString() : null;
+                                const cached = subjectIdForRow ? (availablePrerequisites[subjectIdForRow] || availableCorequisites[subjectIdForRow]) : null;
+
                                 const combined = (Array.isArray(safeLookupData.requisites) && safeLookupData.requisites.length)
                                   ? safeLookupData.requisites
                                   : [
@@ -1064,19 +1317,15 @@ const CurriculumManagement = () => {
                                       ...(Array.isArray(safeLookupData.corequisites) ? safeLookupData.corequisites : [])
                                     ];
 
-                                const subjectIdForRow = (row && row.subject_id) ? row.subject_id.toString() : null;
-
                                 const getRequisitesForSubject = (subjectId, requisites) => {
                                   if (!subjectId) return [];
-
-                                  return requisites.filter(r =>
-                                    r.subject_id?.toString() === subjectId.toString()
-                                  );
+                                  return requisites.filter(r => r && (r.subject_id?.toString() === subjectId.toString()));
                                 };
 
-                                const relevant = getRequisitesForSubject(subjectIdForRow, combined);
+                                const relevant = cached && Array.isArray(cached) && cached.length > 0
+                                  ? cached
+                                  : getRequisitesForSubject(subjectIdForRow, combined);
                                 
-                                // Ensure the currently selected requisite is always included in the options
                                 if (row.requisite_id) {
                                   const selectedRequisite = combined.find(r => {
                                     const requisiteId = r.requisite_id || r.prerequisite_id || r.corequisite_id || r.prereq_id || r.coreq_id;
@@ -1096,7 +1345,6 @@ const CurriculumManagement = () => {
                                   if (!requisite) return null;
 
                                   const requisiteId = requisite.requisite_id || requisite.prerequisite_id || requisite.corequisite_id || requisite.prereq_id || requisite.coreq_id || requisite.requisites_id;
-
                                   const resolved = resolveRequisiteLabel(requisite);
 
                                   return (
@@ -1219,27 +1467,84 @@ const CurriculumManagement = () => {
                     </div>
                     
                     <div className="form-group">
-                      <label>Subject <span className="required">*</span></label>
-                      <select
-                        value={subjectRows[0]?.subject_id || selectedCurriculum.subject_id}
-                        onChange={(e) => {
-                          const newRows = [{ ...subjectRows[0], subject_id: e.target.value }];
-                          setSubjectRows(newRows);
-                          if (e.target.value) {
-                            fetchPrerequisitesForSubject(e.target.value);
-                            fetchCorequisitesForSubject(e.target.value);
-                          }
-                        }}
-                        required
-                      >
-                        <option value="">Select Subject</option>
-                        {safeLookupData.subjects.map((subject) => (
-                          <option key={subject.subject_id} value={subject.subject_id}>
-                            {subject.subject_code} - {subject.subject_name}
-                          </option>
-                        ))}
-                      </select>
+                      <label style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                        <input
+                          type="checkbox"
+                          checked={subjectRows[0]?.is_elective_slot || !!selectedCurriculum.elective_slot_id || false}
+                          onChange={(e) => {
+                            const newRows = [{ ...subjectRows[0], is_elective_slot: e.target.checked }];
+                            if (e.target.checked) {
+                              newRows[0].subject_id = '';
+                              newRows[0].subject_type = 'elective subject';
+                            } else {
+                              newRows[0].elective_slot_id = '';
+                            }
+                            setSubjectRows(newRows);
+                          }}
+                          style={{ cursor: 'pointer' }}
+                        />
+                        <span>Is Elective Slot</span>
+                      </label>
                     </div>
+                    
+                    {subjectRows[0]?.is_elective_slot || selectedCurriculum.elective_slot_id ? (
+                      <div className="form-group">
+                        <label>Elective Slot <span className="required">*</span></label>
+                        <select
+                          value={subjectRows[0]?.elective_slot_id || selectedCurriculum.elective_slot_id || ''}
+                          onChange={(e) => {
+                            const newRows = [{ ...subjectRows[0], elective_slot_id: e.target.value, subject_type: 'elective subject' }];
+                            setSubjectRows(newRows);
+                          }}
+                          required
+                        >
+                          <option value="">Select Elective Slot</option>
+                          {(() => {
+                            const programId = bulkFormData.program_id || selectedCurriculum.program_id;
+                            const yearLevel = bulkFormData.year_level || selectedCurriculum.year_level;
+                            const semesterId = bulkFormData.semester_id || selectedCurriculum.semester_id;
+                            
+                            const filteredSlots = safeLookupData.electiveSlots.filter(slot => {
+                              if (!programId || !yearLevel || !semesterId) return true;
+                              return (
+                                slot.program_id?.toString() === programId.toString() &&
+                                slot.year_level_id?.toString() === yearLevel.toString() &&
+                                slot.semester_id?.toString() === semesterId.toString()
+                              );
+                            });
+                            
+                            return filteredSlots.map((slot) => (
+                              <option key={slot.elective_slot_id} value={slot.elective_slot_id}>
+                                {slot.slot_name || `Slot ${slot.elective_slot_id}`}
+                              </option>
+                            ));
+                          })()}
+                        </select>
+                      </div>
+                    ) : (
+                      <div className="form-group">
+                        <label>Subject <span className="required">*</span></label>
+                        <select
+                          value={subjectRows[0]?.subject_id || selectedCurriculum.subject_id || ''}
+                          onChange={(e) => {
+                            const newRows = [{ ...subjectRows[0], subject_id: e.target.value }];
+                            setSubjectRows(newRows);
+                            if (e.target.value) {
+                              fetchPrerequisitesForSubject(e.target.value);
+                              fetchCorequisitesForSubject(e.target.value);
+                            }
+                          }}
+                          required
+                        >
+                          <option value="">Select Subject</option>
+                          {safeLookupData.subjects.map((subject) => (
+                            <option key={subject.subject_id} value={subject.subject_id}>
+                              {subject.subject_code} - {subject.subject_name}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    )}
                     
                     <div className="form-group">
                       <label>Passing Grade</label>
@@ -1307,13 +1612,11 @@ const CurriculumManagement = () => {
                                 ...(Array.isArray(safeLookupData.corequisites) ? safeLookupData.corequisites : [])
                               ];
 
-                          // Narrow options to requisites relevant to the selected subject in the edit panel
                           const subjectIdForEdit = (subjectRows[0] && subjectRows[0].subject_id) ? subjectRows[0].subject_id.toString() : (selectedCurriculum?.subject_id ? selectedCurriculum.subject_id.toString() : null);
                           const relevantEdit = combined.filter(
                             r => r.subject_id?.toString() === subjectIdForEdit?.toString()
                           );
                           
-                          // Ensure the currently selected requisite is always included in the options
                           const currentRequisiteId = subjectRows[0]?.requisite_id || selectedCurriculum.requisite_id;
                           if (currentRequisiteId) {
                             const selectedRequisite = combined.find(r => {
