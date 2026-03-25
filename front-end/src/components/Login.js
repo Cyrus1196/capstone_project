@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useNavigate } from 'react-router-dom';
+import { swalError } from '../utils/swal';
 import './Login.css';
 
 const Login = () => {
@@ -27,13 +28,17 @@ const Login = () => {
         navigate('/admin');
       } else if (userRole === 'Dean') {
         navigate('/dean');
-      } else if (userRole === 'Faculty') {
+      } else if (userRole === 'Faculty' || userRole === 'Adviser') {
         navigate('/faculty');
+      } else if (userRole === 'Guest') {
+        navigate('/guest');
       } else {
         navigate('/student');
       }
     } else {
-      setError(result.error || 'Login failed. Please check your credentials.');
+      const msg = result.error || 'Login failed. Please check your credentials.';
+      setError('');
+      await swalError('Login failed', msg);
     }
 
     setLoading(false);

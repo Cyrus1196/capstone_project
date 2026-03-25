@@ -1,8 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import api from '../../api/axios';
+import { useAuth } from '../../context/AuthContext';
+import { swalConfirm, swalToast, swalError } from '../../utils/swal';
 import './CreditEvaluationManagement.css';
 
-const CreditEvaluationManagement = () => {
+/** When true (faculty/adviser portal), only list + approve/reject (status & remarks). */
+const CreditEvaluationManagement = ({ approvalMode = false }) => {
+  const { isAdmin } = useAuth();
   const [evaluations, setEvaluations] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -109,15 +113,21 @@ const CreditEvaluationManagement = () => {
   };
 
   const handleDelete = async (id) => {
-    if (!window.confirm('Are you sure you want to delete this credit evaluation?')) {
-      return;
-    }
+    const ok = await swalConfirm({
+      title: 'Delete credit evaluation?',
+      text: 'Are you sure you want to delete this credit evaluation?',
+      confirmButtonText: 'Delete',
+    });
+    if (!ok) return;
 
     try {
       await api.delete(`/credit-evaluations/${id}`);
       fetchData();
+      swalToast('success', 'Credit evaluation deleted');
     } catch (err) {
-      setError(err.response?.data?.message || 'Failed to delete credit evaluation');
+      const msg = err.response?.data?.message || 'Failed to delete credit evaluation';
+      setError(msg);
+      await swalError('Delete failed', msg);
     }
   };
 
@@ -126,17 +136,27 @@ const CreditEvaluationManagement = () => {
     setError('');
 
     try {
-      const data = { ...formData };
-      if (editingItem) {
-        await api.put(`/credit-evaluations/${editingItem.credit_eval_id}`, data);
+      if (approvalMode && editingItem) {
+        await api.put(`/credit-evaluations/${editingItem.credit_eval_id}`, {
+          status: formData.status,
+          remarks: formData.remarks || '',
+        });
       } else {
-        await api.post('/credit-evaluations', data);
+        const data = { ...formData };
+        if (editingItem) {
+          await api.put(`/credit-evaluations/${editingItem.credit_eval_id}`, data);
+        } else {
+          await api.post('/credit-evaluations', data);
+        }
       }
 
       setShowModal(false);
       fetchData();
+      swalToast('success', editingItem ? 'Credit evaluation updated' : 'Credit evaluation created');
     } catch (err) {
-      setError(err.response?.data?.message || `Failed to ${editingItem ? 'update' : 'create'} credit evaluation`);
+      const msg = err.response?.data?.message || `Failed to ${editingItem ? 'update' : 'create'} credit evaluation`;
+      setError(msg);
+      await swalError('Save failed', msg);
     }
   };
 
@@ -165,10 +185,12 @@ const CreditEvaluationManagement = () => {
   return (
     <div className="credit-evaluation-management">
       <div className="management-header">
-        <h2>Credit Evaluation Management</h2>
-        <button className="add-button" onClick={handleAdd}>
-          Add Credit Evaluation
-        </button>
+        <h2>{approvalMode ? 'Credit evaluation (review)' : 'Credit Evaluation Management'}</h2>
+        {!approvalMode && isAdmin && (
+          <button className="add-button" onClick={handleAdd}>
+            Add Credit Evaluation
+          </button>
+        )}
       </div>
 
       {error && <div className="error-message">{error}</div>}
@@ -216,11 +238,13 @@ const CreditEvaluationManagement = () => {
                       View Details
                     </button>
                     <button className="edit-button" onClick={() => handleEdit(evaluation)}>
-                      Edit
+                      {approvalMode ? 'Update status' : 'Edit'}
                     </button>
-                    <button className="delete-button" onClick={() => handleDelete(evaluation.credit_eval_id)}>
-                      Delete
-                    </button>
+                    {!approvalMode && isAdmin && (
+                      <button className="delete-button" onClick={() => handleDelete(evaluation.credit_eval_id)}>
+                        Delete
+                      </button>
+                    )}
                   </td>
                 </tr>
               ))
@@ -233,12 +257,51 @@ const CreditEvaluationManagement = () => {
         <div className="modal-overlay" onClick={() => setShowModal(false)}>
           <div className="modal-content" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
-              <h3>{editingItem ? 'Edit' : 'Add'} Credit Evaluation</h3>
+              <h3>
+                {approvalMode && editingItem
+                  ? 'Review credit request'
+                  : `${editingItem ? 'Edit' : 'Add'} Credit Evaluation`}
+              </h3>
               <button className="close-button" onClick={() => setShowModal(false)}>×</button>
             </div>
             <form onSubmit={handleSubmit} className="modal-form">
               {error && <div className="error-message">{error}</div>}
 
+              {approvalMode && editingItem ? (
+                <>
+                  <p className="help-text" style={{ marginBottom: '1rem', color: '#555' }}>
+                    Set the decision for this credit request. Only status and remarks are saved.
+                  </p>
+                  <div className="form-group">
+                    <label>Status</label>
+                    <select
+                      value={formData.status}
+                      onChange={(e) => setFormData({ ...formData, status: e.target.value })}
+                    >
+                      <option value="pending">Pending</option>
+                      <option value="approved">Approved</option>
+                      <option value="rejected">Rejected</option>
+                    </select>
+                  </div>
+                  <div className="form-group">
+                    <label>Remarks</label>
+                    <textarea
+                      value={formData.remarks}
+                      onChange={(e) => setFormData({ ...formData, remarks: e.target.value })}
+                      rows="4"
+                    />
+                  </div>
+                  <div className="form-actions">
+                    <button type="button" className="cancel-button" onClick={() => setShowModal(false)}>
+                      Cancel
+                    </button>
+                    <button type="submit" className="submit-button">
+                      Save decision
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <>
               <div className="form-group">
                 <label>Student <span className="required">*</span></label>
                 <select
@@ -399,6 +462,8 @@ const CreditEvaluationManagement = () => {
                   {editingItem ? 'Update' : 'Create'}
                 </button>
               </div>
+                </>
+              )}
             </form>
           </div>
         </div>

@@ -10,8 +10,21 @@ use Illuminate\Database\QueryException;
 
 class ElectiveSlotController extends Controller
 {
-    public function index()
+    protected function denyUnlessElectiveSlots(Request $request): ?\Illuminate\Http\JsonResponse
     {
+        $user = $request->user();
+        if (!$user || !$user->hasPermission('Elective Slots')) {
+            return response()->json(['message' => 'Unauthorized'], 403);
+        }
+
+        return null;
+    }
+
+    public function index(Request $request)
+    {
+        if ($deny = $this->denyUnlessElectiveSlots($request)) {
+            return $deny;
+        }
         try {
             $slots = ElectiveSlot::with(['program', 'semester', 'yearLevel', 'electiveSubjects.subject', 'electiveSubjects.track'])
                 ->get();
@@ -93,8 +106,11 @@ class ElectiveSlotController extends Controller
         }
     }
 
-    public function show($id)
+    public function show(Request $request, $id)
     {
+        if ($deny = $this->denyUnlessElectiveSlots($request)) {
+            return $deny;
+        }
         try {
             $slot = ElectiveSlot::with(['program', 'semester', 'yearLevel', 'electiveSubjects.subject', 'electiveSubjects.track'])
                 ->findOrFail($id);
@@ -131,6 +147,9 @@ class ElectiveSlotController extends Controller
 
     public function update(Request $request, $id)
     {
+        if ($deny = $this->denyUnlessElectiveSlots($request)) {
+            return $deny;
+        }
         try {
             $slot = ElectiveSlot::findOrFail($id);
             
@@ -175,8 +194,11 @@ class ElectiveSlotController extends Controller
         }
     }
 
-    public function destroy($id)
+    public function destroy(Request $request, $id)
     {
+        if ($deny = $this->denyUnlessElectiveSlots($request)) {
+            return $deny;
+        }
         try {
             $slot = ElectiveSlot::findOrFail($id);
             $slot->delete();
@@ -188,6 +210,9 @@ class ElectiveSlotController extends Controller
 
     public function assignSubject(Request $request, $slotId)
     {
+        if ($deny = $this->denyUnlessElectiveSlots($request)) {
+            return $deny;
+        }
         try {
             // Verify slot exists
             $slot = ElectiveSlot::findOrFail($slotId);
@@ -295,8 +320,11 @@ class ElectiveSlotController extends Controller
         }
     }
 
-    public function removeSubject($slotId, $subjectId)
+    public function removeSubject(Request $request, $slotId, $subjectId)
     {
+        if ($deny = $this->denyUnlessElectiveSlots($request)) {
+            return $deny;
+        }
         try {
             $electiveSubject = ElectiveSubject::where('elective_slot_id', $slotId)
                 ->where('subject_id', $subjectId)

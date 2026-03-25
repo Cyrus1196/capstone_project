@@ -35,12 +35,18 @@ class AuthController extends Controller
 
         $request->session()->regenerate();
 
+        $user->loadMissing('role.permissions');
+        $permissionNames = $user->role
+            ? $user->role->permissions->pluck('permission_name')->values()->all()
+            : [];
+
         return response()->json([
             'user' => [
                 'user_id' => $user->user_id,
                 'email' => $user->email,
                 'role' => $user->role ? $user->role->role_name : null,
                 'is_admin' => $user->isAdmin(),
+                'permissions' => $permissionNames,
             ],
             'message' => 'Login successful',
         ]);
@@ -65,8 +71,10 @@ class AuthController extends Controller
                 return response()->json(['user' => null], 401);
             }
 
-            // Load role relationship
-            $user->load('role');
+            $user->loadMissing('role.permissions');
+            $permissionNames = $user->role
+                ? $user->role->permissions->pluck('permission_name')->values()->all()
+                : [];
 
             return response()->json([
                 'user' => [
@@ -74,6 +82,7 @@ class AuthController extends Controller
                     'email' => $user->email,
                     'role' => $user->role ? $user->role->role_name : null,
                     'is_admin' => $user->isAdmin(),
+                    'permissions' => $permissionNames,
                 ],
             ]);
         } catch (\Exception $e) {

@@ -1,8 +1,13 @@
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import api from '../../api/axios';
+import { useAuth } from '../../context/AuthContext';
+import { swalToast, swalError } from '../../utils/swal';
 import './StudentEvaluationView.css';
 
 const StudentEvaluationView = () => {
+  const { user, isAdmin, isDean, isFaculty } = useAuth();
+  const canEdit = !!(isAdmin || isDean || isFaculty);
+
   const [loading, setLoading] = useState(false);
   const [loadingList, setLoadingList] = useState(false);
   const [error, setError] = useState('');
@@ -10,6 +15,21 @@ const StudentEvaluationView = () => {
   const [students, setStudents] = useState([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedStudent, setSelectedStudent] = useState(null);
+
+  const statusOptions = useMemo(
+    () => ['passed', 'failed', 'ongoing', 'dropped', 'incomplete'],
+    []
+  );
+
+  // Draft grade/status per row (keyed by evaluation_id when present, else a composite key)
+  const [drafts, setDrafts] = useState({});
+  const [savingKey, setSavingKey] = useState(null);
+  const [saveError, setSaveError] = useState('');
+
+  const getRowKey = (row) =>
+    row.evaluation_id
+      ? `eval-${row.evaluation_id}`
+      : `new-${row.subject_id}-${row.academic_year_id}-${row.semester_id}`;
 
   // Fetch student list
   const fetchStudentList = async (search = '') => {
@@ -35,6 +55,22 @@ const StudentEvaluationView = () => {
     return () => clearTimeout(timeoutId);
   }, [searchTerm]);
 
+  // Initialize drafts when student evaluation data changes
+  useEffect(() => {
+    if (!data?.rows) return;
+
+    const next = {};
+    data.rows.forEach((row) => {
+      const key = getRowKey(row);
+      next[key] = {
+        grade: row.grade ?? '',
+        status: row.status ?? '',
+      };
+    });
+    setDrafts(next);
+    setSaveError('');
+  }, [data]);
+
   const handleSearchInputChange = (e) => {
     setSearchTerm(e.target.value);
   };
@@ -51,9 +87,65 @@ const StudentEvaluationView = () => {
     } catch (err) {
       console.error('Error fetching student evaluation:', err);
       setData(null);
-      setError(err.response?.data?.message || 'Failed to load student evaluation');
+      const msg = err.response?.data?.message || 'Failed to load student evaluation';
+      setError(msg);
+      await swalError('Could not load evaluation', msg);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const updateDraft = (row, patch) => {
+    const key = getRowKey(row);
+    setDrafts((prev) => ({
+      ...prev,
+      [key]: {
+        ...(prev[key] || { grade: '', status: '' }),
+        ...patch,
+      },
+    }));
+  };
+
+  const handleSaveRow = async (row) => {
+    if (!canEdit) return;
+    if (!selectedStudent || !data?.student?.student_id) return;
+
+    const key = getRowKey(row);
+    const draft = drafts[key] || { grade: '', status: '' };
+
+    const gradeValue = draft.grade === '' ? null : draft.grade;
+    const evaluation_status = draft.status === '' ? null : draft.status;
+
+    setSavingKey(key);
+    setSaveError('');
+    try {
+      if (row.evaluation_id) {
+        await api.put(`/evaluation/${row.evaluation_id}`, {
+          grade: gradeValue,
+          evaluation_status,
+        });
+      } else {
+        // Create a new evaluation record for this subject in this academic year/semester
+        await api.post('/evaluation', {
+          student_id: data.student.student_id,
+          subject_id: row.subject_id,
+          academic_year_id: row.academic_year_id,
+          semester_id: row.semester_id,
+          grade: gradeValue,
+          evaluation_status,
+        });
+      }
+
+      // Refresh after save so units earned & status show updated values
+      await handleStudentSelect(selectedStudent);
+      swalToast('success', 'Evaluation saved');
+    } catch (err) {
+      console.error('Error saving evaluation row:', err);
+      const msg = err.response?.data?.message || 'Failed to save evaluation';
+      setSaveError(msg);
+      await swalError('Save failed', msg);
+    } finally {
+      setSavingKey(null);
     }
   };
 
@@ -129,20 +221,64 @@ const StudentEvaluationView = () => {
                   <th>PEN CODE</th>
                   <th>Courses / Subjects</th>
                   <th>No. of Units</th>
+                  <th>Units Earned</th>
                   <th>Grade</th>
                   <th>Status</th>
-                  <th>Units Earned</th>
+                  {canEdit && <th>Actions</th>}
                 </tr>
               </thead>
               <tbody>
                 {rows.map((row) => (
-                  <tr key={row.subject_id}>
+                  <tr key={getRowKey(row)}>
                     <td>{row.subject_code || 'N/A'}</td>
                     <td>{row.subject_name || 'N/A'}</td>
                     <td>{row.units ?? 0}</td>
-                    <td>{row.grade ?? ''}</td>
-                    <td>{row.status ?? ''}</td>
                     <td>{row.units_earned ?? 0}</td>
+                    <td>
+                      {canEdit ? (
+                        <input
+                          type="text"
+                          className="eval-grade-input"
+                          value={drafts[getRowKey(row)]?.grade ?? ''}
+                          onChange={(e) => updateDraft(row, { grade: e.target.value })}
+                          placeholder="Grade"
+                          disabled={savingKey === getRowKey(row)}
+                        />
+                      ) : (
+                        row.grade ?? ''
+                      )}
+                    </td>
+                    <td>
+                      {canEdit ? (
+                        <select
+                          className="eval-status-select"
+                          value={drafts[getRowKey(row)]?.status ?? ''}
+                          onChange={(e) => updateDraft(row, { status: e.target.value })}
+                          disabled={savingKey === getRowKey(row)}
+                        >
+                          <option value="">—</option>
+                          {statusOptions.map((s) => (
+                            <option key={s} value={s}>
+                              {s}
+                            </option>
+                          ))}
+                        </select>
+                      ) : (
+                        row.status ?? ''
+                      )}
+                    </td>
+                    {canEdit && (
+                      <td>
+                        <button
+                          type="button"
+                          className="eval-save-button"
+                          onClick={() => handleSaveRow(row)}
+                          disabled={savingKey === getRowKey(row)}
+                        >
+                          Save
+                        </button>
+                      </td>
+                    )}
                   </tr>
                 ))}
               </tbody>
@@ -179,17 +315,28 @@ const StudentEvaluationView = () => {
             <div className="empty-state">No students found</div>
           ) : (
             <div className="eval-student-list">
-              {students.map((student) => (
-                <div
-                  key={student.student_id}
-                  className={`eval-student-item ${selectedStudent?.student_id === student.student_id ? 'active' : ''}`}
-                  onClick={() => handleStudentSelect(student)}
-                >
-                  <div className="eval-student-name">{student.full_name}</div>
-                  <div className="eval-student-id">{student.student_id_number}</div>
-                  <div className="eval-student-program">{student.program_name}</div>
-                </div>
-              ))}
+              <table className="eval-student-list-table">
+                <thead>
+                  <tr>
+                    <th>Name</th>
+                    <th>ID</th>
+                    <th>Program</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {students.map((student) => (
+                    <tr
+                      key={student.student_id}
+                      className={selectedStudent?.student_id === student.student_id ? 'active' : ''}
+                      onClick={() => handleStudentSelect(student)}
+                    >
+                      <td>{student.full_name}</td>
+                      <td>{student.student_id_number || 'N/A'}</td>
+                      <td>{student.program_name}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
           )}
         </div>
@@ -199,6 +346,8 @@ const StudentEvaluationView = () => {
           {error && <div className="error-message">{error}</div>}
 
           {loading && <div className="loading-message">Loading evaluation...</div>}
+
+          {canEdit && saveError && <div className="error-message">{saveError}</div>}
 
           {!loading && renderSummary()}
           {!loading && renderTable()}

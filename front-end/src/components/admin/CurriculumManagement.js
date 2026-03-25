@@ -1,6 +1,25 @@
 import React, { useState, useEffect } from 'react';
 import api from '../../api/axios';
+import { swalConfirm, swalError, swalToast } from '../../utils/swal';
 import './CurriculumManagement.css';
+
+/** Curriculum API returns year_level as either an id or a nested { year_level_id, year_level } */
+function normalizeYearLevelId(val) {
+  if (val == null || val === '') return '';
+  if (typeof val === 'object' && val.year_level_id != null) {
+    return String(val.year_level_id);
+  }
+  return String(val);
+}
+
+/** Description column for elective curriculum rows: "Elective 1", "Elective 2", … from slot_name */
+function electiveSlotDescriptionLabel(slotName, electiveSlotId) {
+  const s = (slotName || '').trim();
+  const m = s.match(/electives?\s*(\d+)/i);
+  if (m) return `Elective ${m[1]}`;
+  if (electiveSlotId != null && electiveSlotId !== '') return `Elective ${electiveSlotId}`;
+  return s || 'Elective';
+}
 
 const CurriculumManagement = () => {
   const [curricula, setCurricula] = useState([]);
@@ -383,7 +402,9 @@ const CurriculumManagement = () => {
 
     // Validate bulk form data
     if (!bulkFormData.program_id || !bulkFormData.year_level || !bulkFormData.semester_id) {
-      setError('Please fill in Program, Year Level, and Semester');
+      const msg = 'Please fill in Program, Year Level, and Semester';
+      setError(msg);
+      await swalError('Missing fields', msg);
       return;
     }
 
@@ -391,7 +412,9 @@ const CurriculumManagement = () => {
     const validRows = subjectRows.filter(row => row.subject_id || row.elective_slot_id);
 
     if (validRows.length === 0) {
-      setError('Please add at least one subject or elective slot');
+      const msg = 'Please add at least one subject or elective slot';
+      setError(msg);
+      await swalError('Nothing to save', msg);
       return;
     }
 
@@ -443,6 +466,7 @@ const CurriculumManagement = () => {
       resetBulkForm();
       fetchCurricula();
       fetchLookupData(); // Refresh lookup data to include any new requisites
+      swalToast('success', 'Curriculum saved');
     } catch (error) {
       console.error('Error saving curriculum:', error);
       console.error('Error response:', error.response?.data);
@@ -462,6 +486,7 @@ const CurriculumManagement = () => {
       }
       
       setError(errorMessage);
+      await swalError('Save failed', errorMessage);
     }
   };
 
@@ -500,7 +525,9 @@ const CurriculumManagement = () => {
       }
 
       const desiredProgramId = bulkFormData.program_id || baseCurriculum.program_id;
-      const desiredYearLevel = bulkFormData.year_level || baseCurriculum.year_level;
+      const desiredYearLevelId = normalizeYearLevelId(
+        bulkFormData.year_level || baseCurriculum.year_level
+      );
       const desiredSemesterId = bulkFormData.semester_id || baseCurriculum.semester_id;
       const isElectiveSlot = row.is_elective_slot || !!baseCurriculum.elective_slot_id;
       const desiredSubjectId = isElectiveSlot ? null : (row.subject_id || baseCurriculum.subject_id);
@@ -510,7 +537,7 @@ const CurriculumManagement = () => {
         ? (curricula.find(c =>
             c &&
             c.program_id?.toString() === desiredProgramId?.toString() &&
-            c.year_level?.toString() === desiredYearLevel?.toString() &&
+            normalizeYearLevelId(c.year_level) === desiredYearLevelId &&
             c.semester_id?.toString() === desiredSemesterId?.toString() &&
             (isElectiveSlot 
               ? c.elective_slot_id?.toString() === desiredElectiveSlotId?.toString()
@@ -519,9 +546,9 @@ const CurriculumManagement = () => {
         : baseCurriculum;
 
       await api.put(`/curriculum/${resolvedCurriculumToUpdate.curriculum_id}`, {
-        program_id: desiredProgramId,
-        year_level: desiredYearLevel,
-        semester_id: desiredSemesterId,
+        program_id: parseInt(desiredProgramId, 10),
+        year_level: parseInt(desiredYearLevelId, 10),
+        semester_id: parseInt(desiredSemesterId, 10),
         subject_id: desiredSubjectId,
         elective_slot_id: desiredElectiveSlotId,
         passing_grade: finalPassingGrade ? finalPassingGrade : (resolvedCurriculumToUpdate.passing_grade || null),
@@ -535,21 +562,33 @@ const CurriculumManagement = () => {
       resetBulkForm();
       fetchCurricula();
       fetchLookupData(); 
+      swalToast('success', 'Curriculum updated');
     } catch (error) {
-      setError(error.response?.data?.message || 'Failed to update curriculum');
+      const msg = error.response?.data?.message || 'Failed to update curriculum';
+      setError(msg);
+      await swalError('Update failed', msg);
     }
   };
 
-  const handleDelete = async (id) => {
-    if (!window.confirm('Are you sure you want to delete this curriculum entry?')) {
-      return;
-    }
+  const handleDelete = async (id, options = {}) => {
+    const { confirmText, title = 'Delete curriculum entry?' } = options;
+    const ok = await swalConfirm({
+      title,
+      text: confirmText || 'Are you sure you want to delete this curriculum entry?',
+      confirmButtonText: 'Delete',
+    });
+    if (!ok) return false;
 
     try {
       await api.delete(`/curriculum/${id}`);
       fetchCurricula();
+      swalToast('success', 'Curriculum entry deleted');
+      return true;
     } catch (error) {
-      setError(error.response?.data?.message || 'Failed to delete curriculum');
+      const msg = error.response?.data?.message || 'Failed to delete curriculum';
+      setError(msg);
+      await swalError('Could not delete', msg);
+      return false;
     }
   };
 
@@ -856,16 +895,23 @@ const CurriculumManagement = () => {
                           onClick={async () => {
                             if (semester.curricula.length === 0) return;
                             const confirmMessage = `Are you sure you want to delete all subjects in:\n\nProgram: ${yearGroup.programName}\nYear Level: ${yearGroup.yearLevelName}\nSemester: ${semester.semesterName}\n\nThis will delete ${semester.curricula.length} subject(s).\n\nThis action cannot be undone!`;
-                            if (window.confirm(confirmMessage)) {
-                              try {
-                                const deletePromises = semester.curricula.map(curriculum => 
-                                  api.delete(`/curriculum/${curriculum.curriculum_id}`)
-                                );
-                                await Promise.all(deletePromises);
-                                fetchCurricula();
-                              } catch (error) {
-                                setError(error.response?.data?.message || 'Failed to delete semester curriculum');
-                              }
+                            const ok = await swalConfirm({
+                              title: 'Delete entire semester?',
+                              text: confirmMessage,
+                              confirmButtonText: 'Delete all',
+                            });
+                            if (!ok) return;
+                            try {
+                              const deletePromises = semester.curricula.map(curriculum => 
+                                api.delete(`/curriculum/${curriculum.curriculum_id}`)
+                              );
+                              await Promise.all(deletePromises);
+                              fetchCurricula();
+                              swalToast('success', 'Semester subjects deleted');
+                            } catch (error) {
+                              const msg = error.response?.data?.message || 'Failed to delete semester curriculum';
+                              setError(msg);
+                              await swalError('Delete failed', msg);
                             }
                           }}
                           title="Delete all subjects in this semester"
@@ -913,41 +959,12 @@ const CurriculumManagement = () => {
                                     </td>
                                     <td>{preCoRequisiteDisplay}</td>
                                     <td>
-                                      {isElectiveSlot ? (
-                                        (() => {
-                                          const electiveSubjects = electiveSlot?.electiveSubjects || [];
-                                          
-                                          if (electiveSubjects.length === 0) {
-                                            return (
-                                              <span style={{ fontStyle: 'italic', color: '#999' }}>
-                                                No subjects assigned
-                                              </span>
-                                            );
-                                          }
-                                          
-                                          // Display all subjects assigned to this elective slot
-                                          return (
-                                            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
-                                              {electiveSubjects.map((es, idx) => {
-                                                const subjectName = es.subject?.subject_name || es.subject?.subject_code || 'Unknown Subject';
-                                                const trackName = es.track?.track_name || '';
-                                                return (
-                                                  <span key={es.elective_subject_id || idx} style={{ fontSize: '13px' }}>
-                                                    {subjectName}
-                                                    {trackName && (
-                                                      <span style={{ color: '#666', marginLeft: '5px' }}>
-                                                        ({trackName})
-                                                      </span>
-                                                    )}
-                                                  </span>
-                                                );
-                                              })}
-                                            </div>
-                                          );
-                                        })()
-                                      ) : (
-                                        subject?.subject_name || '-'
-                                      )}
+                                      {isElectiveSlot
+                                        ? electiveSlotDescriptionLabel(
+                                            electiveSlot?.slot_name,
+                                            curriculum.elective_slot_id
+                                          )
+                                        : subject?.subject_name || '-'}
                                     </td>
                                     <td>
                                       {isElectiveSlot ? '-' : (subject?.number_of_units || '-')}
@@ -972,7 +989,7 @@ const CurriculumManagement = () => {
                                             setEditingCurriculum(curriculum);
                                             setBulkFormData({
                                               program_id: curriculum.program_id?.toString() || '',
-                                              year_level: curriculum.year_level?.toString() || '',
+                                              year_level: normalizeYearLevelId(curriculum.year_level),
                                               semester_id: curriculum.semester_id?.toString() || '',
                                             });
                                             setSubjectRows([{
@@ -998,9 +1015,11 @@ const CurriculumManagement = () => {
                                             const displayName = isElectiveSlot 
                                               ? (electiveSlot?.slot_name || `Elective Slot #${curriculum.elective_slot_id}`)
                                               : (subject?.subject_code || 'N/A');
-                                            if (window.confirm(`Are you sure you want to delete this curriculum entry?\n\n${isElectiveSlot ? 'Elective Slot' : 'Subject'}: ${displayName}\nProgram: ${curriculum.program?.program_name || 'N/A'}\nYear: ${curriculum.yearLevel?.year_level || 'N/A'}\nSemester: ${curriculum.semester?.semester_name || 'N/A'}`)) {
-                                              await handleDelete(curriculum.curriculum_id);
-                                            }
+                                            const confirmText = `${isElectiveSlot ? 'Elective Slot' : 'Subject'}: ${displayName}\nProgram: ${curriculum.program?.program_name || 'N/A'}\nYear: ${curriculum.yearLevel?.year_level || 'N/A'}\nSemester: ${curriculum.semester?.semester_name || 'N/A'}`;
+                                            await handleDelete(curriculum.curriculum_id, {
+                                              title: 'Delete curriculum entry?',
+                                              confirmText,
+                                            });
                                           }}
                                           title="Delete this curriculum"
                                         >
@@ -1175,36 +1194,14 @@ const CurriculumManagement = () => {
                             {row.is_elective_slot ? (
                               (() => {
                                 const selectedSlot = filteredElectiveSlots.find(s => s.elective_slot_id?.toString() === row.elective_slot_id?.toString());
-                                const electiveSubjects = selectedSlot?.electiveSubjects || [];
-                                
-                                if (electiveSubjects.length === 0) {
-                                  return (
-                                    <input
-                                      type="text"
-                                      value="No subjects assigned"
-                                      readOnly
-                                      className="subject-name-readonly"
-                                      placeholder="Elective Slot"
-                                      style={{ color: '#999', fontStyle: 'italic' }}
-                                    />
-                                  );
-                                }
-                                
-                                // Display all subjects assigned to this elective slot
-                                const subjectsList = electiveSubjects.map(es => {
-                                  const subjectName = es.subject?.subject_name || es.subject?.subject_code || 'Unknown Subject';
-                                  const trackName = es.track?.track_name || '';
-                                  return trackName ? `${subjectName} (${trackName})` : subjectName;
-                                }).join(', ');
-                                
+                                const label = electiveSlotDescriptionLabel(selectedSlot?.slot_name, row.elective_slot_id);
                                 return (
                                   <input
                                     type="text"
-                                    value={subjectsList}
+                                    value={label}
                                     readOnly
                                     className="subject-name-readonly"
-                                    placeholder="Elective Slot"
-                                    title={subjectsList}
+                                    placeholder="Elective"
                                   />
                                 );
                               })()
@@ -1437,7 +1434,7 @@ const CurriculumManagement = () => {
                     <div className="form-group">
                       <label>Year Level <span className="required">*</span></label>
                       <select
-                        value={bulkFormData.year_level || selectedCurriculum.year_level}
+                        value={bulkFormData.year_level || normalizeYearLevelId(selectedCurriculum.year_level)}
                         onChange={(e) => setBulkFormData({ ...bulkFormData, year_level: e.target.value })}
                         required
                       >
@@ -1501,14 +1498,16 @@ const CurriculumManagement = () => {
                           <option value="">Select Elective Slot</option>
                           {(() => {
                             const programId = bulkFormData.program_id || selectedCurriculum.program_id;
-                            const yearLevel = bulkFormData.year_level || selectedCurriculum.year_level;
+                            const yearLevelId = normalizeYearLevelId(
+                              bulkFormData.year_level || selectedCurriculum.year_level
+                            );
                             const semesterId = bulkFormData.semester_id || selectedCurriculum.semester_id;
                             
                             const filteredSlots = safeLookupData.electiveSlots.filter(slot => {
-                              if (!programId || !yearLevel || !semesterId) return true;
+                              if (!programId || !yearLevelId || !semesterId) return true;
                               return (
                                 slot.program_id?.toString() === programId.toString() &&
-                                slot.year_level_id?.toString() === yearLevel.toString() &&
+                                slot.year_level_id?.toString() === yearLevelId &&
                                 slot.semester_id?.toString() === semesterId.toString()
                               );
                             });
@@ -1650,8 +1649,8 @@ const CurriculumManagement = () => {
                         type="button"
                         className="delete-button"
                         onClick={async () => {
-                          if (window.confirm('Are you sure you want to delete this curriculum entry?')) {
-                            await handleDelete(selectedCurriculum.curriculum_id);
+                          const deleted = await handleDelete(selectedCurriculum.curriculum_id);
+                          if (deleted) {
                             setShowEditPanel(false);
                             setSelectedCurriculum(null);
                           }

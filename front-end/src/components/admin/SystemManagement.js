@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import api from '../../api/axios';
+import { swalConfirm, swalToast, swalError } from '../../utils/swal';
 import './SystemManagement.css';
 
 const SystemManagement = () => {
@@ -89,9 +90,12 @@ const SystemManagement = () => {
   };
 
   const handleDelete = async (id) => {
-    if (!window.confirm(`Are you sure you want to delete this ${getTabTitle()}?`)) {
-      return;
-    }
+    const ok = await swalConfirm({
+      title: `Delete ${getTabTitle()}?`,
+      text: `Are you sure you want to delete this ${getTabTitle()}?`,
+      confirmButtonText: 'Delete',
+    });
+    if (!ok) return;
 
     try {
       let endpoint = '';
@@ -114,8 +118,11 @@ const SystemManagement = () => {
 
       await api.delete(endpoint);
       fetchData();
+      swalToast('success', `${getTabTitle()} deleted`);
     } catch (err) {
-      setError(err.response?.data?.message || `Failed to delete ${getTabTitle()}`);
+      const msg = err.response?.data?.message || `Failed to delete ${getTabTitle()}`;
+      setError(msg);
+      await swalError('Delete failed', msg);
     }
   };
 
@@ -150,8 +157,11 @@ const SystemManagement = () => {
 
       setShowModal(false);
       fetchData();
+      swalToast('success', editingItem ? `${getTabTitle()} updated` : `${getTabTitle()} created`);
     } catch (err) {
-      setError(err.response?.data?.message || `Failed to ${editingItem ? 'update' : 'create'} ${getTabTitle()}`);
+      const msg = err.response?.data?.message || `Failed to ${editingItem ? 'update' : 'create'} ${getTabTitle()}`;
+      setError(msg);
+      await swalError('Save failed', msg);
     }
   };
 

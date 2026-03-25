@@ -4,6 +4,7 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Facades\Schema;
 
 class StudentProfile extends Model
 {
@@ -44,7 +45,20 @@ class StudentProfile extends Model
     public function scopeWhereStudentIdNumber($query, $number)
     {
         return $query->where(function ($q) use ($number) {
-            $q->where('student_id_number', $number)->orWhere('student_number', $number);
+            $hasStudentIdNumber = Schema::hasColumn($this->table, 'student_id_number');
+            $hasStudentNumber = Schema::hasColumn($this->table, 'student_number');
+
+            if ($hasStudentIdNumber) {
+                $q->where('student_id_number', $number);
+            }
+
+            if ($hasStudentNumber) {
+                if ($hasStudentIdNumber) {
+                    $q->orWhere('student_number', $number);
+                } else {
+                    $q->where('student_number', $number);
+                }
+            }
         });
     }
 

@@ -10,8 +10,8 @@ class SchoolController extends Controller
     public function index(Request $request)
     {
         try {
-            if (!$request->user() || !$request->user()->isAdmin()) {
-                return response()->json(['message' => 'Unauthorized'], 403);
+            if (!$request->user()) {
+                return response()->json(['message' => 'Unauthorized'], 401);
             }
 
             $schools = School::all();
@@ -24,7 +24,8 @@ class SchoolController extends Controller
     public function store(Request $request)
     {
         try {
-            if (!$request->user() || !$request->user()->isAdmin()) {
+            $user = $request->user();
+            if (!$user || !$user->hasPermission('System Management')) {
                 return response()->json(['message' => 'Unauthorized'], 403);
             }
 
@@ -44,7 +45,8 @@ class SchoolController extends Controller
     public function update(Request $request, $id)
     {
         try {
-            if (!$request->user() || !$request->user()->isAdmin()) {
+            $user = $request->user();
+            if (!$user || !$user->hasPermission('System Management')) {
                 return response()->json(['message' => 'Unauthorized'], 403);
             }
 
@@ -66,7 +68,8 @@ class SchoolController extends Controller
     public function destroy(Request $request, $id)
     {
         try {
-            if (!$request->user() || !$request->user()->isAdmin()) {
+            $user = $request->user();
+            if (!$user || !$user->hasPermission('System Management')) {
                 return response()->json(['message' => 'Unauthorized'], 403);
             }
 

@@ -6,25 +6,30 @@ import FacultyProfile from './FacultyProfile';
 import FacultyClasses from './FacultyClasses';
 import FacultyGrades from './FacultyGrades';
 import StudentEvaluationView from '../common/StudentEvaluationView';
+import CreditEvaluationManagement from '../admin/CreditEvaluationManagement';
+import ElectiveSlotManagement from '../admin/ElectiveSlotManagement';
+import SystemManagement from '../admin/SystemManagement';
 import './FacultyPanel.css';
 
 const FacultyPanel = () => {
-  const { user, logout } = useAuth();
+  const { user, logout, hasPermission } = useAuth();
   const navigate = useNavigate();
-  const [activeTab, setActiveTab] = useState('classes');
+  // Show evaluation immediately for Dean/Faculty so they can view & evaluate students.
+  const [activeTab, setActiveTab] = useState('evaluation');
   const [facultyProfile, setFacultyProfile] = useState(null);
   const [loadingProfile, setLoadingProfile] = useState(true);
+
+  const isFacultyOrAdviser = user?.role === 'Faculty' || user?.role === 'Adviser';
 
   useEffect(() => {
     if (!user) {
       navigate('/login');
-    } else if (user.role !== 'Faculty' && !user.is_admin) {
-      // Redirect non-faculty users
+    } else if (!isFacultyOrAdviser && !user.is_admin) {
       navigate('/');
-    } else if (user.role === 'Faculty') {
+    } else if (isFacultyOrAdviser) {
       fetchFacultyProfile();
     }
-  }, [user, navigate]);
+  }, [user, navigate, isFacultyOrAdviser]);
 
   const fetchFacultyProfile = async () => {
     try {
@@ -52,7 +57,7 @@ const FacultyPanel = () => {
   return (
     <div className="faculty-panel">
       <header className="faculty-header">
-        <h1>Faculty Portal</h1>
+        <h1>{user?.role === 'Adviser' ? 'Adviser / Faculty Portal' : 'Faculty Portal'}</h1>
         <div className="header-info">
           <span>Welcome, {user.email}</span>
           <button onClick={handleLogout} className="logout-button">
@@ -81,6 +86,28 @@ const FacultyPanel = () => {
           Student Evaluation
         </button>
         <button
+          className={activeTab === 'credits' ? 'tab active' : 'tab'}
+          onClick={() => setActiveTab('credits')}
+        >
+          Credit evaluation
+        </button>
+        {hasPermission('Elective Slots') && (
+          <button
+            className={activeTab === 'elective-slots' ? 'tab active' : 'tab'}
+            onClick={() => setActiveTab('elective-slots')}
+          >
+            Elective slots
+          </button>
+        )}
+        {hasPermission('System Management') && (
+          <button
+            className={activeTab === 'system-mgmt' ? 'tab active' : 'tab'}
+            onClick={() => setActiveTab('system-mgmt')}
+          >
+            System management
+          </button>
+        )}
+        <button
           className={activeTab === 'profile' ? 'tab active' : 'tab'}
           onClick={() => setActiveTab('profile')}
         >
@@ -92,6 +119,9 @@ const FacultyPanel = () => {
         {activeTab === 'classes' && <FacultyClasses facultyProfile={facultyProfile} />}
         {activeTab === 'grades' && <FacultyGrades facultyProfile={facultyProfile} />}
         {activeTab === 'evaluation' && <StudentEvaluationView />}
+        {activeTab === 'credits' && <CreditEvaluationManagement approvalMode />}
+        {activeTab === 'elective-slots' && hasPermission('Elective Slots') && <ElectiveSlotManagement />}
+        {activeTab === 'system-mgmt' && hasPermission('System Management') && <SystemManagement />}
         {activeTab === 'profile' && <FacultyProfile facultyProfile={facultyProfile} onUpdate={fetchFacultyProfile} />}
       </div>
     </div>

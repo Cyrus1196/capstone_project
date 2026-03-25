@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import api from '../../api/axios';
+import { swalConfirm, swalToast, swalError } from '../../utils/swal';
 import './UserManagement.css';
 
 const UserManagement = () => {
@@ -154,14 +155,20 @@ const UserManagement = () => {
   };
 
   const handleDeletePermission = async (id) => {
-    if (!window.confirm('Are you sure you want to delete this permission?')) {
-      return;
-    }
+    const ok = await swalConfirm({
+      title: 'Delete permission?',
+      text: 'Are you sure you want to delete this permission?',
+      confirmButtonText: 'Delete',
+    });
+    if (!ok) return;
     try {
       await api.delete(`/permissions/${id}`);
       fetchPermissions();
+      swalToast('success', 'Permission deleted');
     } catch (error) {
-      setError(error.response?.data?.message || 'Failed to delete permission');
+      const msg = error.response?.data?.message || 'Failed to delete permission';
+      setError(msg);
+      await swalError('Delete failed', msg);
     }
   };
 
@@ -176,8 +183,11 @@ const UserManagement = () => {
       }
       setShowModal(false);
       fetchPermissions();
+      swalToast('success', editingItem ? 'Permission updated' : 'Permission created');
     } catch (error) {
-      setError(error.response?.data?.message || `Failed to ${editingItem ? 'update' : 'create'} permission`);
+      const msg = error.response?.data?.message || `Failed to ${editingItem ? 'update' : 'create'} permission`;
+      setError(msg);
+      await swalError('Save failed', msg);
     }
   };
 
@@ -290,15 +300,21 @@ const UserManagement = () => {
   };
 
   const handleDelete = async (id) => {
-    if (!window.confirm('Are you sure you want to delete this user?')) {
-      return;
-    }
+    const ok = await swalConfirm({
+      title: 'Delete user?',
+      text: 'Are you sure you want to delete this user?',
+      confirmButtonText: 'Delete',
+    });
+    if (!ok) return;
 
     try {
       await api.delete(`/users/${id}`);
       fetchUsers();
+      swalToast('success', 'User deleted');
     } catch (error) {
-      setError(error.response?.data?.message || 'Failed to delete user');
+      const msg = error.response?.data?.message || 'Failed to delete user';
+      setError(msg);
+      await swalError('Delete failed', msg);
     }
   };
 
@@ -399,8 +415,11 @@ const UserManagement = () => {
       setShowModal(false);
       setEditingUser(null);
       fetchUsers();
+      swalToast('success', editingUser ? 'User updated' : 'User created');
     } catch (error) {
-      setError(error.response?.data?.message || `Failed to ${editingUser ? 'update' : 'create'} user`);
+      const msg = error.response?.data?.message || `Failed to ${editingUser ? 'update' : 'create'} user`;
+      setError(msg);
+      await swalError('Save failed', msg);
     }
   };
 

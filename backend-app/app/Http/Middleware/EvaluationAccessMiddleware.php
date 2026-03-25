@@ -26,7 +26,10 @@ class EvaluationAccessMiddleware
         }
 
         // Check if user has required role for evaluation access
-        $hasAccess = $user->isAdmin() || $user->hasRole('Dean') || $user->hasRole('Faculty');
+        $hasAccess = $user->isAdmin()
+            || $user->hasRole('Dean')
+            || $user->hasRole('Faculty')
+            || $user->hasRole('Adviser');
         
         if (!$hasAccess) {
             return response()->json(['message' => 'Forbidden - Insufficient privileges for evaluation access'], 403);
@@ -43,16 +46,13 @@ class EvaluationAccessMiddleware
             }
         }
 
-        // For faculty users, check if they have access to the specific subject/evaluation
-        if ($user->hasRole('Faculty') && in_array($method, ['POST', 'PUT', 'PATCH'])) {
+        // For faculty / adviser users, check profile for write operations
+        if (($user->hasRole('Faculty') || $user->hasRole('Adviser')) && in_array($method, ['POST', 'PUT', 'PATCH'])) {
             $facultyProfile = FacultyProfile::where('user_id', $user->user_id)->first();
-            
-            if (!$facultyProfile) {
-                return response()->json(['message' => 'Forbidden - Faculty profile not found'], 403);
-            }
 
-            // You can add additional logic here to check if faculty has access to specific subjects
-            // For now, we'll allow all faculty to manage evaluations
+            if (!$facultyProfile) {
+                return response()->json(['message' => 'Forbidden - Faculty/Adviser profile not found'], 403);
+            }
         }
 
         // For dean users, check if they have access to their assigned program's evaluations

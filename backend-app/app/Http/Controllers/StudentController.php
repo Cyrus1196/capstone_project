@@ -266,6 +266,7 @@ class StudentController extends Controller
                     'subject_code' => $item->subject->subject_code ?? null,
                     'subject_name' => $item->subject->subject_name ?? null,
                     'units' => $item->subject->number_of_units ?? null,
+                    'hours' => $item->subject->number_of_hrs ?? null,
                     'year_level_id' => $item->year_level,
                     'year_level_name' => $item->yearLevel->year_level ?? null,
                     'semester_id' => $item->semester_id,

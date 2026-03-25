@@ -11,10 +11,24 @@ use Illuminate\Support\Facades\DB;
 
 class CreditEvaluationController extends Controller
 {
+    protected function canAccessCreditEvaluations($user): bool
+    {
+        if (!$user) {
+            return false;
+        }
+        if ($user->isAdmin()) {
+            return true;
+        }
+
+        return $user->hasRole('Dean')
+            || $user->hasRole('Faculty')
+            || $user->hasRole('Adviser');
+    }
+
     public function index(Request $request)
     {
         try {
-            if (!$request->user() || !$request->user()->isAdmin()) {
+            if (!$this->canAccessCreditEvaluations($request->user())) {
                 return response()->json(['message' => 'Unauthorized'], 403);
             }
 
@@ -32,7 +46,7 @@ class CreditEvaluationController extends Controller
     {
         try {
             if (!$request->user() || !$request->user()->isAdmin()) {
-                return response()->json(['message' => 'Unauthorized'], 403);
+                return response()->json(['message' => 'Unauthorized — only administrators can create credit requests'], 403);
             }
 
             $validated = $request->validate([
@@ -88,7 +102,7 @@ class CreditEvaluationController extends Controller
     public function show(Request $request, $id)
     {
         try {
-            if (!$request->user() || !$request->user()->isAdmin()) {
+            if (!$this->canAccessCreditEvaluations($request->user())) {
                 return response()->json(['message' => 'Unauthorized'], 403);
             }
 
@@ -104,23 +118,32 @@ class CreditEvaluationController extends Controller
     public function update(Request $request, $id)
     {
         try {
-            if (!$request->user() || !$request->user()->isAdmin()) {
+            $user = $request->user();
+            if (!$this->canAccessCreditEvaluations($user)) {
                 return response()->json(['message' => 'Unauthorized'], 403);
             }
 
             $evaluation = CreditEvaluation::findOrFail($id);
 
-            $validated = $request->validate([
-                'student_id' => 'required|exists:tbl_student_profile,student_id',
-                'school_id' => 'required|exists:tbl_schools,school_id',
-                'credit_type' => 'required|string|max:50',
-                'evaluated_by' => 'required|exists:tbl_users,user_id',
-                'evaluation_date' => 'required|date',
-                'status' => 'nullable|string|max:50',
-                'remarks' => 'nullable|string',
-            ]);
+            if ($user->isAdmin()) {
+                $validated = $request->validate([
+                    'student_id' => 'required|exists:tbl_student_profile,student_id',
+                    'school_id' => 'required|exists:tbl_schools,school_id',
+                    'credit_type' => 'required|string|max:50',
+                    'evaluated_by' => 'required|exists:tbl_users,user_id',
+                    'evaluation_date' => 'required|date',
+                    'status' => 'nullable|string|max:50',
+                    'remarks' => 'nullable|string',
+                ]);
+                $evaluation->update($validated);
+            } else {
+                $validated = $request->validate([
+                    'status' => 'required|string|max:50',
+                    'remarks' => 'nullable|string',
+                ]);
+                $evaluation->update($validated);
+            }
 
-            $evaluation->update($validated);
             $evaluation->load(['student', 'school', 'evaluator', 'creditDetails.subject', 'creditDetails.otherSchoolSubject']);
 
             return response()->json($evaluation);

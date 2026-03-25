@@ -44,49 +44,43 @@
 .eval-student-list {
   flex: 1;
   overflow-y: auto;
-  padding: 0.4rem;
+  padding: 0;
 }
 
-.eval-student-item {
-  background-color: white;
-  border: 1px solid #e0e0e0;
-  border-radius: 4px;
-  padding: 0.5rem 0.6rem;
-  margin-bottom: 0.35rem;
-  cursor: pointer;
-  transition: all 0.2s;
+.eval-student-list-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.82rem;
+  background: #fff;
 }
 
-.eval-student-item:hover {
-  background-color: #f0f0f0;
-  border-color: #667eea;
+.eval-student-list-table th,
+.eval-student-list-table td {
+  padding: 0.45rem 0.5rem;
+  border-bottom: 1px solid #e5e7eb;
+  text-align: left;
+  white-space: nowrap;
 }
 
-.eval-student-item.active {
-  background-color: #e3f2fd;
-  border-color: #2196f3;
-  border-width: 2px;
-}
-
-.eval-student-name {
+.eval-student-list-table th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: #f3f4f6;
+  color: #374151;
   font-weight: 600;
-  color: #333;
-  margin-bottom: 0.15rem;
-  font-size: 0.85rem;
-  line-height: 1.2;
 }
 
-.eval-student-id {
-  font-size: 0.75rem;
-  color: #666;
-  margin-bottom: 0.1rem;
-  line-height: 1.2;
+.eval-student-list-table tbody tr {
+  cursor: pointer;
 }
 
-.eval-student-program {
-  font-size: 0.7rem;
-  color: #999;
-  line-height: 1.2;
+.eval-student-list-table tbody tr:hover {
+  background: #f8fafc;
+}
+
+.eval-student-list-table tbody tr.active {
+  background: #e3f2fd;
 }
 
 .eval-details-panel {
@@ -153,6 +147,38 @@
   text-align: center;
   color: #999;
   font-style: italic;
+}
+
+/* Inline editor (Dean/Faculty) */
+.eval-grade-input {
+  width: 90px;
+  padding: 0.25rem 0.4rem;
+  border: 1px solid #d1d5db;
+  border-radius: 4px;
+  font-size: 0.85rem;
+}
+
+.eval-status-select {
+  width: 120px;
+  padding: 0.25rem 0.4rem;
+  border: 1px solid #d1d5db;
+  border-radius: 4px;
+  font-size: 0.85rem;
+}
+
+.eval-save-button {
+  padding: 0.35rem 0.7rem;
+  background: #2563eb;
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.85rem;
+}
+
+.eval-save-button:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
 }
 
 @media (max-width: 1024px) {

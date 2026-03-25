@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import api from '../../api/axios';
+import { swalConfirm, swalToast, swalError } from '../../utils/swal';
 import './ElectiveSlotManagement.css';
 
 const ElectiveSlotManagement = () => {
@@ -110,14 +111,20 @@ const ElectiveSlotManagement = () => {
   };
 
   const handleDelete = async (id) => {
-    if (!window.confirm('Are you sure you want to delete this elective slot?')) {
-      return;
-    }
+    const ok = await swalConfirm({
+      title: 'Delete elective slot?',
+      text: 'Are you sure you want to delete this elective slot?',
+      confirmButtonText: 'Delete',
+    });
+    if (!ok) return;
     try {
       await api.delete(`/elective-slots/${id}`);
       fetchSlots();
+      swalToast('success', 'Elective slot deleted');
     } catch (err) {
-      setError('Failed to delete elective slot');
+      const msg = err.response?.data?.message || 'Failed to delete elective slot';
+      setError(msg);
+      await swalError('Delete failed', msg);
     }
   };
 
@@ -162,8 +169,11 @@ const ElectiveSlotManagement = () => {
       setFormSubjects([]);
       // Refresh the slots list to show updated data with subjects
       await fetchSlots();
+      swalToast('success', editingItem ? 'Elective slot updated' : 'Elective slot created');
     } catch (err) {
-      setError(err.response?.data?.message || err.response?.data?.error || `Failed to ${editingItem ? 'update' : 'create'} elective slot`);
+      const msg = err.response?.data?.message || err.response?.data?.error || `Failed to ${editingItem ? 'update' : 'create'} elective slot`;
+      setError(msg);
+      await swalError('Save failed', msg);
     }
   };
 
@@ -227,13 +237,17 @@ const ElectiveSlotManagement = () => {
       setError(errorMsg);
       console.error('Error assigning subject:', err);
       console.error('Error response:', err.response?.data);
+      await swalError('Assign failed', errorMsg);
     }
   };
 
   const handleRemoveSubject = async (subjectId) => {
-    if (!window.confirm('Remove this subject from the elective slot?')) {
-      return;
-    }
+    const ok = await swalConfirm({
+      title: 'Remove subject?',
+      text: 'Remove this subject from the elective slot?',
+      confirmButtonText: 'Remove',
+    });
+    if (!ok) return;
     try {
       setError('');
       await api.delete(`/elective-slots/${selectedSlot.elective_slot_id}/subjects/${subjectId}`);
@@ -247,10 +261,12 @@ const ElectiveSlotManagement = () => {
       if (updatedSlot) {
         setSelectedSlot(updatedSlot);
       }
+      swalToast('success', 'Subject removed from slot');
     } catch (err) {
       const errorMsg = err.response?.data?.error || err.response?.data?.message || 'Failed to remove subject from slot';
       setError(errorMsg);
       console.error('Error removing subject:', err);
+      await swalError('Remove failed', errorMsg);
     }
   };
 

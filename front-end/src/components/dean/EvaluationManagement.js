@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { swalConfirm, swalToast, swalError } from '../../utils/swal';
 import './EvaluationManagement.css';
 
 const EvaluationManagement = () => {
@@ -124,16 +125,20 @@ const EvaluationManagement = () => {
 
             if (response.ok) {
                 setSuccess(editingEvaluation ? 'Evaluation updated successfully' : 'Evaluation created successfully');
+                swalToast('success', editingEvaluation ? 'Evaluation updated' : 'Evaluation created');
                 setShowModal(false);
                 setEditingEvaluation(null);
                 resetForm();
                 fetchEvaluations();
             } else {
                 const errorData = await response.json();
-                setError(errorData.message || 'Failed to save evaluation');
+                const msg = errorData.message || 'Failed to save evaluation';
+                setError(msg);
+                await swalError('Save failed', msg);
             }
         } catch (err) {
             setError('Failed to save evaluation');
+            await swalError('Save failed', 'Failed to save evaluation');
         } finally {
             setLoading(false);
         }
@@ -159,9 +164,12 @@ const EvaluationManagement = () => {
     };
 
     const handleDelete = async (evaluationId) => {
-        if (!window.confirm('Are you sure you want to delete this evaluation?')) {
-            return;
-        }
+        const ok = await swalConfirm({
+            title: 'Delete evaluation?',
+            text: 'Are you sure you want to delete this evaluation?',
+            confirmButtonText: 'Delete',
+        });
+        if (!ok) return;
 
         setLoading(true);
         try {
@@ -174,12 +182,15 @@ const EvaluationManagement = () => {
 
             if (response.ok) {
                 setSuccess('Evaluation deleted successfully');
+                swalToast('success', 'Evaluation deleted');
                 fetchEvaluations();
             } else {
                 setError('Failed to delete evaluation');
+                await swalError('Delete failed', 'Failed to delete evaluation');
             }
         } catch (err) {
             setError('Failed to delete evaluation');
+            await swalError('Delete failed', 'Failed to delete evaluation');
         } finally {
             setLoading(false);
         }

@@ -4,11 +4,15 @@ namespace Database\Seeders;
 
 use Illuminate\Database\Seeder;
 use App\Models\Permission;
+use App\Models\Role;
+use App\Models\RolePermission;
 
 class DefaultPermissionsSeeder extends Seeder
 {
     public function run(): void
     {
+        Permission::where('permission_name', 'Sample Module Access')->delete();
+
         $permissions = [
             ['permission_name' => 'Admin Dashboard', 'category' => 'Dashboard', 'description' => 'Display admin statistics and overview'],
             ['permission_name' => 'User Management', 'category' => 'User Management', 'description' => 'Create, update, or deactivate system users'],
@@ -31,6 +35,19 @@ class DefaultPermissionsSeeder extends Seeder
                     'description' => $p['description'] ?? null,
                 ]
             );
+        }
+
+        $adminRole = Role::where('role_name', 'Admin')->first();
+        if ($adminRole) {
+            $ids = Permission::pluck('permission_id')->all();
+            foreach ($ids as $permissionId) {
+                RolePermission::firstOrCreate(
+                    [
+                        'role_id' => $adminRole->role_id,
+                        'permission_id' => $permissionId,
+                    ]
+                );
+            }
         }
 
         $this->command->info('Default permissions seeded.');

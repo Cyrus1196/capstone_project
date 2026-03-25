@@ -14,6 +14,11 @@ class Section extends Model
 
     protected $fillable = [
         'section_name',
+        'program_id',
+        'year_level_id',
+        'semester_id',
+        'academic_year_id',
+        'faculty_id',
     ];
 
     // Provide a convenient `name` attribute to match frontend expectations

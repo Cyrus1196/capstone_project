@@ -82,6 +82,13 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
+  const hasPermission = (permissionName) => {
+    if (!user || !permissionName) return false;
+    if (user.is_admin) return true;
+    const list = user.permissions;
+    return Array.isArray(list) && list.includes(permissionName);
+  };
+
   const value = {
     user,
     loading,
@@ -90,7 +97,10 @@ export const AuthProvider = ({ children }) => {
     isAuthenticated: !!user,
     isAdmin: user?.is_admin || false,
     isDean: user?.role === 'Dean' || false,
-    isFaculty: user?.role === 'Faculty' || false,
+    /** Faculty and Adviser share the faculty portal (credit review, evaluation). */
+    isFaculty: user?.role === 'Faculty' || user?.role === 'Adviser' || false,
+    isGuest: user?.role === 'Guest' || false,
+    hasPermission,
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

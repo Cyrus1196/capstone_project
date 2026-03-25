@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import api from '../../api/axios';
+import { swalToast, swalError } from '../../utils/swal';
 import './RoleSettings.css';
 
 const RoleSettings = () => {
@@ -60,6 +61,7 @@ const RoleSettings = () => {
       setError('Failed to load permissions for role');
       setPermissions([]);
       setAssignedIds([]);
+      swalError('Could not load permissions', 'Failed to load permissions for this role.');
     } finally {
       setLoading(false);
     }
@@ -83,9 +85,12 @@ const RoleSettings = () => {
         permission_ids: assignedIds,
       });
       setSuccess('Permissions saved successfully.');
+      swalToast('success', 'Permissions saved');
       setTimeout(() => setSuccess(''), 3000);
     } catch (err) {
-      setError(err.response?.data?.message || 'Failed to save permissions');
+      const msg = err.response?.data?.message || 'Failed to save permissions';
+      setError(msg);
+      swalError('Save failed', msg);
     } finally {
       setSaving(false);
     }

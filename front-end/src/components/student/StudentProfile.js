@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { swalSuccess, swalError } from '../../utils/swal';
 import { useAuth } from '../../context/AuthContext';
 import api from '../../api/axios';
 
@@ -71,11 +72,12 @@ const StudentProfile = () => {
         await api.post(`/students/profile`, formData);
       }
       await fetchProfile();
-      alert('Profile saved successfully!');
+      await swalSuccess('Saved', 'Profile saved successfully.');
     } catch (err) {
       console.error('Error saving profile:', err);
-      setError(err.response?.data?.message || 'Failed to save profile');
-      alert(err.response?.data?.message || 'Failed to save profile');
+      const msg = err.response?.data?.message || 'Failed to save profile';
+      setError(msg);
+      await swalError('Could not save profile', msg);
     } finally {
       setSaving(false);
     }

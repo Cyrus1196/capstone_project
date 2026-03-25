@@ -1,0 +1,58 @@
+/* Student curriculum: reuses CurriculumManagement.css; these are small overrides */
+
+.student-curriculum-page {
+  min-height: auto;
+  padding: 0;
+  background: transparent;
+}
+
+.student-curriculum-year-tabs {
+  flex-wrap: wrap;
+  margin-bottom: 18px;
+}
+
+.year-tab-pill {
+  padding: 8px 16px;
+  border-radius: 8px;
+  border: 1px solid #e6e9ef;
+  background: #fff;
+  cursor: pointer;
+  font-size: 14px;
+  color: #6b7280;
+  font-weight: 500;
+}
+
+.year-tab-pill:hover {
+  border-color: #2563eb;
+  color: #2563eb;
+}
+
+.year-tab-pill.active {
+  background: #2563eb;
+  color: #fff;
+  border-color: #2563eb;
+}
+
+.student-curriculum-table .prereq-cell {
+  font-style: italic;
+  color: #6b7280;
+  max-width: 140px;
+}
+
+.student-curriculum-row-passed td {
+  background: rgba(22, 163, 74, 0.06);
+}
+
+.student-curriculum-grade {
+  color: #15803d;
+  font-weight: 600;
+  font-size: 12px;
+}
+
+.muted-status {
+  color: #9ca3af;
+}
+
+.student-curriculum-page .year-group {
+  margin-top: 0;
+}

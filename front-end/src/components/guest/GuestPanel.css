@@ -1,0 +1,84 @@
+.guest-panel {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 1.5rem;
+}
+
+.guest-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 1rem;
+  margin-bottom: 1.5rem;
+  flex-wrap: wrap;
+}
+
+.guest-sub {
+  margin: 0.35rem 0 0;
+  color: #555;
+  font-size: 0.95rem;
+}
+
+.guest-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.logout-button {
+  padding: 0.45rem 0.9rem;
+  background: #c0392b;
+  color: #fff;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.guest-toolbar {
+  margin-bottom: 1rem;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.guest-toolbar select {
+  min-width: 220px;
+  padding: 0.35rem 0.5rem;
+}
+
+.guest-table-wrap {
+  overflow-x: auto;
+  border: 1px solid #ddd;
+  border-radius: 6px;
+}
+
+.guest-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+
+.guest-table th,
+.guest-table td {
+  padding: 0.5rem 0.65rem;
+  border-bottom: 1px solid #eee;
+  text-align: left;
+}
+
+.guest-table th {
+  background: #f6f7f9;
+}
+
+.guest-error {
+  background: #fdecea;
+  color: #611a15;
+  padding: 0.75rem;
+  border-radius: 4px;
+  margin-bottom: 1rem;
+}
+
+.guest-loading {
+  padding: 2rem;
+  text-align: center;
+  color: #666;
+}

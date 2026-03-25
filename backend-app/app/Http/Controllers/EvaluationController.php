@@ -17,7 +17,7 @@ class EvaluationController extends Controller
     {
         try {
             $user = $request->user();
-            if (!$user || (!$user->isAdmin() && !$user->hasRole('Dean') && !$user->hasRole('Faculty'))) {
+            if (!$user || (!$user->isAdmin() && !$user->hasRole('Dean') && !$user->hasRole('Faculty') && !$user->hasRole('Adviser'))) {
                 return response()->json(['message' => 'Unauthorized'], 401);
             }
 
@@ -56,7 +56,7 @@ class EvaluationController extends Controller
     {
         try {
             $user = $request->user();
-            if (!$user || (!$user->isAdmin() && !$user->hasRole('Dean') && !$user->hasRole('Faculty'))) {
+            if (!$user || (!$user->isAdmin() && !$user->hasRole('Dean') && !$user->hasRole('Faculty') && !$user->hasRole('Adviser'))) {
                 return response()->json(['message' => 'Unauthorized'], 401);
             }
 
@@ -65,11 +65,17 @@ class EvaluationController extends Controller
                 'subject_id' => 'required|exists:tbl_subjects,subject_id',
                 'academic_year_id' => 'required|exists:tbl_academic_year,academic_year_id',
                 'semester_id' => 'required|exists:tbl_semester,semester_id',
+                'section_id' => 'nullable|exists:tbl_section,section_id',
                 'grade' => 'nullable|string|max:10',
                 'evaluation_status' => 'nullable|string|in:passed,failed,ongoing,dropped,incomplete',
+                'evaluated_by' => 'nullable|exists:tbl_users,user_id',
+                'modality_id' => 'nullable|exists:tbl_modality,modality_id',
+                'evaluation_date' => 'nullable|date',
                 'enrolled_date' => 'nullable|date'
             ]);
 
+            DB::beginTransaction();
+            $validated['evaluated_by'] = $validated['evaluated_by'] ?? $user->user_id;
             $evaluation = Evaluation::create($validated);
 
             DB::commit();
@@ -98,7 +104,7 @@ class EvaluationController extends Controller
     {
         try {
             $user = request()->user();
-            if (!$user || (!$user->isAdmin() && !$user->hasRole('Dean') && !$user->hasRole('Faculty'))) {
+            if (!$user || (!$user->isAdmin() && !$user->hasRole('Dean') && !$user->hasRole('Faculty') && !$user->hasRole('Adviser'))) {
                 return response()->json(['message' => 'Unauthorized'], 401);
             }
 
@@ -122,20 +128,25 @@ class EvaluationController extends Controller
     {
         try {
             $user = $request->user();
-            if (!$user || (!$user->isAdmin() && !$user->hasRole('Dean') && !$user->hasRole('Faculty'))) {
+            if (!$user || (!$user->isAdmin() && !$user->hasRole('Dean') && !$user->hasRole('Faculty') && !$user->hasRole('Adviser'))) {
                 return response()->json(['message' => 'Unauthorized'], 401);
             }
 
             $evaluation = Evaluation::findOrFail($id);
 
             $validated = $request->validate([
+                'section_id' => 'nullable|exists:tbl_section,section_id',
                 'grade' => 'nullable|string|max:10',
                 'evaluation_status' => 'nullable|string|in:passed,failed,ongoing,dropped,incomplete',
+                'evaluated_by' => 'nullable|exists:tbl_users,user_id',
+                'modality_id' => 'nullable|exists:tbl_modality,modality_id',
+                'evaluation_date' => 'nullable|date',
                 'enrolled_date' => 'nullable|date'
             ]);
 
             DB::beginTransaction();
 
+            $validated['evaluated_by'] = $validated['evaluated_by'] ?? $user->user_id;
             $evaluation->update($validated);
 
             DB::commit();
@@ -206,7 +217,7 @@ class EvaluationController extends Controller
     {
         try {
             $user = $request->user();
-            if (!$user || (!$user->isAdmin() && !$user->hasRole('Dean') && !$user->hasRole('Faculty'))) {
+            if (!$user || (!$user->isAdmin() && !$user->hasRole('Dean') && !$user->hasRole('Faculty') && !$user->hasRole('Adviser'))) {
                 return response()->json(['message' => 'Unauthorized'], 401);
             }
 

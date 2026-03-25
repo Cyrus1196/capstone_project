@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import api from '../../api/axios';
+import { swalConfirm, swalToast, swalError } from '../../utils/swal';
 import './LookupDataManagement.css';
 
 const LookupDataManagement = () => {
@@ -150,9 +151,13 @@ const LookupDataManagement = () => {
 
   const handleDelete = async (id) => {
     if (activeTab === 'auditLogs') return; // Audit logs are read-only
-    if (!window.confirm(`Are you sure you want to delete this ${formatTabTitle(activeTab).toLowerCase()}?`)) {
-      return;
-    }
+    const tabTitle = formatTabTitle(activeTab).toLowerCase();
+    const ok = await swalConfirm({
+      title: 'Delete item?',
+      text: `Are you sure you want to delete this ${tabTitle}?`,
+      confirmButtonText: 'Delete',
+    });
+    if (!ok) return;
 
     try {
       // Determine the correct API endpoint and prefix for each tab
@@ -181,6 +186,7 @@ const LookupDataManagement = () => {
       const url = `/${prefix ? prefix + '/' : ''}${apiEndpoint}/${id}`;
       await api.delete(url);
       fetchLookupData();
+      swalToast('success', 'Item deleted');
     } catch (error) {
       const data = error.response?.data;
       const messages = data?.messages || data?.errors;
@@ -190,11 +196,12 @@ const LookupDataManagement = () => {
             .filter(Boolean)
             .join(' ')
         : '';
-      setError(
+      const msg =
         validationText ||
-          data?.message ||
-          `Failed to delete ${formatTabTitle(activeTab).toLowerCase()}`
-      );
+        data?.message ||
+        `Failed to delete ${formatTabTitle(activeTab).toLowerCase()}`;
+      setError(msg);
+      await swalError('Delete failed', msg);
     }
   };
 
@@ -269,6 +276,7 @@ const LookupDataManagement = () => {
 
         setShowModal(false);
         fetchLookupData();
+        swalToast('success', 'Requisites saved');
         return;
       }
 
@@ -316,6 +324,7 @@ const LookupDataManagement = () => {
 
       setShowModal(false);
       fetchLookupData();
+      swalToast('success', editingItem ? 'Updated' : 'Created');
     } catch (error) {
       const data = error.response?.data;
       const messages = data?.messages || data?.errors;
@@ -325,11 +334,12 @@ const LookupDataManagement = () => {
             .filter(Boolean)
             .join(' ')
         : '';
-      setError(
+      const msg =
         validationText ||
-          data?.message ||
-          `Failed to ${editingItem ? 'update' : 'create'} ${formatTabTitle(activeTab).toLowerCase()}`
-      );
+        data?.message ||
+        `Failed to ${editingItem ? 'update' : 'create'} ${formatTabTitle(activeTab).toLowerCase()}`;
+      setError(msg);
+      await swalError('Save failed', msg);
     }
   };
 

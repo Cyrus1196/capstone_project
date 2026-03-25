@@ -47,11 +47,16 @@ class PrerequisiteController extends Controller
                               ?? $request->input('requisites_subject_id') 
                               ?? $request->input('requiredSubjectId');
 
+            // Normalize aliases so validator consistently sees required_subject_id.
+            $request->merge([
+                'required_subject_id' => $requiredSubjectId,
+            ]);
+
             // Validate inputs
             $validated = $request->validate([
                 'subject_id' => 'required|exists:tbl_subjects,subject_id',
                 'requisite_type' => 'required|in:prerequisite,corequisite',
-                'required_subject_id' => 'required|exists:tbl_subjects,subject_id', // Using alias for validation
+                'required_subject_id' => 'required|exists:tbl_subjects,subject_id',
             ], [
                 'required_subject_id.required' => 'The required subject field is required.',
                 'required_subject_id.exists' => 'The selected required subject is invalid.',
@@ -135,10 +140,9 @@ class PrerequisiteController extends Controller
     public function getBySubject(Request $request, $subjectId)
     {
         try {
-            if (!app()->environment('local')) {
-                if (!$request->user() || !$request->user()->isAdmin()) {
-                    return response()->json(['message' => 'Unauthorized'], 403);
-                }
+            // Allow authenticated users to read requisites for subject forms/evaluation views.
+            if (!$request->user()) {
+                return response()->json(['message' => 'Unauthorized'], 401);
             }
 
             // Validate that the subject exists

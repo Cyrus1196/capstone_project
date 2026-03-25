@@ -7,12 +7,16 @@ import DeanCurriculumReview from './DeanCurriculumReview';
 import DeanDepartmentManagement from './DeanDepartmentManagement';
 import DeanReports from './DeanReports';
 import StudentEvaluationView from '../common/StudentEvaluationView';
+import CreditEvaluationManagement from '../admin/CreditEvaluationManagement';
+import ElectiveSlotManagement from '../admin/ElectiveSlotManagement';
+import SystemManagement from '../admin/SystemManagement';
 import './DeanPanel.css';
 
 const DeanPanel = () => {
-  const { user, logout } = useAuth();
+  const { user, logout, hasPermission } = useAuth();
   const navigate = useNavigate();
-  const [activeTab, setActiveTab] = useState('curriculum');
+  // Show evaluation first so deans can immediately view & evaluate students.
+  const [activeTab, setActiveTab] = useState('evaluation');
   const [deanProfile, setDeanProfile] = useState(null);
   const [loadingProfile, setLoadingProfile] = useState(true);
 
@@ -86,6 +90,12 @@ const DeanPanel = () => {
           Student Evaluation
         </button>
         <button
+          className={activeTab === 'credits' ? 'tab active' : 'tab'}
+          onClick={() => setActiveTab('credits')}
+        >
+          Credit evaluation
+        </button>
+        <button
           className={activeTab === 'profile' ? 'tab active' : 'tab'}
           onClick={() => setActiveTab('profile')}
         >
@@ -98,6 +108,9 @@ const DeanPanel = () => {
         {activeTab === 'departments' && <DeanDepartmentManagement deanProfile={deanProfile} />}
         {activeTab === 'reports' && <DeanReports deanProfile={deanProfile} />}
         {activeTab === 'evaluation' && <StudentEvaluationView />}
+        {activeTab === 'credits' && <CreditEvaluationManagement approvalMode />}
+        {activeTab === 'elective-slots' && hasPermission('Elective Slots') && <ElectiveSlotManagement />}
+        {activeTab === 'system-mgmt' && hasPermission('System Management') && <SystemManagement />}
         {activeTab === 'profile' && <DeanProfile deanProfile={deanProfile} onUpdate={fetchDeanProfile} />}
       </div>
     </div>

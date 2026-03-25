@@ -5,6 +5,7 @@ import StudentProfile from './StudentProfile';
 import StudentEnrollments from './StudentEnrollments';
 import StudentCurriculum from './StudentCurriculum';
 import EligibleSubjects from './EligibleSubjects';
+import StudentAcademicEvaluation from './StudentAcademicEvaluation';
 import './StudentPanel.css';
 
 const StudentPanel = () => {
@@ -67,6 +68,12 @@ const StudentPanel = () => {
         >
           Eligible Subjects
         </button>
+        <button
+          className={activeTab === 'academic-eval' ? 'tab active' : 'tab'}
+          onClick={() => setActiveTab('academic-eval')}
+        >
+          Academic evaluation
+        </button>
       </div>
 
       <div className="student-content">
@@ -74,6 +81,7 @@ const StudentPanel = () => {
         {activeTab === 'enrollments' && <StudentEnrollments />}
         {activeTab === 'curriculum' && <StudentCurriculum />}
         {activeTab === 'eligible-subjects' && <EligibleSubjects />}
+        {activeTab === 'academic-eval' && <StudentAcademicEvaluation />}
       </div>
     </div>
   );

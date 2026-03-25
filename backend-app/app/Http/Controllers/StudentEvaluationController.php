@@ -6,6 +6,7 @@ use App\Models\StudentProfile;
 use App\Models\Curriculum;
 use App\Models\Evaluation;
 use App\Models\DeanProfile;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Http\Request;
 
 class StudentEvaluationController extends Controller
@@ -25,22 +26,31 @@ class StudentEvaluationController extends Controller
                 return response()->json(['message' => 'Unauthorized'], 401);
             }
 
-            // Only allow admin, dean, or faculty accounts to view evaluations
-            $isAllowed =
+            $isStaff =
                 $user->isAdmin() ||
                 $user->hasRole('Dean') ||
-                $user->hasRole('Faculty');
+                $user->hasRole('Faculty') ||
+                $user->hasRole('Adviser');
 
-            if (!$isAllowed) {
+            if ($user->hasRole('Student')) {
+                $profile = StudentProfile::where('user_id', $user->user_id)->with(['program'])->first();
+                if (!$profile) {
+                    return response()->json(['message' => 'Student profile not found'], 404);
+                }
+                $ownNum = (string) ($profile->student_id_number ?? $profile->student_number ?? '');
+                if (trim($ownNum) !== trim((string) $studentIdNumber)) {
+                    return response()->json(['message' => 'Forbidden'], 403);
+                }
+            } elseif (!$isStaff) {
                 return response()->json(['message' => 'Forbidden'], 403);
-            }
+            } else {
+                $profile = StudentProfile::whereStudentIdNumber($studentIdNumber)
+                    ->with(['program'])
+                    ->first();
 
-            $profile = StudentProfile::whereStudentIdNumber($studentIdNumber)
-                ->with(['program'])
-                ->first();
-
-            if (!$profile) {
-                return response()->json(['message' => 'Student not found'], 404);
+                if (!$profile) {
+                    return response()->json(['message' => 'Student not found'], 404);
+                }
             }
 
             if (!$profile->current_program) {
@@ -78,6 +88,11 @@ class StudentEvaluationController extends Controller
                         ->first();
                 });
 
+            // Used when a subject has no evaluation yet, so staff can still create one.
+            $defaultAcademicYearId = DB::table('tbl_academic_year')
+                ->orderBy('academic_year_id', 'desc')
+                ->value('academic_year_id');
+
             $rows = [];
             $totalUnitsInCurriculum = 0;
             $totalUnitsEarned = 0;
@@ -88,8 +103,8 @@ class StudentEvaluationController extends Controller
                 $totalUnitsInCurriculum += $units;
 
                 $evaluation = $evaluationsBySubject->get($item->subject_id);
-                $grade = $evaluation->grade ?? null;
-                $status = $evaluation->evaluation_status ?? null;
+                $grade = $evaluation?->grade ?? null;
+                $status = $evaluation?->evaluation_status ?? null;
 
                 // Determine if the subject is considered "passed"
                 $normalizedStatus = $status ? strtolower($status) : null;
@@ -127,9 +142,11 @@ class StudentEvaluationController extends Controller
                     'units_earned' => $unitsEarned,
                     'prerequisite' => $prerequisite,
                     'corequisite' => $corequisite,
-                    'academic_year_id' => $evaluation->academic_year_id ?? null,
-                    'evaluated_by' => $evaluation->evaluatedBy,
-                    'evaluation_date' => $evaluation->evaluation_date,
+                    'evaluation_id' => $evaluation?->evaluation_id ?? null,
+                    'academic_year_id' => $evaluation?->academic_year_id ?? $defaultAcademicYearId,
+                    'evaluated_by' => $evaluation?->evaluatedBy,
+                    'evaluation_date' => $evaluation?->evaluation_date,
+                    'enrolled_date' => $evaluation?->enrolled_date,
                 ];
             }
 
@@ -178,11 +195,11 @@ class StudentEvaluationController extends Controller
                 return response()->json(['message' => 'Unauthorized'], 401);
             }
 
-            // Only allow admin, dean, or faculty accounts to view evaluations
             $isAllowed =
                 $user->isAdmin() ||
                 $user->hasRole('Dean') ||
-                $user->hasRole('Faculty');
+                $user->hasRole('Faculty') ||
+                $user->hasRole('Adviser');
 
             if (!$isAllowed) {
                 return response()->json(['message' => 'Forbidden'], 403);

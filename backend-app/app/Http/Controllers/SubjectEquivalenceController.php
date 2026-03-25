@@ -10,7 +10,8 @@ class SubjectEquivalenceController extends Controller
     public function index(Request $request)
     {
         try {
-            if (!$request->user() || !$request->user()->isAdmin()) {
+            $user = $request->user();
+            if (!$user || !$user->hasPermission('System Management')) {
                 return response()->json(['message' => 'Unauthorized'], 403);
             }
 
@@ -24,7 +25,8 @@ class SubjectEquivalenceController extends Controller
     public function store(Request $request)
     {
         try {
-            if (!$request->user() || !$request->user()->isAdmin()) {
+            $user = $request->user();
+            if (!$user || !$user->hasPermission('System Management')) {
                 return response()->json(['message' => 'Unauthorized'], 403);
             }
 
@@ -48,7 +50,8 @@ class SubjectEquivalenceController extends Controller
     public function update(Request $request, $id)
     {
         try {
-            if (!$request->user() || !$request->user()->isAdmin()) {
+            $user = $request->user();
+            if (!$user || !$user->hasPermission('System Management')) {
                 return response()->json(['message' => 'Unauthorized'], 403);
             }
 
@@ -74,7 +77,8 @@ class SubjectEquivalenceController extends Controller
     public function destroy(Request $request, $id)
     {
         try {
-            if (!$request->user() || !$request->user()->isAdmin()) {
+            $user = $request->user();
+            if (!$user || !$user->hasPermission('System Management')) {
                 return response()->json(['message' => 'Unauthorized'], 403);
             }
 

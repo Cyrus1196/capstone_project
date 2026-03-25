@@ -6,10 +6,11 @@ import AdminPanel from './components/admin/AdminPanel';
 import StudentPanel from './components/student/StudentPanel';
 import DeanPanel from './components/dean/DeanPanel';
 import FacultyPanel from './components/faculty/FacultyPanel';
+import GuestPanel from './components/guest/GuestPanel';
 import './App.css';
 
 const PrivateRoute = ({ children, requiredRole = null }) => {
-  const { user, loading, isAdmin, isDean, isFaculty } = useAuth();
+  const { user, loading, isAdmin, isDean, isFaculty, isGuest } = useAuth();
 
   if (loading) {
     return <div style={{ padding: '2rem', textAlign: 'center' }}>Loading...</div>;
@@ -17,6 +18,20 @@ const PrivateRoute = ({ children, requiredRole = null }) => {
 
   if (!user) {
     return <Navigate to="/login" />;
+  }
+
+  if (requiredRole === 'guest' && !isGuest) {
+    return (
+      <Navigate
+        to={isAdmin ? '/admin' : isDean ? '/dean' : isFaculty ? '/faculty' : '/student'}
+        replace
+      />
+    );
+  }
+
+  // Guests only use the guest dashboard (not student portal)
+  if (!requiredRole && isGuest) {
+    return <Navigate to="/guest" replace />;
   }
 
   // Role-based access control
@@ -70,6 +85,14 @@ function App() {
             element={
               <PrivateRoute requiredRole="faculty">
                 <FacultyPanel />
+              </PrivateRoute>
+            }
+          />
+          <Route
+            path="/guest"
+            element={
+              <PrivateRoute requiredRole="guest">
+                <GuestPanel />
               </PrivateRoute>
             }
           />

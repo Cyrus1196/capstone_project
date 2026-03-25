@@ -158,5 +158,28 @@ class TblUser extends Authenticatable
             return false;
         }
     }
+
+    /**
+     * Whether this user's role has a named permission (Role Settings → tbl_role_permissions).
+     * Admins are treated as having all permissions.
+     */
+    public function hasPermission(string $permissionName): bool
+    {
+        if ($this->isAdmin()) {
+            return true;
+        }
+        if ($permissionName === '' || !$this->role_id) {
+            return false;
+        }
+
+        $this->loadMissing('role.permissions');
+        if (!$this->role) {
+            return false;
+        }
+
+        return $this->role->permissions->contains(
+            fn ($p) => $p->permission_name === $permissionName
+        );
+    }
 }
 

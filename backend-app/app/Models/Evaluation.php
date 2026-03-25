@@ -18,13 +18,18 @@ class Evaluation extends Model
         'subject_id',
         'academic_year_id',
         'semester_id',
+        'section_id',
         'grade',
         'evaluation_status',
+        'evaluated_by',
+        'modality_id',
+        'evaluation_date',
         'enrolled_date',
     ];
 
     protected $casts = [
         'enrolled_date' => 'date',
+        'evaluation_date' => 'date',
     ];
 
     public function student()
@@ -50,6 +55,21 @@ class Evaluation extends Model
     public function section()
     {
         return $this->belongsTo(Section::class, 'section_id', 'section_id');
+    }
+
+    public function evaluatedBy()
+    {
+        return $this->belongsTo(TblUser::class, 'evaluated_by', 'user_id');
+    }
+
+    public function modality()
+    {
+        return $this->belongsTo(Modality::class, 'modality_id', 'modality_id');
+    }
+
+    public function gradeComponents()
+    {
+        return $this->hasMany(GradeComponent::class, 'evaluation_id', 'evaluation_id');
     }
 
     public function getIsPassedAttribute()
