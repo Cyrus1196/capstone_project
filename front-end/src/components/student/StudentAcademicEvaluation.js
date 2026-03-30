@@ -1,4 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
+import html2canvas from 'html2canvas';
+import { jsPDF } from 'jspdf';
 import api from '../../api/axios';
 import { swalError } from '../../utils/swal';
 import './StudentAcademicEvaluation.css';
@@ -10,6 +12,7 @@ const StudentAcademicEvaluation = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [data, setData] = useState(null);
+  const [pdfLoading, setPdfLoading] = useState(false);
   const printRef = useRef(null);
 
   useEffect(() => {
@@ -57,6 +60,45 @@ const StudentAcademicEvaluation = () => {
     w.close();
   };
 
+  const handleDownloadPdf = async () => {
+    if (!printRef.current) return;
+    setPdfLoading(true);
+    try {
+      const canvas = await html2canvas(printRef.current, {
+        scale: 2,
+        useCORS: true,
+        logging: false,
+      });
+      const imgData = canvas.toDataURL('image/png');
+      const pdf = new jsPDF({ unit: 'mm', format: 'a4', orientation: 'portrait' });
+      const pdfWidth = pdf.internal.pageSize.getWidth();
+      const pdfHeight = pdf.internal.pageSize.getHeight();
+      const imgWidth = pdfWidth;
+      const imgHeight = (canvas.height * imgWidth) / canvas.width;
+      let heightLeft = imgHeight;
+      let position = 0;
+
+      pdf.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight);
+      heightLeft -= pdfHeight;
+
+      while (heightLeft > 0) {
+        position = heightLeft - imgHeight;
+        pdf.addPage();
+        pdf.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight);
+        heightLeft -= pdfHeight;
+      }
+
+      const st = data?.student;
+      const rawId = st?.student_id_number || st?.student_number || 'student';
+      const safeId = String(rawId).replace(/[^a-zA-Z0-9-_]/g, '_');
+      pdf.save(`academic-evaluation-${safeId}.pdf`);
+    } catch (e) {
+      await swalError('Could not create PDF', e?.message || 'Unknown error');
+    } finally {
+      setPdfLoading(false);
+    }
+  };
+
   if (loading) {
     return <div className="stu-eval-loading">Loading your academic record…</div>;
   }
@@ -68,6 +110,61 @@ const StudentAcademicEvaluation = () => {
   const student = data?.student;
   const summary = data?.summary || {};
   const rows = data?.rows || [];
+  const computedStatus = data?.computed_academic_status;
+  const statusReasons = data?.academic_status_reasons || [];
+
+  /** Same semester progression as faculty “need evaluation” and My Curriculum: next term after prior is fully recorded. */
+  const apiRowTermComplete = (r) => {
+    if (r.passed_via_transfer_credit) return true;
+    if (r.subject_id == null || r.subject_id === '') return true;
+    const st = String(r.status || '')
+      .toLowerCase()
+      .trim();
+    if (st === 'ongoing') return false;
+    if (
+      st === 'passed' ||
+      st === 'pass' ||
+      st === 'failed' ||
+      st === 'fail' ||
+      st === 'f' ||
+      st === 'inc' ||
+      st === 'incomplete' ||
+      st === 'credit'
+    ) {
+      return true;
+    }
+    if (r.grade != null && String(r.grade).trim() !== '') return true;
+    if (Number(r.units_earned) > 0) return true;
+    return false;
+  };
+
+  const semesterGroups = {};
+  rows.forEach((r) => {
+    const key = `${r.year_level_name || 'Unknown'}|${r.semester_name || 'Unknown'}`;
+    if (!semesterGroups[key]) semesterGroups[key] = [];
+    semesterGroups[key].push(r);
+  });
+  const orderedSemesters = Object.entries(semesterGroups).sort(([, ra], [, rb]) => {
+    const a = ra[0] || {};
+    const b = rb[0] || {};
+    const ay = Number(a.year_level_id ?? 0);
+    const by = Number(b.year_level_id ?? 0);
+    if (ay !== by) return ay - by;
+    return Number(a.semester_id ?? 0) - Number(b.semester_id ?? 0);
+  });
+  const visibleSemesterEntries = [];
+  for (let i = 0; i < orderedSemesters.length; i++) {
+    if (i === 0) {
+      visibleSemesterEntries.push(orderedSemesters[i]);
+    } else if (orderedSemesters[i - 1][1].every(apiRowTermComplete)) {
+      visibleSemesterEntries.push(orderedSemesters[i]);
+    } else {
+      break;
+    }
+  }
+  const displayRows = visibleSemesterEntries.flatMap(([, rs]) => rs);
+  const hiddenSemesterCount = orderedSemesters.length - visibleSemesterEntries.length;
+
   const name =
     student?.full_name ||
     [student?.last_name, student?.first_name].filter(Boolean).join(', ') ||
@@ -77,9 +174,14 @@ const StudentAcademicEvaluation = () => {
     <div className="stu-academic-eval">
       <div className="stu-eval-toolbar">
         <h2>Academic evaluation</h2>
-        <button type="button" className="stu-eval-print" onClick={handlePrint}>
-          Print / Save as PDF
-        </button>
+        <div className="stu-eval-toolbar-actions">
+          <button type="button" className="stu-eval-download" onClick={handleDownloadPdf} disabled={pdfLoading}>
+            {pdfLoading ? 'Preparing PDF…' : 'Download PDF'}
+          </button>
+          <button type="button" className="stu-eval-print" onClick={handlePrint}>
+            Print
+          </button>
+        </div>
       </div>
       <p className="stu-eval-hint">
         Subjects taken, grades, and progress against your program curriculum. Use this for advising or
@@ -97,6 +199,22 @@ const StudentAcademicEvaluation = () => {
           <div>
             <strong>Program:</strong> {student?.program?.program_name || '—'}
           </div>
+          <div>
+            <strong>Record academic status:</strong> {student?.academic_status || '—'}
+          </div>
+          {computedStatus && (
+            <div>
+              <strong>Computed status (sequence):</strong>{' '}
+              <span className={computedStatus === 'Irregular' ? 'stu-eval-status-irregular' : 'stu-eval-status-regular'}>
+                {computedStatus}
+              </span>
+            </div>
+          )}
+          {statusReasons.length > 0 && (
+            <div className="stu-eval-reasons">
+              <strong>Note:</strong> {statusReasons.join(' ')}
+            </div>
+          )}
         </div>
         <div className="stu-eval-summary-grid">
           <div>
@@ -109,6 +227,14 @@ const StudentAcademicEvaluation = () => {
             Remaining (units): <strong>{summary.lacking_units ?? '—'}</strong>
           </div>
         </div>
+
+        {hiddenSemesterCount > 0 ? (
+          <p className="stu-eval-semester-hint" role="status">
+            Later terms are hidden until every subject in the previous term has a recorded grade or status (same as{' '}
+            <strong>My Curriculum</strong>). {hiddenSemesterCount} term{hiddenSemesterCount !== 1 ? 's' : ''} not shown
+            yet.
+          </p>
+        ) : null}
 
         <table className="stu-eval-table">
           <thead>
@@ -127,8 +253,12 @@ const StudentAcademicEvaluation = () => {
               <tr>
                 <td colSpan="7">No curriculum rows loaded.</td>
               </tr>
+            ) : displayRows.length === 0 ? (
+              <tr>
+                <td colSpan="7">No rows in visible terms.</td>
+              </tr>
             ) : (
-              rows.map((r, i) => (
+              displayRows.map((r, i) => (
                 <tr key={i}>
                   <td>{r.year_level_name || r.year_level_id || '—'}</td>
                   <td>{r.semester_name || r.semester_id || '—'}</td>

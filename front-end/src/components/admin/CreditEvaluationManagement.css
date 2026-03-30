@@ -123,6 +123,37 @@
   color: #721c24;
 }
 
+.status-badge.status-record-inactive {
+  margin-left: 6px;
+  background-color: #e2e3e5;
+  color: #383d41;
+}
+
+.credit-eval-status-cell {
+  vertical-align: middle;
+}
+
+.credit-eval-status-inline {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.credit-eval-row-inactive {
+  opacity: 0.78;
+}
+
+.credit-eval-inactive-notice {
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  border-radius: 4px;
+  background: #f8f9fa;
+  border: 1px solid #dee2e6;
+  font-size: 0.875rem;
+  color: #495057;
+}
+
 .modal-overlay {
   position: fixed;
   top: 0;
@@ -386,5 +417,106 @@
   justify-content: flex-end;
   padding: 20px;
   border-top: 1px solid #dee2e6;
+}
+
+.credit-details-modal-footer {
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+}
+
+.modal-footer-close-btn {
+  padding: 10px 20px;
+  border: 1px solid #ced4da;
+  border-radius: 4px;
+  background: #f8f9fa;
+  color: #212529;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.modal-footer-close-btn:hover {
+  background: #e9ecef;
+}
+
+.credit-eval-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+}
+
+.credit-eval-filter-chip {
+  padding: 0.4rem 0.9rem;
+  border-radius: 999px;
+  border: 1px solid #ced4da;
+  background: #fff;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+  color: #495057;
+}
+
+.credit-eval-filter-chip:hover {
+  background: #f8f9fa;
+}
+
+.credit-eval-filter-chip.active {
+  background: #0d6efd;
+  border-color: #0d6efd;
+  color: #fff;
+}
+
+.approve-quick-btn {
+  padding: 6px 12px;
+  border: none;
+  border-radius: 4px;
+  background: #198754;
+  color: #fff;
+  font-weight: 600;
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.approve-quick-btn:hover {
+  filter: brightness(1.05);
+}
+
+.reject-quick-btn {
+  padding: 6px 12px;
+  border: none;
+  border-radius: 4px;
+  background: #dc3545;
+  color: #fff;
+  font-weight: 600;
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.reject-quick-btn:hover {
+  filter: brightness(1.05);
+}
+
+.credit-detail-status-row {
+  margin: 0 0 12px;
+}
+
+.credit-equiv-hint {
+  margin: 0 0 12px;
+  font-size: 0.875rem;
+  color: #495057;
+  line-height: 1.45;
+}
+
+.credit-equiv-warning {
+  grid-column: 1 / -1;
+  font-size: 0.8rem;
+  color: #856404;
+  background: #fff3cd;
+  border: 1px solid #ffc107;
+  border-radius: 4px;
+  padding: 8px 10px;
+  margin-top: 4px;
 }
 

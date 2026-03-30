@@ -1,8 +1,11 @@
 import React, { useState, useEffect } from 'react';
+import { useAuth } from '../../context/AuthContext';
 import { swalConfirm, swalToast, swalError } from '../../utils/swal';
 import './EvaluationManagement.css';
 
 const SimpleEvaluationManagement = () => {
+    const { isAdmin, hasPermission } = useAuth();
+    const canDeleteEvaluations = isAdmin || hasPermission('dean.approve');
     const [evaluations, setEvaluations] = useState([]);
     const [students, setStudents] = useState([]);
     const [subjects, setSubjects] = useState([]);
@@ -154,6 +157,7 @@ const SimpleEvaluationManagement = () => {
     };
 
     const handleDelete = async (evaluationId) => {
+        if (!canDeleteEvaluations) return;
         const ok = await swalConfirm({
             title: 'Delete evaluation?',
             text: 'Are you sure you want to delete this evaluation?',
@@ -376,12 +380,14 @@ const SimpleEvaluationManagement = () => {
                                                 >
                                                     Edit
                                                 </button>
+                                                {canDeleteEvaluations ? (
                                                 <button 
                                                     className="btn btn-sm btn-danger"
                                                     onClick={() => handleDelete(evaluation.evaluation_id)}
                                                 >
                                                     Delete
                                                 </button>
+                                                ) : null}
                                             </td>
                                         </tr>
                                     ))}

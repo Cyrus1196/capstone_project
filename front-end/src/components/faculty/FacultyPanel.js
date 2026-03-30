@@ -1,47 +1,105 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { useNavigate } from 'react-router-dom';
 import api from '../../api/axios';
 import FacultyProfile from './FacultyProfile';
-import FacultyClasses from './FacultyClasses';
-import FacultyGrades from './FacultyGrades';
 import StudentEvaluationView from '../common/StudentEvaluationView';
-import CreditEvaluationManagement from '../admin/CreditEvaluationManagement';
-import ElectiveSlotManagement from '../admin/ElectiveSlotManagement';
-import SystemManagement from '../admin/SystemManagement';
+import EvaluatorDashboard from './EvaluatorDashboard';
+import EvaluatorAnalytics from './EvaluatorAnalytics';
+import PortalSidebar from '../common/PortalSidebar';
+import { STUDENT_EVALUATION_TAB_PERMISSIONS } from '../../config/adminPanelTabs';
 import './FacultyPanel.css';
 
+/**
+ * Evaluator / Adviser portal: dashboard, student evaluation, analytics, profile.
+ */
 const FacultyPanel = () => {
-  const { user, logout, hasPermission } = useAuth();
+  const { user, logout, refreshUser, canAccessModule } = useAuth();
   const navigate = useNavigate();
-  // Show evaluation immediately for Dean/Faculty so they can view & evaluate students.
-  const [activeTab, setActiveTab] = useState('evaluation');
+  const [activeTab, setActiveTab] = useState('dashboard');
   const [facultyProfile, setFacultyProfile] = useState(null);
   const [loadingProfile, setLoadingProfile] = useState(true);
 
-  const isFacultyOrAdviser = user?.role === 'Faculty' || user?.role === 'Adviser';
+  const isEvaluatorOrAdviser = user?.role === 'Evaluator' || user?.role === 'Adviser';
+
+  const showEvalModules = canAccessModule(STUDENT_EVALUATION_TAB_PERMISSIONS);
+
+  const facultySidebarGroups = useMemo(() => {
+    const items = [
+      { id: 'dashboard', label: 'Dashboard', icon: 'fa-solid fa-table-columns' },
+    ];
+    if (showEvalModules) {
+      items.push(
+        {
+          id: 'academic-record',
+          label: 'Student',
+          icon: 'fa-solid fa-user-graduate',
+        },
+        {
+          id: 'evaluated-students',
+          label: 'Evaluated students',
+          icon: 'fa-solid fa-clipboard-check',
+        }
+      );
+    }
+    items.push(
+      { id: 'analytics', label: 'Analytics', icon: 'fa-solid fa-chart-column' },
+      { id: 'profile', label: 'My Profile', icon: 'fa-solid fa-id-card' }
+    );
+    return [
+      {
+        id: 'main',
+        title: user?.role === 'Adviser' ? 'Adviser workspace' : 'Evaluator workspace',
+        items,
+      },
+    ];
+  }, [user?.role, showEvalModules]);
 
   useEffect(() => {
     if (!user) {
       navigate('/login');
-    } else if (!isFacultyOrAdviser && !user.is_admin) {
+    } else if (!isEvaluatorOrAdviser && !user.is_admin) {
       navigate('/');
-    } else if (isFacultyOrAdviser) {
+    } else if (isEvaluatorOrAdviser) {
       fetchFacultyProfile();
     }
-  }, [user, navigate, isFacultyOrAdviser]);
+  }, [user, navigate, isEvaluatorOrAdviser]);
+
+  useEffect(() => {
+    if (!isEvaluatorOrAdviser || !user) return undefined;
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') {
+        refreshUser();
+      }
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => document.removeEventListener('visibilitychange', onVisible);
+  }, [isEvaluatorOrAdviser, user, refreshUser]);
+
+  useEffect(() => {
+    if (!isEvaluatorOrAdviser) return;
+    if (
+      !showEvalModules &&
+      (activeTab === 'academic-record' || activeTab === 'evaluated-students')
+    ) {
+      setActiveTab('dashboard');
+    }
+  }, [isEvaluatorOrAdviser, showEvalModules, activeTab]);
+
+  useEffect(() => {
+    if (!isEvaluatorOrAdviser) return;
+    if (activeTab === 'curriculum') {
+      setActiveTab('dashboard');
+    }
+  }, [isEvaluatorOrAdviser, activeTab]);
 
   const fetchFacultyProfile = async () => {
     try {
-      setLoadingProfile(true);
       const response = await api.get('/faculty/profile');
       setFacultyProfile(response.data);
     } catch (error) {
       console.error('Error fetching faculty profile:', error);
-      // Profile might not exist yet, that's okay
       setFacultyProfile(null);
-    } finally {
-      setLoadingProfile(false);
     }
   };
 
@@ -54,79 +112,68 @@ const FacultyPanel = () => {
     return null;
   }
 
+  const portalTitle =
+    user?.role === 'Adviser'
+      ? 'Adviser Portal'
+      : user?.role === 'Evaluator'
+        ? 'Evaluator Portal'
+        : 'Faculty Portal';
+
   return (
-    <div className="faculty-panel">
-      <header className="faculty-header">
-        <h1>{user?.role === 'Adviser' ? 'Adviser / Faculty Portal' : 'Faculty Portal'}</h1>
-        <div className="header-info">
-          <span>Welcome, {user.email}</span>
-          <button onClick={handleLogout} className="logout-button">
-            Logout
-          </button>
+    <div className="faculty-panel portal-shell faculty-panel--evaluator-ui">
+      <PortalSidebar
+        variant="faculty"
+        storageKey="portalSidebarCollapsed_faculty"
+        brandTitle={portalTitle}
+        groups={facultySidebarGroups}
+        activeId={activeTab}
+        onSelect={setActiveTab}
+        footer={
+          <>
+            <i className="fa-solid fa-user-circle portal-sidebar__footer-icon" aria-hidden />
+            <div className="portal-sidebar__footer-text">
+              <span className="portal-sidebar__footer-muted">Logged in</span>
+              <div className="portal-sidebar__footer-email">{user.email}</div>
+            </div>
+          </>
+        }
+      />
+
+      <div className="portal-shell__main">
+        <header className="faculty-header faculty-header--evaluator">
+          <div className="faculty-header__brand">
+            <span className="faculty-header__college">Cagayan de Oro College</span>
+            <span className="faculty-header__sub">PHINMA Education</span>
+          </div>
+          <div className="faculty-header__actions">
+            <span className="faculty-header__role-chip" title={user.email}>
+              {user?.role === 'Adviser' ? 'Adviser' : 'Evaluator'}
+            </span>
+            <span className="faculty-header__welcome faculty-header__welcome--compact">{user.email}</span>
+            <button type="button" onClick={handleLogout} className="logout-button faculty-header__logout">
+              Logout
+            </button>
+          </div>
+        </header>
+
+        <div className="portal-shell__content faculty-content">
+          {activeTab === 'dashboard' && (
+            <EvaluatorDashboard onNavigate={setActiveTab} showEvalModules={showEvalModules} />
+          )}
+          {activeTab === 'academic-record' && showEvalModules && (
+            <StudentEvaluationView listMode="need-evaluation" />
+          )}
+          {activeTab === 'evaluated-students' && showEvalModules && (
+            <StudentEvaluationView listMode="already-evaluated" />
+          )}
+          {activeTab === 'analytics' && <EvaluatorAnalytics showEvalModules={showEvalModules} />}
+          {activeTab === 'profile' && (
+            <FacultyProfile facultyProfile={facultyProfile} onUpdate={fetchFacultyProfile} />
+          )}
         </div>
-      </header>
-
-      <div className="faculty-tabs">
-        <button
-          className={activeTab === 'classes' ? 'tab active' : 'tab'}
-          onClick={() => setActiveTab('classes')}
-        >
-          My Classes
-        </button>
-        <button
-          className={activeTab === 'grades' ? 'tab active' : 'tab'}
-          onClick={() => setActiveTab('grades')}
-        >
-          Grade Management
-        </button>
-        <button
-          className={activeTab === 'evaluation' ? 'tab active' : 'tab'}
-          onClick={() => setActiveTab('evaluation')}
-        >
-          Student Evaluation
-        </button>
-        <button
-          className={activeTab === 'credits' ? 'tab active' : 'tab'}
-          onClick={() => setActiveTab('credits')}
-        >
-          Credit evaluation
-        </button>
-        {hasPermission('Elective Slots') && (
-          <button
-            className={activeTab === 'elective-slots' ? 'tab active' : 'tab'}
-            onClick={() => setActiveTab('elective-slots')}
-          >
-            Elective slots
-          </button>
-        )}
-        {hasPermission('System Management') && (
-          <button
-            className={activeTab === 'system-mgmt' ? 'tab active' : 'tab'}
-            onClick={() => setActiveTab('system-mgmt')}
-          >
-            System management
-          </button>
-        )}
-        <button
-          className={activeTab === 'profile' ? 'tab active' : 'tab'}
-          onClick={() => setActiveTab('profile')}
-        >
-          My Profile
-        </button>
-      </div>
-
-      <div className="faculty-content">
-        {activeTab === 'classes' && <FacultyClasses facultyProfile={facultyProfile} />}
-        {activeTab === 'grades' && <FacultyGrades facultyProfile={facultyProfile} />}
-        {activeTab === 'evaluation' && <StudentEvaluationView />}
-        {activeTab === 'credits' && <CreditEvaluationManagement approvalMode />}
-        {activeTab === 'elective-slots' && hasPermission('Elective Slots') && <ElectiveSlotManagement />}
-        {activeTab === 'system-mgmt' && hasPermission('System Management') && <SystemManagement />}
-        {activeTab === 'profile' && <FacultyProfile facultyProfile={facultyProfile} onUpdate={fetchFacultyProfile} />}
       </div>
     </div>
   );
 };
 
 export default FacultyPanel;
-

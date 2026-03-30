@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\SecuritySetting;
 use App\Models\TblUser;
 use App\Models\Role;
 use App\Models\DeanProfile;
@@ -16,8 +17,7 @@ class UserController extends Controller
     public function index(Request $request)
     {
         try {
-            // Check if user is admin
-            if (!$request->user()->isAdmin()) {
+            if (! $request->user()->canManageUsers()) {
                 return response()->json(['message' => 'Unauthorized'], 403);
             }
 
@@ -41,14 +41,15 @@ class UserController extends Controller
 
     public function store(Request $request)
     {
-        // Check if user is admin
-        if (!$request->user()->isAdmin()) {
+        if (! $request->user()->canManageUsers()) {
             return response()->json(['message' => 'Unauthorized'], 403);
         }
 
+        $maxLen = SecuritySetting::current()->max_password_length;
+
         $validated = $request->validate([
             'email' => 'required|email|unique:tbl_users,email',
-            'password' => 'required|min:6',
+            'password' => ['required', 'string', 'min:6', 'max:' . $maxLen],
             'contact_number' => 'nullable|string|max:20',
             'role_id' => 'required|exists:tbl_roles,role_id',
             'status' => 'nullable|string|max:50',
@@ -66,6 +67,7 @@ class UserController extends Controller
                 'contact_number' => $validated['contact_number'] ?? null,
                 'role_id' => $validated['role_id'],
                 'status' => $validated['status'] ?? 'active',
+                'password_changed_at' => now(),
             ]);
 
             $user->load('role');
@@ -109,8 +111,7 @@ class UserController extends Controller
 
     public function show(Request $request, $id)
     {
-        // Check if user is admin
-        if (!$request->user()->isAdmin()) {
+        if (! $request->user()->canManageUsers()) {
             return response()->json(['message' => 'Unauthorized'], 403);
         }
 
@@ -146,6 +147,7 @@ class UserController extends Controller
 
             if (isset($validated['password'])) {
                 $user->password = Hash::make($validated['password']);
+                $user->password_changed_at = now();
             }
 
             $user->save();
@@ -182,8 +184,7 @@ class UserController extends Controller
 
     public function destroy(Request $request, $id)
     {
-        // Check if user is admin
-        if (!$request->user()->isAdmin()) {
+        if (! $request->user()->canManageUsers()) {
             return response()->json(['message' => 'Unauthorized'], 403);
         }
 
@@ -196,8 +197,7 @@ class UserController extends Controller
     public function roles(Request $request)
     {
         try {
-            // Check if user is admin
-            if (!$request->user()->isAdmin()) {
+            if (! $request->user()->canManageUsers()) {
                 return response()->json(['message' => 'Unauthorized'], 403);
             }
 

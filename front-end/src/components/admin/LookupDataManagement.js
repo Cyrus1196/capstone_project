@@ -1,9 +1,21 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import api from '../../api/axios';
 import { swalConfirm, swalToast, swalError } from '../../utils/swal';
+import { usePermission } from '../../hooks/usePermission';
+import { permissionSlugForPanelKey } from '../../config/lookupDataSidebarPanels';
 import './LookupDataManagement.css';
 
-const LookupDataManagement = () => {
+/**
+ * @param {object} props
+ * @param {'inline'|'external'} [props.panelNav] inline = horizontal tabs; external = parent sidebar (Dean/Admin)
+ * @param {string} [props.activePanel] required when panelNav is external — panel key e.g. programs
+ * @param {(key: string) => void} [props.onActivePanelChange]
+ */
+const LookupDataManagement = ({
+  panelNav = 'inline',
+  activePanel: activePanelProp,
+  onActivePanelChange,
+}) => {
   const [lookupData, setLookupData] = useState({
     programs: [],
     subjects: [],
@@ -20,12 +32,32 @@ const LookupDataManagement = () => {
     curriculumHeaders: [],
     offeredSubjects: [],
     electiveSubjects: [],
-    auditLogs: [],
   });
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [activeTab, setActiveTab] = useState('programs');
+  const [activeTabInternal, setActiveTabInternal] = useState('programs');
+  const externalNav = panelNav === 'external';
+  const activeTab = externalNav ? activePanelProp || 'programs' : activeTabInternal;
+
+  const { hasPermission, isAdmin } = usePermission();
+  const canMutateCurrentPanel = useMemo(() => {
+    if (isAdmin) return true;
+    if (hasPermission('lookup.manage')) return true;
+    if (hasPermission('Lookup Data')) return true;
+    const slug = permissionSlugForPanelKey(activeTab);
+    if (slug && hasPermission(`lookup.${slug}.manage`)) return true;
+    return false;
+  }, [isAdmin, hasPermission, activeTab]);
+
+  const setActiveTab = (key) => {
+    if (externalNav) {
+      onActivePanelChange?.(key);
+    } else {
+      setActiveTabInternal(key);
+    }
+  };
+
   const [showModal, setShowModal] = useState(false);
   const [editingItem, setEditingItem] = useState(null);
   const [formData, setFormData] = useState({});
@@ -55,7 +87,6 @@ const LookupDataManagement = () => {
         curriculumHeadersResp,
         offeredSubjectsResp,
         electiveSubjectsResp,
-        auditLogsResp,
       ] = await Promise.allSettled([
         api.get('/curriculum/lookup/data'),
         api.get('/lookup/roles'),
@@ -67,7 +98,6 @@ const LookupDataManagement = () => {
         api.get('/lookup/curriculum-headers'),
         api.get('/lookup/offered-subjects'),
         api.get('/lookup/elective-subjects'),
-        api.get('/audit-logs'),
       ]);
 
       const combinedData = combinedResp.status === 'fulfilled' ? combinedResp.value.data || {} : {};
@@ -107,10 +137,6 @@ const LookupDataManagement = () => {
           electiveSubjectsResp.status === 'fulfilled'
             ? getArrayData(electiveSubjectsResp.value)
             : combinedData.electiveSubjects || [],
-        auditLogs:
-          auditLogsResp.status === 'fulfilled'
-            ? getArrayData(auditLogsResp.value)
-            : [],
       };
 
       setLookupData(normalized);
@@ -123,19 +149,21 @@ const LookupDataManagement = () => {
   };
 
   const handleAdd = () => {
-    if (activeTab === 'auditLogs') return; // Audit logs are read-only
+    if (!canMutateCurrentPanel) return;
     setEditingItem(null);
     setFormData(getDefaultFormData(activeTab));
     setShowModal(true);
   };
 
   const handleEdit = (item) => {
+    if (!canMutateCurrentPanel) return;
     setEditingItem(item);
     setFormData(getFormDataFromItem(activeTab, item));
     setShowModal(true);
   };
 
   const handleToggleSemesterStatus = async (item) => {
+    if (!canMutateCurrentPanel) return;
     try {
       const semesterId = item.semester_id || item.id;
       const url = `/lookup/semesters/${semesterId}/toggle-status`;
@@ -150,7 +178,7 @@ const LookupDataManagement = () => {
   };
 
   const handleDelete = async (id) => {
-    if (activeTab === 'auditLogs') return; // Audit logs are read-only
+    if (!canMutateCurrentPanel) return;
     const tabTitle = formatTabTitle(activeTab).toLowerCase();
     const ok = await swalConfirm({
       title: 'Delete item?',
@@ -207,6 +235,7 @@ const LookupDataManagement = () => {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    if (!canMutateCurrentPanel) return;
     setError('');
 
     try {
@@ -414,7 +443,6 @@ const LookupDataManagement = () => {
     if (tab === 'academicYears') return 'Academic Year';
     if (tab === 'roles') return 'Role';
     if (tab === 'campus') return 'Campus';
-    if (tab === 'auditLogs') return 'Audit Log';
     if (tab === 'curriculumHeaders') return 'Curriculum Header';
     if (tab === 'offeredSubjects') return 'Offered Subject';
     if (tab === 'electiveSubjects') return 'Elective Subject';
@@ -973,6 +1001,7 @@ const LookupDataManagement = () => {
 
   //diri maka ilis og mga table headers sa table
   const renderTable = (section, data) => {
+    const showActions = canMutateCurrentPanel;
     const tableHeaders = {
       programs: ['Program Code', 'Program Name', 'Department', 'Total Units'],
       departments: ['Campus', 'Department Name', 'Department Code'],
@@ -987,7 +1016,6 @@ const LookupDataManagement = () => {
       curriculumHeaders: ['Program', 'Effective Year', 'Description'],
       offeredSubjects: ['Subject', 'Academic Year', 'Semester', 'Program', 'Track', 'Year Level', 'Status'],
       electiveSubjects: ['Track', 'Subject', 'Description'],
-      auditLogs: ['User', 'Action', 'Table', 'Record ID', 'Timestamp'],
     };
 
     const getRowData = (section, item) => {
@@ -1094,13 +1122,6 @@ const LookupDataManagement = () => {
           })(),
           item.description || '-',
         ],
-        auditLogs: [
-          item.user?.email || item.user?.Email || '-',
-          item.actions || '-',
-          item.table_name || '-',
-          item.record_id || '-',
-          item.action_timestamp || '-',
-        ],
       };
       return rowData[section] || [];
     };
@@ -1109,7 +1130,7 @@ const LookupDataManagement = () => {
       <div className="table-section">
         <div className="section-header">
           <h3>{formatTabTitle(section)}</h3>
-          {section !== 'auditLogs' && (
+          {showActions && (
             <button className="add-button" onClick={handleAdd}>
               Add {formatTabTitle(section)}
             </button>
@@ -1122,14 +1143,17 @@ const LookupDataManagement = () => {
                 {tableHeaders[section].map((header, index) => (
                   <th key={index}>{header}</th>
                 ))}
-                {section !== 'auditLogs' && <th>Actions</th>}
+                {showActions && <th>Actions</th>}
               </tr>
             </thead>
             <tbody>
               {data.length === 0 ? (
                 <tr>
-                  <td colSpan={section === 'auditLogs' ? tableHeaders[section].length : tableHeaders[section].length + 1} className="no-data">
-                    No {section === 'academicYears' ? 'Academic Years' : section === 'auditLogs' ? 'audit logs' : section} found
+                  <td
+                    colSpan={tableHeaders[section].length + (showActions ? 1 : 0)}
+                    className="no-data"
+                  >
+                    No {section === 'academicYears' ? 'Academic Years' : section} found
                   </td>
                 </tr>
               ) : (
@@ -1138,7 +1162,7 @@ const LookupDataManagement = () => {
                     {getRowData(section, item).map((cell, cellIndex) => (
                       <td key={cellIndex}>{cell}</td>
                     ))}
-                    {section !== 'auditLogs' && (
+                    {showActions && (
                       <td className="actions">
                         {section === 'semesters' ? (
                           <button
@@ -1211,109 +1235,115 @@ const LookupDataManagement = () => {
   return (
     <div className="lookup-data-management">
       <div className="management-header">
-        <h2>Lookup Data Management</h2>
+        <h2>
+          Lookup Data Management
+          {!canMutateCurrentPanel && (
+            <span className="lookup-view-only-badge"> View only</span>
+          )}
+        </h2>
         <button className="refresh-button" onClick={fetchLookupData}>
           Refresh Data
         </button>
       </div>
+      {externalNav && (
+        <p className="lookup-active-panel-label">{formatTabTitle(activeTab)}</p>
+      )}
       {error && <div className="error-message">{error}</div>}
-      
-      <div className="lookup-tabs">
-        <button
-          className={activeTab === 'programs' ? 'tab active' : 'tab'}
-          onClick={() => setActiveTab('programs')}
-        >
-          Programs
-        </button>
-        <button
-          className={activeTab === 'departments' ? 'tab active' : 'tab'}
-          onClick={() => setActiveTab('departments')}
-        >
-          Departments
-        </button>
-        <button
-          className={activeTab === 'subjects' ? 'tab active' : 'tab'}
-          onClick={() => setActiveTab('subjects')}
-        >
-          Subjects
-        </button>
-        <button
-          className={activeTab === 'yearLevels' ? 'tab active' : 'tab'}
-          onClick={() => setActiveTab('yearLevels')}
-        >
-          Year Levels
-        </button>
-        <button
-          className={activeTab === 'semesters' ? 'tab active' : 'tab'}
-          onClick={() => setActiveTab('semesters')}
-        >
-          Semesters
-        </button>
-        <button
-          className={activeTab === 'campus' ? 'tab active' : 'tab'}
-          onClick={() => setActiveTab('campus')}
-        >
-          Campus
-        </button>
-        <button
-          className={activeTab === 'roles' ? 'tab active' : 'tab'}
-          onClick={() => setActiveTab('roles')}
-        >
-          Roles
-        </button>
-        <button
-          className={activeTab === 'requisites' ? 'tab active' : 'tab'}
-          onClick={() => setActiveTab('requisites')}
-        >
-          Prerequisites
-        </button>
-        <button
-          className={activeTab === 'academicYears' ? 'tab active' : 'tab'}
-          onClick={() => setActiveTab('academicYears')}
-        >
-          Academic Year
-        </button>
-        <button
-          className={activeTab === 'tracks' ? 'tab active' : 'tab'}
-          onClick={() => setActiveTab('tracks')}
-        >
-          Tracks
-        </button>
-        <button
-          className={activeTab === 'curriculumHeaders' ? 'tab active' : 'tab'}
-          onClick={() => setActiveTab('curriculumHeaders')}
-        >
-          Curriculum Headers
-        </button>
-        <button
-          className={activeTab === 'offeredSubjects' ? 'tab active' : 'tab'}
-          onClick={() => setActiveTab('offeredSubjects')}
-        >
-          Offered Subjects
-        </button>
-        <button
-          className={activeTab === 'auditLogs' ? 'tab active' : 'tab'}
-          onClick={() => setActiveTab('auditLogs')}
-        >
-          Audit Logs
-        </button>
-      </div>
 
-      {(activeTab === 'tracks' || activeTab === 'electiveSubjects') && (
-        <div className="sub-tabs">
-          <button
-            className={activeTab === 'tracks' ? 'sub-tab active' : 'sub-tab'}
-            onClick={() => setActiveTab('tracks')}
-          >
-            Tracks
-          </button>
-          <button
-            className={activeTab === 'electiveSubjects' ? 'sub-tab active' : 'sub-tab'}
-            onClick={() => setActiveTab('electiveSubjects')}
-          >
-            Elective Subjects
-          </button>
-        </div>
+      {!externalNav && (
+        <>
+          <div className="lookup-tabs">
+            <button
+              className={activeTab === 'programs' ? 'tab active' : 'tab'}
+              onClick={() => setActiveTab('programs')}
+            >
+              Programs
+            </button>
+            <button
+              className={activeTab === 'departments' ? 'tab active' : 'tab'}
+              onClick={() => setActiveTab('departments')}
+            >
+              Departments
+            </button>
+            <button
+              className={activeTab === 'subjects' ? 'tab active' : 'tab'}
+              onClick={() => setActiveTab('subjects')}
+            >
+              Subjects
+            </button>
+            <button
+              className={activeTab === 'yearLevels' ? 'tab active' : 'tab'}
+              onClick={() => setActiveTab('yearLevels')}
+            >
+              Year Levels
+            </button>
+            <button
+              className={activeTab === 'semesters' ? 'tab active' : 'tab'}
+              onClick={() => setActiveTab('semesters')}
+            >
+              Semesters
+            </button>
+            <button
+              className={activeTab === 'campus' ? 'tab active' : 'tab'}
+              onClick={() => setActiveTab('campus')}
+            >
+              Campus
+            </button>
+            <button
+              className={activeTab === 'roles' ? 'tab active' : 'tab'}
+              onClick={() => setActiveTab('roles')}
+            >
+              Roles
+            </button>
+            <button
+              className={activeTab === 'requisites' ? 'tab active' : 'tab'}
+              onClick={() => setActiveTab('requisites')}
+            >
+              Prerequisites
+            </button>
+            <button
+              className={activeTab === 'academicYears' ? 'tab active' : 'tab'}
+              onClick={() => setActiveTab('academicYears')}
+            >
+              Academic Year
+            </button>
+            <button
+              className={activeTab === 'tracks' ? 'tab active' : 'tab'}
+              onClick={() => setActiveTab('tracks')}
+            >
+              Tracks
+            </button>
+            <button
+              className={activeTab === 'curriculumHeaders' ? 'tab active' : 'tab'}
+              onClick={() => setActiveTab('curriculumHeaders')}
+            >
+              Curriculum Headers
+            </button>
+            <button
+              className={activeTab === 'offeredSubjects' ? 'tab active' : 'tab'}
+              onClick={() => setActiveTab('offeredSubjects')}
+            >
+              Offered Subjects
+            </button>
+          </div>
+
+          {(activeTab === 'tracks' || activeTab === 'electiveSubjects') && (
+            <div className="sub-tabs">
+              <button
+                className={activeTab === 'tracks' ? 'sub-tab active' : 'sub-tab'}
+                onClick={() => setActiveTab('tracks')}
+              >
+                Tracks
+              </button>
+              <button
+                className={activeTab === 'electiveSubjects' ? 'sub-tab active' : 'sub-tab'}
+                onClick={() => setActiveTab('electiveSubjects')}
+              >
+                Elective Subjects
+              </button>
+            </div>
+          )}
+        </>
       )}
 
       <div className="tab-content">
@@ -1330,10 +1360,9 @@ const LookupDataManagement = () => {
         {activeTab === 'curriculumHeaders' && renderTable('curriculumHeaders', lookupData.curriculumHeaders || [])}
         {activeTab === 'offeredSubjects' && renderTable('offeredSubjects', lookupData.offeredSubjects || [])}
         {activeTab === 'electiveSubjects' && renderTable('electiveSubjects', lookupData.electiveSubjects || [])}
-        {activeTab === 'auditLogs' && renderTable('auditLogs', lookupData.auditLogs || [])}
       </div>
 
-      {showModal && activeTab !== 'auditLogs' && (
+      {showModal && canMutateCurrentPanel && (
         <div className="modal-overlay">
           <div className="modal">
             <div className="modal-header">

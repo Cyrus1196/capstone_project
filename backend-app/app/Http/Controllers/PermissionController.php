@@ -3,7 +3,12 @@
 namespace App\Http\Controllers;
 
 use App\Models\Permission;
+use App\Models\Role;
 use App\Models\RolePermission;
+use App\Models\TblUser;
+use App\Services\RbacPortalMerge;
+use App\Services\UserPermissionUiExclusions;
+use App\Services\UserPermissionUiScope;
 use Illuminate\Http\Request;
 
 class PermissionController extends Controller
@@ -137,15 +142,204 @@ class PermissionController extends Controller
                 return response()->json(['message' => 'Unauthorized'], 403);
             }
 
+            $role = Role::find($roleId);
+            if (! $role) {
+                return response()->json(['message' => 'Role not found'], 404);
+            }
+
             $permissions = Permission::orderBy('category')->orderBy('permission_name')->get();
-            $assignedIds = RolePermission::where('role_id', $roleId)->pluck('permission_id')->toArray();
+            $assignedIds = RbacPortalMerge::mergedRoleAssignedIds($roleId, $role->role_name);
+
+            $portalPanelIds = RbacPortalMerge::portalPanelPermissionIds($role->role_name);
 
             return response()->json([
                 'permissions' => $permissions,
                 'assigned_ids' => $assignedIds,
+                'portal_panel_permission_ids' => $portalPanelIds,
             ]);
         } catch (\Exception $e) {
             return response()->json(['error' => 'Failed to fetch permissions for role', 'message' => $e->getMessage()], 500);
+        }
+    }
+
+    /**
+     * Permissions UI payload for one user (custom overrides vs role defaults).
+     */
+    public function forUser(Request $request, $userId)
+    {
+        try {
+            if (! $request->user() || ! $request->user()->isAdmin()) {
+                return response()->json(['message' => 'Unauthorized'], 403);
+            }
+
+            $target = TblUser::with(['role', 'directPermissions'])->find($userId);
+            if (! $target) {
+                return response()->json(['message' => 'User not found'], 404);
+            }
+
+            $roleName = $target->role?->role_name;
+            $allPermissions = Permission::orderBy('category')->orderBy('permission_name')->get();
+            $scopedNames = UserPermissionUiScope::scopedPermissionNames($roleName);
+            $permissionsUiScoped = $scopedNames !== null && ! $target->isAdmin();
+
+            if ($target->isAdmin()) {
+                $permissions = UserPermissionUiExclusions::filterVisible($allPermissions);
+                $visibleIds = $permissions->pluck('permission_id')->map(fn ($id) => (int) $id)->all();
+                $assignedIds = $visibleIds;
+                $portalPanelIds = array_values(array_intersect(
+                    RbacPortalMerge::portalPanelPermissionIds($roleName),
+                    $visibleIds
+                ));
+
+                return response()->json([
+                    'permissions' => $permissions,
+                    'assigned_ids' => $assignedIds,
+                    'portal_panel_permission_ids' => $portalPanelIds,
+                    'use_custom_permissions' => false,
+                    'permissions_read_only' => true,
+                    'permissions_ui_scoped' => false,
+                    'role_name' => $roleName,
+                ]);
+            }
+
+            if ($permissionsUiScoped) {
+                $permissions = $allPermissions
+                    ->filter(fn ($p) => in_array($p->permission_name, $scopedNames, true))
+                    ->values();
+            } else {
+                $permissions = $allPermissions;
+            }
+
+            $permissions = UserPermissionUiExclusions::filterVisible($permissions);
+            $visibleIds = $permissions->pluck('permission_id')->map(fn ($id) => (int) $id)->all();
+
+            if ((bool) ($target->use_custom_permissions ?? false)) {
+                $assignedIds = $target->directPermissions
+                    ->pluck('permission_id')
+                    ->map(fn ($id) => (int) $id)
+                    ->unique()
+                    ->values()
+                    ->all();
+            } else {
+                $assignedIds = RbacPortalMerge::mergedRoleAssignedIds($target->role_id, $roleName);
+            }
+
+            $assignedIds = array_values(array_intersect($assignedIds, $visibleIds));
+
+            $portalPanelIds = array_values(array_intersect(
+                RbacPortalMerge::portalPanelPermissionIds($roleName),
+                $visibleIds
+            ));
+
+            return response()->json([
+                'permissions' => $permissions,
+                'assigned_ids' => $assignedIds,
+                'portal_panel_permission_ids' => $portalPanelIds,
+                'use_custom_permissions' => (bool) ($target->use_custom_permissions ?? false),
+                'permissions_read_only' => false,
+                'permissions_ui_scoped' => $permissionsUiScoped,
+                'role_name' => $roleName,
+            ]);
+        } catch (\Exception $e) {
+            return response()->json(['error' => 'Failed to fetch permissions for user', 'message' => $e->getMessage()], 500);
+        }
+    }
+
+    /**
+     * Replace this user’s direct permission rows and enable custom overrides.
+     */
+    public function syncUser(Request $request, $userId)
+    {
+        try {
+            if (! $request->user() || ! $request->user()->isAdmin()) {
+                return response()->json(['message' => 'Unauthorized'], 403);
+            }
+
+            $target = TblUser::find($userId);
+            if (! $target) {
+                return response()->json(['message' => 'User not found'], 404);
+            }
+            if ($target->isAdmin()) {
+                return response()->json(['message' => 'Admin accounts always have full access; permissions are not editable here.'], 422);
+            }
+
+            $validated = $request->validate([
+                'permission_ids' => 'array',
+                'permission_ids.*' => 'integer|exists:tbl_permission,permission_id',
+            ]);
+
+            $permissionIds = array_values(array_unique(array_map('intval', $validated['permission_ids'] ?? [])));
+
+            $stripIds = UserPermissionUiExclusions::excludedPermissionIds();
+            $permissionIds = array_values(array_diff($permissionIds, $stripIds));
+
+            $allowedScope = UserPermissionUiScope::allowedPermissionIdsForSync($target->role?->role_name);
+            if ($allowedScope !== null) {
+                foreach ($permissionIds as $pid) {
+                    if (! in_array($pid, $allowedScope, true)) {
+                        return response()->json([
+                            'message' => 'One or more permissions are not allowed for this user\'s role.',
+                        ], 422);
+                    }
+                }
+            }
+
+            $implicit = UserPermissionUiExclusions::implicitMergeIdsForRole($target->role?->role_name);
+            $permissionIds = array_values(array_unique(array_merge($permissionIds, $implicit)));
+
+            $target->directPermissions()->sync($permissionIds);
+            $target->use_custom_permissions = true;
+            $target->save();
+
+            return response()->json([
+                'message' => 'User permissions updated successfully',
+                'assigned_ids' => $permissionIds,
+                'use_custom_permissions' => true,
+            ]);
+        } catch (\Exception $e) {
+            return response()->json(['error' => 'Failed to sync user permissions', 'message' => $e->getMessage()], 500);
+        }
+    }
+
+    /**
+     * Clear direct assignments; user falls back to their role’s permissions.
+     */
+    public function resetUserToRole(Request $request, $userId)
+    {
+        try {
+            if (! $request->user() || ! $request->user()->isAdmin()) {
+                return response()->json(['message' => 'Unauthorized'], 403);
+            }
+
+            $target = TblUser::with(['role', 'directPermissions'])->find($userId);
+            if (! $target) {
+                return response()->json(['message' => 'User not found'], 404);
+            }
+            if ($target->isAdmin()) {
+                return response()->json(['message' => 'Nothing to reset for admin accounts.'], 422);
+            }
+
+            $target->directPermissions()->detach();
+            $target->use_custom_permissions = false;
+            $target->save();
+
+            $roleName = $target->role?->role_name;
+            $assignedIds = RbacPortalMerge::mergedRoleAssignedIds($target->role_id, $roleName);
+
+            $assignedIds = array_values(array_diff($assignedIds, UserPermissionUiExclusions::excludedPermissionIds()));
+
+            $allowedScope = UserPermissionUiScope::allowedPermissionIdsForSync($roleName);
+            if ($allowedScope !== null) {
+                $assignedIds = array_values(array_intersect($assignedIds, $allowedScope));
+            }
+
+            return response()->json([
+                'message' => 'User permissions reset to role defaults',
+                'assigned_ids' => $assignedIds,
+                'use_custom_permissions' => false,
+            ]);
+        } catch (\Exception $e) {
+            return response()->json(['error' => 'Failed to reset user permissions', 'message' => $e->getMessage()], 500);
         }
     }
 
@@ -164,10 +358,9 @@ class PermissionController extends Controller
                 'permission_ids.*' => 'integer|exists:tbl_permission,permission_id',
             ]);
 
-            $permissionIds = $validated['permission_ids'] ?? [];
+            $permissionIds = array_map('intval', $validated['permission_ids'] ?? []);
 
             RolePermission::where('role_id', $roleId)->delete();
-
             foreach ($permissionIds as $pid) {
                 RolePermission::create(['role_id' => $roleId, 'permission_id' => $pid]);
             }

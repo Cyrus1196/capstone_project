@@ -21,10 +21,12 @@ class CreditEvaluation extends Model
         'evaluation_date',
         'status',
         'remarks',
+        'is_active',
     ];
 
     protected $casts = [
         'evaluation_date' => 'date',
+        'is_active' => 'boolean',
     ];
 
     public function student()
@@ -44,7 +46,7 @@ class CreditEvaluation extends Model
 
     public function creditDetails()
     {
-        return $this->hasMany(CreditEvaluationDetail::class, 'student_id', 'student_id');
+        return $this->hasMany(CreditEvaluationDetail::class, 'credit_eval_id', 'credit_eval_id');
     }
 }
 

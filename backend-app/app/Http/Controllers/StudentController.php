@@ -9,11 +9,33 @@ use App\Models\Prerequisite;
 use App\Models\TblUser;
 use App\Models\OfferedSubject;
 use App\Models\Subject;
+use App\Models\Track;
+use App\Models\YearLevel;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
+use App\Services\ElectiveSubjectResolver;
+use App\Services\StudentCurriculumEvaluationBuilder;
+use Illuminate\Support\Facades\Log;
 
 class StudentController extends Controller
 {
+    /**
+     * Program id for curriculum/eligibility (uses StudentProfile accessor; supports current_program column).
+     */
+    protected function getStudentProgramId(?StudentProfile $profile): ?int
+    {
+        if (!$profile) {
+            return null;
+        }
+        $v = $profile->current_program;
+        if ($v === null || $v === '') {
+            return null;
+        }
+
+        return (int) $v;
+    }
+
     /**
      * Get the authenticated student's profile or admin can get by user_id
      */
@@ -34,14 +56,29 @@ class StudentController extends Controller
             }
 
             $profile = StudentProfile::where('user_id', $userId)
-                ->with('program')
+                ->with(['program', 'track'])
                 ->first();
 
             if (!$profile) {
-                return response()->json(['message' => 'Profile not found'], 404);
+                // Return empty object so the frontend can open the edit modal
+                // without throwing a 404 error. The profile can still be created
+                // later when admin fills the required fields.
+                return response()->json((object)[]);
             }
 
-            return response()->json($profile);
+            $data = $profile->toArray();
+            try {
+                $built = app(StudentCurriculumEvaluationBuilder::class)->buildPayload($profile);
+                $data['computed_academic_status'] = $built['computed_academic_status'];
+                $data['academic_status_reasons'] = $built['academic_status_reasons'];
+            } catch (\Throwable $e) {
+                Log::warning('student profile: computed academic status failed', [
+                    'user_id' => $userId,
+                    'message' => $e->getMessage(),
+                ]);
+            }
+
+            return response()->json($data);
         } catch (\Exception $e) {
             return response()->json([
                 'error' => 'Failed to fetch profile',
@@ -70,6 +107,8 @@ class StudentController extends Controller
                 'contact_number' => 'nullable|string|max:20',
                 'address' => 'nullable|string',
                 'academic_status' => 'nullable|string|max:50',
+                'year_level_id' => 'nullable|integer|exists:year_level,year_level_id',
+                'track_id' => 'nullable|integer|exists:tbl_track,track_id',
                 'current_program' => 'nullable|integer|exists:tbl_program,program_id',
                 'Current_Program' => 'nullable|integer|exists:tbl_program,program_id', // Accept both formats
             ]);
@@ -96,18 +135,93 @@ class StudentController extends Controller
 
             if ($profile) {
                 // Update existing profile
-                // Don't allow changing student_id_number - remove it from validated data for updates
-                unset($validated['student_id_number']);
+                // Allow admin to edit Student ID Number, but prevent duplicates.
+                $hasStudentIdNumberColumn = Schema::hasColumn('tbl_student_profile', 'student_id_number');
+                $hasStudentNumberColumn = Schema::hasColumn('tbl_student_profile', 'student_number');
+
+                $rawStudentIdNumber = (string) ($validated['student_id_number'] ?? '');
+                $sanitizedStudentNumber = preg_replace('/\D+/', '', $rawStudentIdNumber);
+
+                if ($rawStudentIdNumber === '' || $sanitizedStudentNumber === '') {
+                    return response()->json([
+                        'error' => 'Invalid Student ID Number',
+                        'message' => 'Student ID Number must contain digits (e.g., 02-2324-07413).',
+                    ], 422);
+                }
+
+                // Prevent duplicates for the same value for another student.
+                if ($hasStudentIdNumberColumn) {
+                    $duplicate = StudentProfile::where('student_id_number', $rawStudentIdNumber)
+                        ->where('user_id', '!=', $targetUserId)
+                        ->exists();
+                    if ($duplicate) {
+                        return response()->json(['message' => 'Student ID number already exists'], 422);
+                    }
+                }
+
+                if ($hasStudentNumberColumn) {
+                    $duplicate = StudentProfile::where('student_number', $sanitizedStudentNumber)
+                        ->where('user_id', '!=', $targetUserId)
+                        ->exists();
+                    if ($duplicate) {
+                        return response()->json(['message' => 'Student ID number already exists'], 422);
+                    }
+                }
+
+                // Map to the columns we actually have.
+                if ($hasStudentNumberColumn) {
+                    $validated['student_number'] = $sanitizedStudentNumber;
+                }
+
+                // If student_id_number column doesn't exist, remove it to avoid DB errors.
+                if (!$hasStudentIdNumberColumn) {
+                    unset($validated['student_id_number']);
+                }
+
                 unset($validated['user_id']); // Don't allow changing user_id
-                
                 $profile->update($validated);
             } else {
                 // Create new profile
-                // Check if student_id_number already exists
-                $exists = StudentProfile::where('student_id_number', $validated['student_id_number'])->exists();
+                // Your tbl_student_profile uses `student_number` (INT) in the current schema,
+                // but the frontend captures `student_id_number` like "02-2324-07413".
+                // We sanitize to digits only before saving to avoid MySQL truncation warnings.
+                $rawStudentIdNumber = (string) ($validated['student_id_number'] ?? '');
+                $sanitizedStudentNumber = preg_replace('/\D+/', '', $rawStudentIdNumber);
+                if ($sanitizedStudentNumber === '') {
+                    return response()->json([
+                        'error' => 'Invalid Student ID Number',
+                        'message' => 'Student ID Number must contain digits (e.g., 02-2324-07413).',
+                    ], 422);
+                }
+
+                // Map payload to the actual DB column name.
+                // Your tbl_student_profile table might use `student_number` instead of `student_id_number`.
+                $hasStudentIdNumberColumn = Schema::hasColumn('tbl_student_profile', 'student_id_number');
+                $hasStudentNumberColumn = Schema::hasColumn('tbl_student_profile', 'student_number');
+
+                // Existence check based on the columns that exist in your DB.
+                $exists = false;
+                if ($hasStudentNumberColumn) {
+                    $exists = StudentProfile::where('student_number', $sanitizedStudentNumber)->exists();
+                } elseif ($hasStudentIdNumberColumn) {
+                    $exists = StudentProfile::where('student_id_number', $rawStudentIdNumber)->exists();
+                }
+
                 if ($exists) {
                     return response()->json(['message' => 'Student ID number already exists'], 422);
                 }
+
+                // Map validated payload to actual DB columns.
+                if ($hasStudentNumberColumn) {
+                    $validated['student_number'] = $sanitizedStudentNumber;
+                }
+                if (!$hasStudentIdNumberColumn) {
+                    unset($validated['student_id_number']);
+                } else {
+                    // Store raw input so the admin modal doesn't look blank.
+                    $validated['student_id_number'] = (string) $rawStudentIdNumber;
+                }
+
                 $validated['user_id'] = $targetUserId;
                 $profile = StudentProfile::create($validated);
             }
@@ -228,30 +342,68 @@ class StudentController extends Controller
             }
 
             $profile = StudentProfile::where('user_id', $user->user_id)
-                ->with('program')
+                ->with(['program', 'track', 'yearLevel'])
                 ->first();
 
-            if (!$profile || !$profile->Current_Program) {
+            $programId = $this->getStudentProgramId($profile);
+            if (!$profile || !$programId) {
                 return response()->json(['curriculum' => []]);
             }
 
-            $curriculum = Curriculum::where('program_id', $profile->Current_Program)
+            $curriculum = Curriculum::where('program_id', $programId)
                 ->with([
                     'subject.prerequisites.requiredSubject',
                     'yearLevel',
                     'semester',
-                    'program'
+                    'program',
+                    'electiveSlot.electiveSubjects.subject',
+                    'electiveSlot.electiveSubjects.track'
                 ])
                 ->orderBy('year_level')
                 ->orderBy('semester_id')
                 ->get();
 
-            // Transform the data to include related information
-            $transformed = $curriculum->map(function($item) {
+            $studentEvaluations = Evaluation::where('student_id', $profile->student_id)
+                ->with('subject')
+                ->get();
+
+            $approvedCreditSubjectIds = DB::table('tbl_credit_evaluation_details as d')
+                ->join('tbl_credit_evaluation as e', 'd.credit_eval_id', '=', 'e.credit_eval_id')
+                ->where('e.student_id', $profile->student_id)
+                ->whereRaw('LOWER(TRIM(e.status)) = ?', ['approved'])
+                ->where('e.is_active', true)
+                ->pluck('d.subject_id')
+                ->unique();
+
+            $studentTrackId = $profile->track_id;
+
+            $transformed = $curriculum
+                ->map(function ($item) use ($studentTrackId, $profile, $studentEvaluations, $approvedCreditSubjectIds) {
+                $resolvedSubject = $item->subject;
+                $resolvedTrack = null;
+                $resolvedFromElective = false;
+
+                if (! $resolvedSubject && $item->electiveSlot) {
+                    $electiveSubjects = $item->electiveSlot->electiveSubjects ?? collect();
+                    $resolvedSubject = ElectiveSubjectResolver::resolveForCurriculumSlot(
+                        $electiveSubjects,
+                        $studentTrackId !== null ? (int) $studentTrackId : null,
+                        $item->semester_id !== null ? (int) $item->semester_id : null,
+                        $studentEvaluations
+                    );
+                    if ($resolvedSubject) {
+                        $resolvedFromElective = true;
+                        $esRow = $electiveSubjects->first(
+                            fn ($es) => (int) $es->subject_id === (int) $resolvedSubject->subject_id
+                        );
+                        $resolvedTrack = $esRow?->track;
+                    }
+                }
+
                 // Get all prerequisites for this subject
                 $prerequisites = [];
-                if ($item->subject && $item->subject->prerequisites) {
-                    $prerequisites = $item->subject->prerequisites->map(function($prereq) {
+                if ($resolvedSubject && $resolvedSubject->prerequisites) {
+                    $prerequisites = $resolvedSubject->prerequisites->map(function($prereq) {
                         return [
                             'subject_code' => $prereq->requiredSubject->subject_code ?? null,
                             'prereq_subject_code' => $prereq->requiredSubject->subject_code ?? null,
@@ -259,14 +411,21 @@ class StudentController extends Controller
                     })->toArray();
                 }
 
+                if (!$resolvedSubject) {
+                    return null;
+                }
+
+                $sid = (int) $resolvedSubject->subject_id;
+                $passedViaTransferCredit = $approvedCreditSubjectIds->contains($sid);
+
                 return [
                     'curriculum_id' => $item->curriculum_id,
                     'program_id' => $item->program_id,
-                    'subject_id' => $item->subject_id,
-                    'subject_code' => $item->subject->subject_code ?? null,
-                    'subject_name' => $item->subject->subject_name ?? null,
-                    'units' => $item->subject->number_of_units ?? null,
-                    'hours' => $item->subject->number_of_hrs ?? null,
+                    'subject_id' => $resolvedSubject->subject_id,
+                    'subject_code' => $resolvedSubject->subject_code ?? null,
+                    'subject_name' => $resolvedSubject->subject_name ?? null,
+                    'units' => $resolvedSubject->number_of_units ?? null,
+                    'hours' => $resolvedSubject->number_of_hrs ?? null,
                     'year_level_id' => $item->year_level,
                     'year_level_name' => $item->yearLevel->year_level ?? null,
                     'semester_id' => $item->semester_id,
@@ -275,16 +434,45 @@ class StudentController extends Controller
                     'subject_type' => $item->subject_type,
                     'year_level' => $item->yearLevel,
                     'semester' => $item->semester,
-                    'subject' => $item->subject,
+                    'subject' => $resolvedSubject,
                     'program' => $item->program,
+                    'student_track_id' => $profile->track_id,
+                    'student_track_name' => $profile->track->track_name ?? null,
+                    'resolved_from_elective_slot' => $resolvedFromElective,
+                    'resolved_track' => $resolvedTrack,
                     'prerequisites' => $prerequisites,
+                    'passed_via_transfer_credit' => $passedViaTransferCredit,
                 ];
-            });
+                })
+                ->filter();
 
             return response()->json(['curriculum' => $transformed]);
         } catch (\Exception $e) {
             return response()->json([
                 'error' => 'Failed to fetch curriculum',
+                'message' => $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * Get lookup options used in student profile forms.
+     */
+    public function getProfileOptions(Request $request)
+    {
+        try {
+            $user = $request->user();
+            if (!$user) {
+                return response()->json(['message' => 'Unauthorized'], 401);
+            }
+
+            return response()->json([
+                'year_levels' => YearLevel::select('year_level_id', 'year_level')->orderBy('year_level_id')->get(),
+                'tracks' => Track::select('track_id', 'track_code', 'track_name')->orderBy('track_name')->get(),
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'error' => 'Failed to fetch profile options',
                 'message' => $e->getMessage()
             ], 500);
         }
@@ -308,7 +496,8 @@ class StudentController extends Controller
 
             // Get student profile
             $profile = StudentProfile::where('user_id', $user->user_id)->first();
-            if (!$profile || !$profile->Current_Program) {
+            $programId = $this->getStudentProgramId($profile);
+            if (!$profile || !$programId) {
                 return response()->json(['message' => 'Student profile or program not found'], 404);
             }
 
@@ -339,7 +528,7 @@ class StudentController extends Controller
                 ->toArray();
 
             // Get subjects from curriculum based on year level and semester
-            $curriculumSubjects = Curriculum::where('program_id', $profile->Current_Program)
+            $curriculumSubjects = Curriculum::where('program_id', $programId)
                 ->where('year_level', $yearLevelId)
                 ->where('semester_id', $semesterId)
                 ->with([
@@ -371,7 +560,7 @@ class StudentController extends Controller
                         ->where('academic_year_id', $academicYearId)
                         ->where('semester_id', $semesterId)
                         ->where('status', 'active')
-                        ->where('program_id', $profile->Current_Program)
+                        ->where('program_id', $programId)
                         ->first();
                     $isOffered = $offeredSubject !== null;
                 } else {
@@ -379,7 +568,7 @@ class StudentController extends Controller
                     $offeredSubject = OfferedSubject::where('subject_id', $subjectId)
                         ->where('semester_id', $semesterId)
                         ->where('status', 'active')
-                        ->where('program_id', $profile->Current_Program)
+                        ->where('program_id', $programId)
                         ->first();
                     $isOffered = $offeredSubject !== null;
                 }

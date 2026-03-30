@@ -14,17 +14,18 @@ use App\Models\DeanProfile;
 
 /**
  * Seeds roles and demo accounts so capstone "core transactions" can be tested:
- * Admin, Student, Dean, Faculty, Adviser, Guest — plus dean/faculty profiles where required by middleware.
+ * Admin, Student, Dean, Evaluator, Adviser, Program Head, Secretary — plus profiles where required.
  */
 class CapstoneDemoTransactionSeeder extends Seeder
 {
     public function run(): void
     {
         $roles = [
-            ['role_name' => 'Guest', 'access_level' => 10, 'description' => 'Read-only catalog access'],
             ['role_name' => 'Adviser', 'access_level' => 3, 'description' => 'Adviser — credit review & student guidance'],
-            ['role_name' => 'Faculty', 'access_level' => 3, 'description' => 'Faculty'],
+            ['role_name' => 'Evaluator', 'access_level' => 3, 'description' => 'Evaluator — student curriculum evaluation'],
             ['role_name' => 'Dean', 'access_level' => 2, 'description' => 'Dean'],
+            ['role_name' => 'Program Head', 'access_level' => 7, 'description' => 'Program head — curriculum oversight'],
+            ['role_name' => 'Secretary', 'access_level' => 4, 'description' => 'Secretary — records and lookup'],
             ['role_name' => 'Student', 'access_level' => 5, 'description' => 'Student'],
             ['role_name' => 'Admin', 'access_level' => 1, 'description' => 'Administrator'],
         ];
@@ -40,9 +41,8 @@ class CapstoneDemoTransactionSeeder extends Seeder
         $department = Department::first();
 
         $accounts = [
-            ['email' => 'guest@example.com', 'password' => 'guest123', 'role' => 'Guest'],
             ['email' => 'adviser@example.com', 'password' => 'adviser123', 'role' => 'Adviser'],
-            ['email' => 'faculty@example.com', 'password' => 'faculty123', 'role' => 'Faculty'],
+            ['email' => 'evaluator@example.com', 'password' => 'evaluator123', 'role' => 'Evaluator'],
             ['email' => 'dean@example.com', 'password' => 'dean123', 'role' => 'Dean'],
         ];
 
@@ -73,14 +73,14 @@ class CapstoneDemoTransactionSeeder extends Seeder
                 ]);
             }
 
-            if ($acc['role'] === 'Faculty' || $acc['role'] === 'Adviser') {
+            if ($acc['role'] === 'Evaluator' || $acc['role'] === 'Adviser') {
                 $existing = FacultyProfile::where('user_id', $user->user_id)->first();
                 if (!$existing && $department) {
                     FacultyProfile::create([
                         'user_id' => $user->user_id,
                         'first_name' => $acc['role'] === 'Adviser' ? 'Alex' : 'Jamie',
-                        'last_name' => $acc['role'] === 'Adviser' ? 'Adviser' : 'Faculty',
-                        'employee_id' => $acc['role'] === 'Adviser' ? 'EMP-ADV-001' : 'EMP-FAC-001',
+                        'last_name' => $acc['role'] === 'Adviser' ? 'Adviser' : 'Evaluator',
+                        'employee_id' => $acc['role'] === 'Adviser' ? 'EMP-ADV-001' : 'EMP-EVL-001',
                         'department_id' => $department->department_id,
                         'specialization' => 'Information Technology',
                     ]);
@@ -98,6 +98,6 @@ class CapstoneDemoTransactionSeeder extends Seeder
             }
         }
 
-        $this->command->info('Demo accounts: guest@example.com / guest123 | adviser@example.com / adviser123 | faculty@example.com / faculty123 | dean@example.com / dean123');
+        $this->command->info('Demo accounts: adviser@example.com / adviser123 | faculty@example.com / faculty123 | dean@example.com / dean123');
     }
 }

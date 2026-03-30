@@ -25,6 +25,7 @@ class StudentProfile extends Model
         'address',
         'academic_status',
         'Current_Program',
+        'current_program',
         'year_level_id',
         'track_id',
     ];
@@ -69,7 +70,8 @@ class StudentProfile extends Model
 
     public function program()
     {
-        return $this->belongsTo(Program::class, 'Current_Program', 'program_id');
+        // DB column is typically `current_program` (see migrations); accessor still exposes ->current_program.
+        return $this->belongsTo(Program::class, 'current_program', 'program_id');
     }
 
     public function yearLevel()

@@ -9,6 +9,8 @@ const StudentProfile = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [saving, setSaving] = useState(false);
+  const [yearLevels, setYearLevels] = useState([]);
+  const [tracks, setTracks] = useState([]);
   const [formData, setFormData] = useState({
     first_name: '',
     middle_name: '',
@@ -17,11 +19,24 @@ const StudentProfile = () => {
     student_id_number: '',
     address: '',
     academic_status: '',
+    year_level_id: '',
+    track_id: '',
   });
 
   useEffect(() => {
     fetchProfile();
+    fetchProfileOptions();
   }, []);
+
+  const fetchProfileOptions = async () => {
+    try {
+      const response = await api.get('/students/profile-options');
+      setYearLevels(response.data?.year_levels || []);
+      setTracks(response.data?.tracks || []);
+    } catch (err) {
+      console.error('Error fetching profile options:', err);
+    }
+  };
 
   const fetchProfile = async () => {
     try {
@@ -37,6 +52,8 @@ const StudentProfile = () => {
         student_id_number: response.data.student_id_number || '',
         address: response.data.address || '',
         academic_status: response.data.academic_status || '',
+        year_level_id: response.data.year_level_id || '',
+        track_id: response.data.track_id || '',
       });
       setError(null);
     } catch (err) {
@@ -64,12 +81,29 @@ const StudentProfile = () => {
     setSaving(true);
     setError(null);
     try {
+      const yearLevelId = formData.year_level_id ? Number(formData.year_level_id) : null;
+      const selectedYear = yearLevels.find((y) => Number(y.year_level_id) === yearLevelId);
+      const yearText = (selectedYear?.year_level || '').toString().toLowerCase();
+      const isThirdYear = yearText.includes('3') || yearText.includes('third');
+
+      if (isThirdYear && !formData.track_id) {
+        await swalError('Track required', 'Please select your track for 3rd year.');
+        setSaving(false);
+        return;
+      }
+
+      const payload = {
+        ...formData,
+        year_level_id: formData.year_level_id ? Number(formData.year_level_id) : null,
+        track_id: formData.track_id ? Number(formData.track_id) : null,
+      };
+
       if (profile) {
         // Update existing profile
-        await api.put(`/students/profile`, formData);
+        await api.put(`/students/profile`, payload);
       } else {
         // Create new profile
-        await api.post(`/students/profile`, formData);
+        await api.post(`/students/profile`, payload);
       }
       await fetchProfile();
       await swalSuccess('Saved', 'Profile saved successfully.');
@@ -86,6 +120,14 @@ const StudentProfile = () => {
   if (loading) {
     return <div className="loading-message">Loading profile...</div>;
   }
+
+  const selectedYear = yearLevels.find(
+    (yearLevel) => Number(yearLevel.year_level_id) === Number(formData.year_level_id)
+  );
+  const selectedYearText = (selectedYear?.year_level || '').toString().toLowerCase();
+  const selectedYearId = Number(formData.year_level_id || 0);
+  const shouldShowTrack =
+    selectedYearId === 3 || selectedYearText.includes('3') || selectedYearText.includes('third');
 
   return (
     <div className="student-profile">
@@ -180,12 +222,33 @@ const StudentProfile = () => {
         </div>
 
         <div className="form-group">
-          <label htmlFor="academic_status">Academic Status</label>
+          <label htmlFor="student_program_readonly">Program</label>
+          <input
+            type="text"
+            id="student_program_readonly"
+            value={
+              profile?.program
+                ? `${profile.program.program_name || '—'}${
+                    profile.program.program_code ? ` (${profile.program.program_code})` : ''
+                  }`
+                : '—'
+            }
+            disabled
+            readOnly
+          />
+          <small style={{ color: '#666', fontSize: '0.85rem', display: 'block', marginTop: '0.25rem' }}>
+            Program is assigned by administration and cannot be changed here.
+          </small>
+        </div>
+
+        <div className="form-group">
+          <label htmlFor="academic_status">Academic status (on record)</label>
           <select
             id="academic_status"
             name="academic_status"
             value={formData.academic_status}
             onChange={handleInputChange}
+            disabled
           >
             <option value="">Select Status</option>
             <option value="Regular">Regular</option>
@@ -193,7 +256,78 @@ const StudentProfile = () => {
             <option value="Probationary">Probationary</option>
             <option value="On Leave">On Leave</option>
           </select>
+          <small style={{ color: '#666', fontSize: '0.85rem', display: 'block', marginTop: '0.25rem' }}>
+            Official status kept by the registrar or administration. It may differ from the progress-based
+            status below until your record is updated.
+          </small>
         </div>
+
+        {profile?.computed_academic_status && (
+          <div className="form-group student-profile-computed-status">
+            <span className="student-profile-computed-label">Progress-based status (curriculum sequence)</span>
+            <div
+              className={
+                profile.computed_academic_status === 'Irregular'
+                  ? 'student-profile-computed-value student-profile-computed-irregular'
+                  : 'student-profile-computed-value student-profile-computed-regular'
+              }
+            >
+              {profile.computed_academic_status}
+            </div>
+            {Array.isArray(profile.academic_status_reasons) && profile.academic_status_reasons.length > 0 && (
+              <p className="student-profile-computed-note">{profile.academic_status_reasons.join(' ')}</p>
+            )}
+            <small style={{ color: '#666', fontSize: '0.85rem', display: 'block', marginTop: '0.35rem' }}>
+              Derived from your curriculum order and which subjects are marked passed (same logic as academic
+              evaluation). Not editable here.
+            </small>
+          </div>
+        )}
+
+        <div className="form-group">
+          <label htmlFor="year_level_id">Year Level</label>
+          <select
+            id="year_level_id"
+            name="year_level_id"
+            value={formData.year_level_id}
+            onChange={handleInputChange}
+            disabled
+          >
+            <option value="">Select Year Level</option>
+            {yearLevels.map((yearLevel) => (
+              <option key={yearLevel.year_level_id} value={yearLevel.year_level_id}>
+                {yearLevel.year_level}
+              </option>
+            ))}
+          </select>
+          <small style={{ color: '#666', fontSize: '0.85rem', display: 'block', marginTop: '0.25rem' }}>
+            Year level is assigned by administration and cannot be changed here.
+          </small>
+        </div>
+
+        {shouldShowTrack && (
+          <div className="form-group">
+            <label htmlFor="track_id">Track (3rd Year)</label>
+            <select
+              id="track_id"
+              name="track_id"
+              value={formData.track_id}
+              onChange={handleInputChange}
+              disabled
+            >
+              <option value="">Select Track</option>
+              {tracks.map((track) => (
+                <option key={track.track_id} value={track.track_id}>
+                  {track.track_name}
+                  {track.track_code ? ` (${track.track_code})` : ''}
+                </option>
+              ))}
+            </select>
+            <small style={{ color: '#666', fontSize: '0.85rem', display: 'block', marginTop: '0.25rem' }}>
+              Track is assigned by administration and cannot be changed here.
+            </small>
+          </div>
+        )}
 
         <div className="form-actions">
           <button type="submit" className="save-button" disabled={saving}>

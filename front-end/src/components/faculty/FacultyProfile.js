@@ -233,7 +233,7 @@ const FacultyProfile = ({ facultyProfile, onUpdate }) => {
           <label>Role</label>
           <input
             type="text"
-            value={user?.role || 'Faculty'}
+            value={user?.role || 'Evaluator'}
             disabled
           />
         </div>

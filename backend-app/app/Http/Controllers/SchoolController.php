@@ -10,10 +10,6 @@ class SchoolController extends Controller
     public function index(Request $request)
     {
         try {
-            if (!$request->user()) {
-                return response()->json(['message' => 'Unauthorized'], 401);
-            }
-
             $schools = School::all();
             return response()->json($schools);
         } catch (\Exception $e) {

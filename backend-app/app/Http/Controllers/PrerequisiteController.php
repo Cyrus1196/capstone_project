@@ -134,6 +134,69 @@ class PrerequisiteController extends Controller
     }
 
     /**
+     * Get a single requisite by primary key.
+     */
+    public function show(Request $request, $id)
+    {
+        try {
+            if (!app()->environment('local')) {
+                if (!$request->user() || !$request->user()->isAdmin()) {
+                    return response()->json(['message' => 'Unauthorized'], 403);
+                }
+            }
+
+            $requisite = Prerequisite::with(['subject', 'requiredSubject'])->where('requisites_id', $id)->firstOrFail();
+
+            return response()->json($requisite);
+        } catch (\Exception $e) {
+            Log::error('PrerequisiteController@show error: ' . $e->getMessage());
+
+            return response()->json(['error' => 'Failed to fetch requisite', 'message' => $e->getMessage()], 500);
+        }
+    }
+
+    /**
+     * Replace a requisite by deleting the row (and corequisite pair if needed) and recreating via store rules.
+     */
+    public function update(Request $request, $id)
+    {
+        try {
+            if (!app()->environment('local')) {
+                if (!$request->user() || !$request->user()->isAdmin()) {
+                    return response()->json(['message' => 'Unauthorized'], 403);
+                }
+            }
+
+            $requisite = Prerequisite::where('requisites_id', $id)->firstOrFail();
+
+            if ($requisite->requisite_type === 'corequisite') {
+                Prerequisite::where('subject_id', $requisite->requisites_subject_id)
+                    ->where('requisites_subject_id', $requisite->subject_id)
+                    ->where('requisite_type', 'corequisite')
+                    ->delete();
+            }
+            $requisite->delete();
+
+            $requiredSubjectId = $request->input('required_subject_id')
+                ?? $request->input('requisites_subject_id')
+                ?? $request->input('requiredSubjectId')
+                ?? $requisite->requisites_subject_id;
+
+            $request->merge([
+                'subject_id' => $request->input('subject_id', $requisite->subject_id),
+                'requisite_type' => $request->input('requisite_type', $requisite->requisite_type),
+                'required_subject_id' => $requiredSubjectId,
+            ]);
+
+            return $this->store($request);
+        } catch (\Exception $e) {
+            Log::error('PrerequisiteController@update error: ' . $e->getMessage());
+
+            return response()->json(['error' => 'Failed to update requisite', 'message' => $e->getMessage()], 500);
+        }
+    }
+
+    /**
      * Get requisites for a specific subject
      * Returns all requisites (both prerequisites and corequisites) where subject_id matches
      */

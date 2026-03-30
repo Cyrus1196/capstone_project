@@ -10,7 +10,11 @@ class AuditLogController extends Controller
     public function index(Request $request)
     {
         try {
-            if (!$request->user() || !$request->user()->isAdmin()) {
+            $user = $request->user();
+            if (! $user) {
+                return response()->json(['message' => 'Unauthorized'], 403);
+            }
+            if (! $user->isAdmin() && ! $user->hasPermission('audit.view') && ! $user->hasPermission('Audit Logs')) {
                 return response()->json(['message' => 'Unauthorized'], 403);
             }
 

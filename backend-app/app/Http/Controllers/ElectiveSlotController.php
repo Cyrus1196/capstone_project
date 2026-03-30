@@ -10,6 +10,28 @@ use Illuminate\Database\QueryException;
 
 class ElectiveSlotController extends Controller
 {
+    /**
+     * List endpoint: also allowed for curriculum.view so read-only curriculum UIs can resolve elective rows.
+     */
+    protected function canListElectiveSlots(Request $request): bool
+    {
+        $user = $request->user();
+        if (! $user) {
+            return false;
+        }
+        if ($user->isAdmin()) {
+            return true;
+        }
+
+        return $user->hasAnyPermission([
+            'Elective Slots',
+            'electives.view',
+            'electives.manage',
+            'curriculum.view',
+            'Curriculum Management',
+        ]);
+    }
+
     protected function denyUnlessElectiveSlots(Request $request): ?\Illuminate\Http\JsonResponse
     {
         $user = $request->user();
@@ -22,8 +44,8 @@ class ElectiveSlotController extends Controller
 
     public function index(Request $request)
     {
-        if ($deny = $this->denyUnlessElectiveSlots($request)) {
-            return $deny;
+        if (! $this->canListElectiveSlots($request)) {
+            return response()->json(['message' => 'Unauthorized'], 403);
         }
         try {
             $slots = ElectiveSlot::with(['program', 'semester', 'yearLevel', 'electiveSubjects.subject', 'electiveSubjects.track'])

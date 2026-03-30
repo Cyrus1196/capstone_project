@@ -11,6 +11,8 @@ const UserManagement = () => {
   const [accessLevels, setAccessLevels] = useState([]);
   const [programs, setPrograms] = useState([]);
   const [permissions, setPermissions] = useState([]);
+  const [yearLevels, setYearLevels] = useState([]);
+  const [tracks, setTracks] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [showModal, setShowModal] = useState(false);
@@ -21,17 +23,43 @@ const UserManagement = () => {
   const [roleFilter, setRoleFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
 
+  const formatAxiosError = (err) => {
+    const data = err?.response?.data;
+    if (!data) return err?.message || 'Request failed';
+
+    if (data.messages && typeof data.messages === 'object') {
+      // Laravel validation: { error: 'Validation failed', messages: { field: [msg] } }
+      const flat = Object.values(data.messages).flat().filter(Boolean);
+      if (flat.length) return flat.join('\n');
+    }
+
+    return data.message || data.error || err.message || 'Request failed';
+  };
+
   useEffect(() => {
     if (activeTab === 'users') {
       fetchUsers();
       fetchRoles();
       fetchAccessLevels();
       fetchPrograms();
+      fetchProfileOptions();
     } else if (activeTab === 'permissions') {
       fetchPermissions();
       fetchRoles();
     }
   }, [activeTab]);
+
+  const fetchProfileOptions = async () => {
+    try {
+      const response = await api.get('/students/profile-options');
+      setYearLevels(response.data?.year_levels || []);
+      setTracks(response.data?.tracks || []);
+    } catch (err) {
+      console.warn('Could not fetch student profile options:', err);
+      setYearLevels([]);
+      setTracks([]);
+    }
+  };
 
   const fetchUsers = async () => {
     try {
@@ -194,13 +222,15 @@ const UserManagement = () => {
   const isStudentRole = () => {
     if (!formData.role_id) return false;
     const selectedRole = roles.find(r => (r.id || r.role_id) == formData.role_id);
-    return selectedRole && (selectedRole.role_name || selectedRole.name) === 'Student';
+    const roleName = (selectedRole?.role_name || selectedRole?.name || '').toString().trim().toLowerCase();
+    return roleName === 'student';
   };
 
   const isDeanRole = () => {
     if (!formData.role_id) return false;
     const selectedRole = roles.find(r => (r.id || r.role_id) == formData.role_id);
-    return selectedRole && (selectedRole.role_name || selectedRole.name) === 'Dean';
+    const roleName = (selectedRole?.role_name || selectedRole?.name || '').toString().trim().toLowerCase();
+    return roleName === 'dean';
   };
 
   const handleAdd = () => {
@@ -220,6 +250,8 @@ const UserManagement = () => {
       address: '',
       age: '',
       current_program: '',
+      year_level_id: '',
+      track_id: '',
       // Dean-specific fields
       program_id: '',
     });
@@ -257,6 +289,8 @@ const UserManagement = () => {
       address: '',
       age: '',
       current_program: '',
+      year_level_id: '',
+      track_id: '',
     };
 
     // If user is a student, fetch their student profile
@@ -274,11 +308,17 @@ const UserManagement = () => {
           formDataToSet.last_name = profile.last_name || '';
           formDataToSet.address = profile.address || '';
           formDataToSet.academic_status = profile.academic_status || '';
-          formDataToSet.current_program = profile.current_program || '';
+          formDataToSet.current_program = profile.current_program || profile.Current_Program || profile.currentProgram || '';
+          formDataToSet.year_level_id = profile.year_level_id || '';
+          formDataToSet.track_id = profile.track_id || '';
         }
       } catch (error) {
         // If profile doesn't exist or error, continue with empty fields
-        console.warn('Could not fetch student profile:', error);
+        // Backend returns an empty object {} when profile doesn't exist,
+        // so only warn for real errors (not 404).
+        if (error?.response?.status !== 404) {
+          console.warn('Could not fetch student profile:', error);
+        }
       }
     }
 
@@ -324,6 +364,21 @@ const UserManagement = () => {
 
     try {
       const submitData = { ...formData };
+
+      // Admin validation: ensure year level is set for students,
+      // and ensure track is set when year level is 3rd year.
+      if (isStudentRole()) {
+        if (!submitData.student_id_number) {
+          await swalError('Student ID required', 'Please enter Student ID Number to save student profile.');
+          return;
+        }
+        const yearLevelId = submitData.year_level_id ? Number(submitData.year_level_id) : null;
+        const isThirdYear = yearLevelId === 3;
+        if (isThirdYear && !submitData.track_id) {
+          await swalError('Track required', 'Please assign a Track for 3rd year students.');
+          return;
+        }
+      }
       
       // Only include password if it's provided (for updates)
       if (!submitData.password && editingUser) {
@@ -356,6 +411,7 @@ const UserManagement = () => {
           try {
             const profileData = {
               user_id: editingUser.user_id,
+              student_id_number: submitData.student_id_number,
               first_name: submitData.first_name,
               middle_name: submitData.middle_name,
               last_name: submitData.last_name,
@@ -363,11 +419,14 @@ const UserManagement = () => {
               address: submitData.address,
               academic_status: submitData.academic_status || null,
               current_program: submitData.current_program || null,
+              year_level_id: submitData.year_level_id ? Number(submitData.year_level_id) : null,
+              track_id: submitData.track_id ? Number(submitData.track_id) : null,
             };
             await api.put('/students/profile', profileData);
           } catch (studentError) {
             console.error('Error updating student profile:', studentError);
-            // Continue even if profile update fails
+            await swalError('Student profile save failed', formatAxiosError(studentError));
+            return;
           }
         }
       } else {
@@ -401,10 +460,13 @@ const UserManagement = () => {
               address: submitData.address,
               academic_status: submitData.academic_status || null,
               current_program: submitData.current_program || null,
+              year_level_id: submitData.year_level_id ? Number(submitData.year_level_id) : null,
+              track_id: submitData.track_id ? Number(submitData.track_id) : null,
             });
           } catch (studentError) {
             console.error('Error creating student profile:', studentError);
-            // User is created but profile failed - still show success
+            await swalError('Student profile save failed', formatAxiosError(studentError));
+            return;
           }
         }
 
@@ -448,6 +510,9 @@ const UserManagement = () => {
     const role = roles.find(r => r.id === roleId || r.role_id === roleId);
     return role ? (role.role_name || role.name || 'Unknown') : 'No Role';
   };
+
+  const adminSelectedYearId = formData.year_level_id ? Number(formData.year_level_id) : null;
+  const adminShouldShowTrack = adminSelectedYearId === 3;
 
   if (loading) {
     return <div className="loading">Loading users...</div>;
@@ -747,14 +812,8 @@ const UserManagement = () => {
                       value={formData.student_id_number || ''}
                       onChange={(e) => setFormData({ ...formData, student_id_number: e.target.value })}
                       placeholder="e.g., 02-2324-07413"
-                      required={isStudentRole() && !editingUser}
-                      disabled={!!editingUser && !!formData.student_id_number}
+                      required={isStudentRole() && (!editingUser || !formData.student_id_number)}
                     />
-                    {editingUser && formData.student_id_number && (
-                      <small style={{ color: '#666', fontSize: '0.85rem', display: 'block', marginTop: '0.25rem' }}>
-                        Student ID number cannot be changed
-                      </small>
-                    )}
                   </div>
 
                   <div className="form-group">
@@ -812,6 +871,48 @@ const UserManagement = () => {
                       <option value="On Leave">On Leave</option>
                     </select>
                   </div>
+
+                  <div className="form-group">
+                    <label>Year Level</label>
+                    <select
+                      value={formData.year_level_id || ''}
+                      onChange={(e) => {
+                        const newYearLevelId = e.target.value;
+                        // Reset track if year level changes
+                        setFormData({
+                          ...formData,
+                          year_level_id: newYearLevelId,
+                          track_id: '',
+                        });
+                      }}
+                    >
+                      <option value="">Select Year Level</option>
+                      {yearLevels.map((yearLevel) => (
+                        <option key={yearLevel.year_level_id} value={yearLevel.year_level_id}>
+                          {yearLevel.year_level}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {adminShouldShowTrack && (
+                    <div className="form-group">
+                      <label>Track (3rd Year) *</label>
+                      <select
+                        value={formData.track_id || ''}
+                        onChange={(e) => setFormData({ ...formData, track_id: e.target.value })}
+                        required={adminShouldShowTrack}
+                      >
+                        <option value="">Select Track</option>
+                        {tracks.map((track) => (
+                          <option key={track.track_id} value={track.track_id}>
+                            {track.track_name}
+                            {track.track_code ? ` (${track.track_code})` : ''}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
 
                   <div className="form-group">
                     <label>Program</label>

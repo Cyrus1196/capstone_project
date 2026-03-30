@@ -2,10 +2,11 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\AcademicRecordEvaluationComplete;
 use App\Models\StudentProfile;
-use App\Models\Curriculum;
-use App\Models\Evaluation;
 use App\Models\DeanProfile;
+use App\Models\TblUser;
+use App\Services\StudentCurriculumEvaluationBuilder;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Http\Request;
 
@@ -26,14 +27,10 @@ class StudentEvaluationController extends Controller
                 return response()->json(['message' => 'Unauthorized'], 401);
             }
 
-            $isStaff =
-                $user->isAdmin() ||
-                $user->hasRole('Dean') ||
-                $user->hasRole('Faculty') ||
-                $user->hasRole('Adviser');
+            $isStaff = $user->canWorkOnStudentEvaluations();
 
             if ($user->hasRole('Student')) {
-                $profile = StudentProfile::where('user_id', $user->user_id)->with(['program'])->first();
+                $profile = StudentProfile::where('user_id', $user->user_id)->with(['program', 'track'])->first();
                 if (!$profile) {
                     return response()->json(['message' => 'Student profile not found'], 404);
                 }
@@ -45,7 +42,7 @@ class StudentEvaluationController extends Controller
                 return response()->json(['message' => 'Forbidden'], 403);
             } else {
                 $profile = StudentProfile::whereStudentIdNumber($studentIdNumber)
-                    ->with(['program'])
+                    ->with(['program', 'track'])
                     ->first();
 
                 if (!$profile) {
@@ -53,127 +50,9 @@ class StudentEvaluationController extends Controller
                 }
             }
 
-            if (!$profile->current_program) {
-                return response()->json([
-                    'student' => $profile,
-                    'summary' => [
-                        'total_units_in_curriculum' => 0,
-                        'total_units_earned' => 0,
-                        'lacking_units' => 0,
-                    ],
-                    'rows' => [],
-                ]);
-            }
+            $payload = app(StudentCurriculumEvaluationBuilder::class)->buildPayload($profile);
 
-            // Load full curriculum for the student's program
-            $curriculum = Curriculum::where('program_id', $profile->current_program)
-                ->with(['subject', 'yearLevel', 'semester'])
-                ->orderBy('year_level')
-                ->orderBy('semester_id')
-                ->get();
-
-            // Load all evaluations for this student
-            $evaluations = Evaluation::where('student_id', $profile->student_id)
-                ->with(['subject', 'academicYear', 'semester', 'section', 'evaluatedBy'])
-                ->get();
-
-            // Index evaluations by subject_id for quick lookup
-            $evaluationsBySubject = $evaluations
-                ->groupBy('subject_id')
-                ->map(function ($group) {
-                    // If multiple evaluations exist for the same subject,
-                    // take the latest by academic_year_id / semester_id.
-                    return $group->sortByDesc('academic_year_id')
-                        ->sortByDesc('semester_id')
-                        ->first();
-                });
-
-            // Used when a subject has no evaluation yet, so staff can still create one.
-            $defaultAcademicYearId = DB::table('tbl_academic_year')
-                ->orderBy('academic_year_id', 'desc')
-                ->value('academic_year_id');
-
-            $rows = [];
-            $totalUnitsInCurriculum = 0;
-            $totalUnitsEarned = 0;
-
-            foreach ($curriculum as $item) {
-                $subject = $item->subject;
-                $units = $subject->number_of_units ?? 0;
-                $totalUnitsInCurriculum += $units;
-
-                $evaluation = $evaluationsBySubject->get($item->subject_id);
-                $grade = $evaluation?->grade ?? null;
-                $status = $evaluation?->evaluation_status ?? null;
-
-                // Determine if the subject is considered "passed"
-                $normalizedStatus = $status ? strtolower($status) : null;
-                $isPassedStatus = in_array($normalizedStatus, ['passed', 'pass', 'credit']);
-
-                $isPassedByGrade = false;
-                if ($grade !== null && $item->passing_grade !== null && is_numeric($grade)) {
-                    // Passing rule: numeric grade meets or exceeds passing_grade.
-                    // (If your grading scale is reversed, adjust this comparison.)
-                    $isPassedByGrade = floatval($grade) >= floatval($item->passing_grade);
-                }
-
-                $isPassed = $isPassedStatus || $isPassedByGrade;
-                $unitsEarned = $isPassed ? $units : 0;
-                $totalUnitsEarned += $unitsEarned;
-
-                // Get prerequisite and corequisite information
-                $prerequisite = null;
-                $corequisite = null;
-                
-                // You can add prerequisite/corequisite logic here if needed
-                // For now, we'll leave them as null
-
-                $rows[] = [
-                    'year_level_id' => $item->year_level,
-                    'year_level_name' => $item->yearLevel->year_level ?? null,
-                    'semester_id' => $item->semester_id,
-                    'semester_name' => $item->semester->semester_name ?? null,
-                    'subject_id' => $item->subject_id,
-                    'subject_code' => $subject->subject_code ?? null,
-                    'subject_name' => $subject->subject_name ?? null,
-                    'units' => $units,
-                    'grade' => $grade,
-                    'status' => $status,
-                    'units_earned' => $unitsEarned,
-                    'prerequisite' => $prerequisite,
-                    'corequisite' => $corequisite,
-                    'evaluation_id' => $evaluation?->evaluation_id ?? null,
-                    'academic_year_id' => $evaluation?->academic_year_id ?? $defaultAcademicYearId,
-                    'evaluated_by' => $evaluation?->evaluatedBy,
-                    'evaluation_date' => $evaluation?->evaluation_date,
-                    'enrolled_date' => $evaluation?->enrolled_date,
-                ];
-            }
-
-            $lackingUnits = max(0, $totalUnitsInCurriculum - $totalUnitsEarned);
-
-            return response()->json([
-                'student' => [
-                    'student_id' => $profile->student_id,
-                    'student_id_number' => $profile->student_id_number,
-                    'first_name' => $profile->first_name,
-                    'middle_name' => $profile->middle_name,
-                    'last_name' => $profile->last_name,
-                    'full_name' => trim(
-                        ($profile->last_name ? $profile->last_name . ', ' : '') .
-                        ($profile->first_name ?? '') .
-                        ($profile->middle_name ? ' ' . $profile->middle_name : '')
-                    ),
-                    'academic_status' => $profile->academic_status,
-                    'program' => $profile->program,
-                ],
-                'summary' => [
-                    'total_units_in_curriculum' => $totalUnitsInCurriculum,
-                    'total_units_earned' => $totalUnitsEarned,
-                    'lacking_units' => $lackingUnits,
-                ],
-                'rows' => $rows,
-            ]);
+            return response()->json($payload);
         } catch (\Exception $e) {
             return response()->json([
                 'error' => 'Failed to compute student evaluation',
@@ -195,13 +74,7 @@ class StudentEvaluationController extends Controller
                 return response()->json(['message' => 'Unauthorized'], 401);
             }
 
-            $isAllowed =
-                $user->isAdmin() ||
-                $user->hasRole('Dean') ||
-                $user->hasRole('Faculty') ||
-                $user->hasRole('Adviser');
-
-            if (!$isAllowed) {
+            if (! $user->canWorkOnStudentEvaluations()) {
                 return response()->json(['message' => 'Forbidden'], 403);
             }
 
@@ -237,33 +110,238 @@ class StudentEvaluationController extends Controller
                 });
             }
 
+            $academicRecord = $request->query('academic_record', 'all');
+            if ($academicRecord === 'completed') {
+                $doneIds = AcademicRecordEvaluationComplete::query()
+                    ->distinct()
+                    ->pluck('student_id');
+                if ($doneIds->isEmpty()) {
+                    return response()->json(['students' => []]);
+                }
+                $query->whereIn('student_id', $doneIds);
+            } elseif ($academicRecord === 'pending') {
+                $doneIds = AcademicRecordEvaluationComplete::query()
+                    ->distinct()
+                    ->pluck('student_id');
+                if ($doneIds->isNotEmpty()) {
+                    $query->whereNotIn('student_id', $doneIds);
+                }
+            }
+
             $students = $query->orderBy('last_name')
                 ->orderBy('first_name')
-                ->get()
-                ->map(function($student) {
-                    $fullName = trim(
-                        ($student->last_name ? $student->last_name . ', ' : '') .
-                        ($student->first_name ?? '') .
-                        ($student->middle_name ? ' ' . $student->middle_name : '')
-                    );
+                ->get();
 
-                    return [
-                        'student_id' => $student->student_id,
-                        'student_id_number' => $student->student_id_number,
-                        'first_name' => $student->first_name,
-                        'middle_name' => $student->middle_name,
-                        'last_name' => $student->last_name,
-                        'full_name' => $fullName ?: 'N/A',
-                        'academic_status' => $student->academic_status,
-                        'program' => $student->program,
-                        'program_name' => $student->program->program_name ?? 'N/A',
-                    ];
-                });
+            $studentIds = $students->pluck('student_id')->all();
+            $lastCompletedByStudent = [];
+            if ($studentIds !== []) {
+                $lastCompletedByStudent = AcademicRecordEvaluationComplete::query()
+                    ->select('student_id', DB::raw('MAX(completed_at) as last_completed_at'))
+                    ->whereIn('student_id', $studentIds)
+                    ->groupBy('student_id')
+                    ->pluck('last_completed_at', 'student_id')
+                    ->all();
+            }
+
+            $students = $students->map(function ($student) use ($lastCompletedByStudent) {
+                $fullName = trim(
+                    ($student->last_name ? $student->last_name . ', ' : '') .
+                    ($student->first_name ?? '') .
+                    ($student->middle_name ? ' ' . $student->middle_name : '')
+                );
+
+                $lastAt = $lastCompletedByStudent[$student->student_id] ?? null;
+
+                return [
+                    'student_id' => $student->student_id,
+                    'student_id_number' => $student->student_id_number,
+                    'first_name' => $student->first_name,
+                    'middle_name' => $student->middle_name,
+                    'last_name' => $student->last_name,
+                    'full_name' => $fullName ?: 'N/A',
+                    'academic_status' => $student->academic_status,
+                    'program' => $student->program,
+                    'program_name' => $student->program->program_name ?? 'N/A',
+                    'academic_record_completed_at' => $lastAt,
+                    'academic_record_evaluated' => $lastAt !== null,
+                ];
+            });
 
             return response()->json(['students' => $students]);
         } catch (\Exception $e) {
             return response()->json([
                 'error' => 'Failed to fetch students',
+                'message' => $e->getMessage(),
+            ], 500);
+        }
+    }
+
+    /**
+     * @return \Illuminate\Http\JsonResponse|null JSON error response, or null if allowed
+     */
+    private function gateStaffStudentEvaluation(TblUser $user, StudentProfile $profile): ?\Illuminate\Http\JsonResponse
+    {
+        if ($user->hasRole('Student')) {
+            return response()->json(['message' => 'Forbidden'], 403);
+        }
+
+        $isStaff =
+            $user->canWorkOnStudentEvaluations();
+
+        if (! $isStaff) {
+            return response()->json(['message' => 'Forbidden'], 403);
+        }
+
+        if ($user->hasRole('Dean')) {
+            $dean = DeanProfile::where('user_id', $user->user_id)->first();
+            if ($dean && $dean->program_id) {
+                $pid = $profile->current_program;
+                if ((int) $pid !== (int) $dean->program_id) {
+                    return response()->json(['message' => 'Student is not in your program'], 403);
+                }
+            }
+        }
+
+        return null;
+    }
+
+    public function markAcademicRecordComplete(Request $request)
+    {
+        try {
+            $user = $request->user();
+            if (! $user) {
+                return response()->json(['message' => 'Unauthorized'], 401);
+            }
+
+            $validated = $request->validate([
+                'student_id' => 'required|integer|exists:tbl_student_profile,student_id',
+                'notes' => 'nullable|string|max:2000',
+            ]);
+
+            $profile = StudentProfile::where('student_id', $validated['student_id'])
+                ->with(['program', 'track'])
+                ->firstOrFail();
+
+            if ($denied = $this->gateStaffStudentEvaluation($user, $profile)) {
+                return $denied;
+            }
+
+            $record = AcademicRecordEvaluationComplete::create([
+                'student_id' => $profile->student_id,
+                'completed_at' => now(),
+                'completed_by' => $user->user_id,
+                'notes' => $validated['notes'] ?? null,
+            ]);
+
+            $record->load('completedByUser');
+
+            return response()->json([
+                'message' => 'Academic record evaluation stored successfully.',
+                'record' => [
+                    'academic_record_complete_id' => $record->academic_record_complete_id,
+                    'student_id' => $record->student_id,
+                    'completed_at' => $record->completed_at,
+                    'notes' => $record->notes,
+                    'completed_by_email' => $record->completedByUser?->email,
+                ],
+            ], 201);
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            throw $e;
+        } catch (\Exception $e) {
+            return response()->json([
+                'error' => 'Failed to record evaluation',
+                'message' => $e->getMessage(),
+            ], 500);
+        }
+    }
+
+    public function listAcademicRecordCompletions(Request $request)
+    {
+        try {
+            $user = $request->user();
+            if (! $user) {
+                return response()->json(['message' => 'Unauthorized'], 401);
+            }
+
+            $isAllowed =
+                $user->canWorkOnStudentEvaluations();
+
+            if (! $isAllowed) {
+                return response()->json(['message' => 'Forbidden'], 403);
+            }
+
+            $q = AcademicRecordEvaluationComplete::query()
+                ->with(['student.program', 'completedByUser'])
+                ->orderByDesc('completed_at');
+
+            if ($request->filled('student_id')) {
+                $q->where('student_id', (int) $request->query('student_id'));
+            }
+
+            if ($user->hasRole('Dean')) {
+                $dean = DeanProfile::where('user_id', $user->user_id)->first();
+                if ($dean && $dean->program_id) {
+                    $q->whereHas('student', function ($sq) use ($dean) {
+                        $sq->where(function ($w) use ($dean) {
+                            $w->where('Current_Program', $dean->program_id)
+                                ->orWhere('current_program', $dean->program_id);
+                        });
+                    });
+                }
+            }
+
+            $rows = $q->limit(200)->get()->map(function ($r) {
+                return [
+                    'academic_record_complete_id' => $r->academic_record_complete_id,
+                    'student_id' => $r->student_id,
+                    'completed_at' => $r->completed_at,
+                    'notes' => $r->notes,
+                    'student_name' => $r->student
+                        ? trim(
+                            ($r->student->last_name ? $r->student->last_name . ', ' : '') .
+                            ($r->student->first_name ?? '')
+                        )
+                        : null,
+                    'student_id_number' => $r->student->student_id_number ?? null,
+                    'completed_by_email' => $r->completedByUser?->email,
+                ];
+            });
+
+            return response()->json(['completions' => $rows]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'error' => 'Failed to list completions',
+                'message' => $e->getMessage(),
+            ], 500);
+        }
+    }
+
+    public function deleteAcademicRecordCompletion(Request $request, int $recordId)
+    {
+        try {
+            $user = $request->user();
+            if (! $user) {
+                return response()->json(['message' => 'Unauthorized'], 401);
+            }
+
+            if (! $user->canDeleteEvaluationsOrDeanAcademicRecords()) {
+                return response()->json([
+                    'message' => 'Forbidden — only administrators or users with Dean academic approvals may remove stored records',
+                ], 403);
+            }
+
+            $record = AcademicRecordEvaluationComplete::with('student')->findOrFail($recordId);
+
+            if ($record->student && ($denied = $this->gateStaffStudentEvaluation($user, $record->student))) {
+                return $denied;
+            }
+
+            $record->delete();
+
+            return response()->json(['message' => 'Stored evaluation record removed.']);
+        } catch (\Exception $e) {
+            return response()->json([
+                'error' => 'Failed to delete',
                 'message' => $e->getMessage(),
             ], 500);
         }

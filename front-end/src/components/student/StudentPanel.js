@@ -2,16 +2,14 @@ import React, { useState, useEffect } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { useNavigate } from 'react-router-dom';
 import StudentProfile from './StudentProfile';
-import StudentEnrollments from './StudentEnrollments';
 import StudentCurriculum from './StudentCurriculum';
-import EligibleSubjects from './EligibleSubjects';
-import StudentAcademicEvaluation from './StudentAcademicEvaluation';
+import StudentDashboard from './StudentDashboard';
 import './StudentPanel.css';
 
 const StudentPanel = () => {
   const { user, logout, isAdmin } = useAuth();
   const navigate = useNavigate();
-  const [activeTab, setActiveTab] = useState('profile');
+  const [activeTab, setActiveTab] = useState('dashboard');
 
   useEffect(() => {
     if (!user) {
@@ -45,16 +43,16 @@ const StudentPanel = () => {
 
       <div className="student-tabs">
         <button
+          className={activeTab === 'dashboard' ? 'tab active' : 'tab'}
+          onClick={() => setActiveTab('dashboard')}
+        >
+          Dashboard
+        </button>
+        <button
           className={activeTab === 'profile' ? 'tab active' : 'tab'}
           onClick={() => setActiveTab('profile')}
         >
           My Profile
-        </button>
-        <button
-          className={activeTab === 'enrollments' ? 'tab active' : 'tab'}
-          onClick={() => setActiveTab('enrollments')}
-        >
-          My Enrollments
         </button>
         <button
           className={activeTab === 'curriculum' ? 'tab active' : 'tab'}
@@ -62,26 +60,12 @@ const StudentPanel = () => {
         >
           My Curriculum
         </button>
-        <button
-          className={activeTab === 'eligible-subjects' ? 'tab active' : 'tab'}
-          onClick={() => setActiveTab('eligible-subjects')}
-        >
-          Eligible Subjects
-        </button>
-        <button
-          className={activeTab === 'academic-eval' ? 'tab active' : 'tab'}
-          onClick={() => setActiveTab('academic-eval')}
-        >
-          Academic evaluation
-        </button>
       </div>
 
       <div className="student-content">
+        {activeTab === 'dashboard' && <StudentDashboard onNavigate={setActiveTab} />}
         {activeTab === 'profile' && <StudentProfile />}
-        {activeTab === 'enrollments' && <StudentEnrollments />}
         {activeTab === 'curriculum' && <StudentCurriculum />}
-        {activeTab === 'eligible-subjects' && <EligibleSubjects />}
-        {activeTab === 'academic-eval' && <StudentAcademicEvaluation />}
       </div>
     </div>
   );

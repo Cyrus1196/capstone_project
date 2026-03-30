@@ -28,5 +28,10 @@ class Permission extends Model
     {
         return $this->hasMany(RolePermission::class, 'permission_id', 'permission_id');
     }
+
+    public function usersWithDirectAssignment()
+    {
+        return $this->belongsToMany(TblUser::class, 'tbl_user_permissions', 'permission_id', 'user_id', 'permission_id', 'user_id');
+    }
 }
 

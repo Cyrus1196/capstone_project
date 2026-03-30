@@ -19,8 +19,8 @@ class DefaultPermissionsSeeder extends Seeder
             ['permission_name' => 'Role Settings', 'category' => 'User Management', 'description' => 'Manage roles and assign permissions to roles'],
             ['permission_name' => 'Lookup Data', 'category' => 'User Management', 'description' => 'Manage programs, subjects, campus, and other lookup data'],
             ['permission_name' => 'Curriculum Management', 'category' => 'Curriculum', 'description' => 'View and manage curriculum and subjects'],
-            ['permission_name' => 'Credit Evaluation', 'category' => 'Evaluation', 'description' => 'Access credit evaluation for transfer students'],
-            ['permission_name' => 'Student Evaluation', 'category' => 'Evaluation', 'description' => 'View and manage student evaluations and grades'],
+            ['permission_name' => 'Credit Evaluation', 'category' => 'Evaluation', 'description' => 'Transfer / advanced standing credit (Dean portal and Academic Management)'],
+            ['permission_name' => 'Student Evaluation', 'category' => 'Evaluation', 'description' => 'Student curriculum evaluation and grades (Faculty and Dean portals)'],
             ['permission_name' => 'Evaluation Reports', 'category' => 'Evaluation', 'description' => 'View evaluation reports and analytics'],
             ['permission_name' => 'Elective Slots', 'category' => 'Curriculum', 'description' => 'Manage elective slots and assignments'],
             ['permission_name' => 'System Management', 'category' => 'System', 'description' => 'Manage permissions and system settings'],
@@ -28,7 +28,7 @@ class DefaultPermissionsSeeder extends Seeder
         ];
 
         foreach ($permissions as $p) {
-            Permission::firstOrCreate(
+            Permission::updateOrCreate(
                 ['permission_name' => $p['permission_name']],
                 [
                     'category' => $p['category'] ?? null,

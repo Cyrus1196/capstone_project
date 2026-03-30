@@ -1,7 +1,17 @@
 import React, { useState, useEffect } from 'react';
 import api from '../../api/axios';
+import { useAuth } from '../../context/AuthContext';
 import { swalConfirm, swalError, swalToast } from '../../utils/swal';
 import './CurriculumManagement.css';
+
+/** Mutate curriculum data (not view-only). Friendly name = full module from DefaultPermissionsSeeder. */
+const CURRICULUM_MUTATE_PERMISSIONS = [
+  'curriculum.create',
+  'curriculum.edit',
+  'curriculum.delete',
+  'curriculum.approve',
+  'Curriculum Management',
+];
 
 /** Curriculum API returns year_level as either an id or a nested { year_level_id, year_level } */
 function normalizeYearLevelId(val) {
@@ -22,6 +32,9 @@ function electiveSlotDescriptionLabel(slotName, electiveSlotId) {
 }
 
 const CurriculumManagement = () => {
+  const { hasAnyPermission } = useAuth();
+  const canMutateCurriculum = hasAnyPermission(CURRICULUM_MUTATE_PERMISSIONS);
+
   const [curricula, setCurricula] = useState([]);
   const [lookupData, setLookupData] = useState({
     programs: [],
@@ -124,6 +137,14 @@ const CurriculumManagement = () => {
   const [showEditPanel, setShowEditPanel] = useState(false);
   const [showCorequisiteModal, setShowCorequisiteModal] = useState(false);
   const [selectedCurriculum, setSelectedCurriculum] = useState(null);
+
+  useEffect(() => {
+    if (!canMutateCurriculum) {
+      setShowModal(false);
+      setShowEditPanel(false);
+      setShowCorequisiteModal(false);
+    }
+  }, [canMutateCurriculum]);
   
   // Co-requisite form state
   const [corequisiteForm, setCorequisiteForm] = useState({
@@ -739,13 +760,36 @@ const CurriculumManagement = () => {
   const getCurriculumRequisiteDisplay = (curriculum) => {
     if (!curriculum) return '-';
 
-    // Case 1: curriculum already has a loaded requisite relationship
+    // Case 1: curriculum has loaded requisite relationship (now an array from hasMany)
     const req = curriculum.requisite;
-    const required = req?.requiredSubject || req?.required_subject || null;
-    if (required?.subject_code) {
-      const typeHint = (req?.requisite_type || req?.type || '').toString().toLowerCase();
-      const prefix = typeHint === 'prerequisite' ? 'P:' : (typeHint === 'corequisite' ? 'Co:' : 'REQ:');
-      return `${prefix} ${required.subject_code}`;
+    if (req) {
+      // Handle array of requisites (new hasMany relationship)
+      if (Array.isArray(req) && req.length > 0) {
+        const labels = req.map(r => {
+          const required = r?.requiredSubject || r?.required_subject || null;
+          if (required?.subject_code) {
+            const typeHint = (r?.requisite_type || r?.type || '').toString().toLowerCase();
+            const prefix = typeHint === 'prerequisite' ? 'P:' : (typeHint === 'corequisite' ? 'Co:' : 'REQ:');
+            return `${prefix} ${required.subject_code}`;
+          }
+          // Fallback: try to resolve from lookup data
+          const resolved = resolveRequisiteLabel(r);
+          return resolved?.label !== '-' ? resolved.label : null;
+        }).filter(Boolean);
+        
+        if (labels.length > 0) {
+          return labels.join(', ');
+        }
+      }
+      // Handle single object (backward compatibility)
+      else if (!Array.isArray(req)) {
+        const required = req?.requiredSubject || req?.required_subject || null;
+        if (required?.subject_code) {
+          const typeHint = (req?.requisite_type || req?.type || '').toString().toLowerCase();
+          const prefix = typeHint === 'prerequisite' ? 'P:' : (typeHint === 'corequisite' ? 'Co:' : 'REQ:');
+          return `${prefix} ${required.subject_code}`;
+        }
+      }
     }
 
     const combinedLookup = (Array.isArray(safeLookupData.requisites) && safeLookupData.requisites.length)
@@ -762,6 +806,19 @@ const CurriculumManagement = () => {
       );
       const resolved = resolveRequisiteLabel(found || {});
       return resolved?.label || '-';
+    }
+
+    // Case 3: Look up requisites by subject_id for this curriculum's subject
+    if (curriculum.subject_id) {
+      const subjectRequisites = combinedLookup.filter(
+        r => r?.subject_id?.toString() === curriculum.subject_id.toString()
+      );
+      if (subjectRequisites.length > 0) {
+        const labels = subjectRequisites.map(r => resolveRequisiteLabel(r).label).filter(l => l !== '-');
+        if (labels.length > 0) {
+          return labels.join(', ');
+        }
+      }
     }
 
     return '-';
@@ -798,13 +855,22 @@ const CurriculumManagement = () => {
     <div className="curriculum-management">
       <div className="management-header">
         <h2>Curriculum Management</h2>
-        <button className="add-button" onClick={() => {
-          resetBulkForm();
-          setShowModal(true);
-        }}>
-          Add Curriculum
-        </button>
+        {canMutateCurriculum && (
+          <button className="add-button" onClick={() => {
+            resetBulkForm();
+            setShowModal(true);
+          }}>
+            Add Curriculum
+          </button>
+        )}
       </div>
+
+      {!canMutateCurriculum && (
+        <div className="curriculum-view-only-banner" role="status">
+          View only — you can browse programs and subjects. Assign curriculum create/edit/delete or the
+          &quot;Curriculum Management&quot; permission for full access.
+        </div>
+      )}
 
       {error && <div className="error-message">{error}</div>}
 
@@ -856,30 +922,32 @@ const CurriculumManagement = () => {
                     </div>
                   );
                 })()}
-                <div className="year-group-actions">
-                  <button
-                    className="edit-group-button"
-                    onClick={async () => {
-                      const allCurricula = [];
-                      Object.values(yearGroup.semesters).forEach(semester => {
-                        allCurricula.push(...semester.curricula);
-                      });
-                      await fetchLookupData();
-                      if (allCurricula.length > 0) {
-                        setSelectedCurriculum(allCurricula[0]);
-                        setBulkFormData({
-                          program_id: yearGroup.programId?.toString() || '',
-                          year_level: yearGroup.yearLevelId?.toString() || '',
-                          semester_id: '',
+                {canMutateCurriculum && (
+                  <div className="year-group-actions">
+                    <button
+                      className="edit-group-button"
+                      onClick={async () => {
+                        const allCurricula = [];
+                        Object.values(yearGroup.semesters).forEach(semester => {
+                          allCurricula.push(...semester.curricula);
                         });
-                        setShowEditPanel(true);
-                      }
-                    }}
-                    title="Edit this curriculum group"
-                  >
-                    Edit Group
-                  </button>
-                </div>
+                        await fetchLookupData();
+                        if (allCurricula.length > 0) {
+                          setSelectedCurriculum(allCurricula[0]);
+                          setBulkFormData({
+                            program_id: yearGroup.programId?.toString() || '',
+                            year_level: yearGroup.yearLevelId?.toString() || '',
+                            semester_id: '',
+                          });
+                          setShowEditPanel(true);
+                        }
+                      }}
+                      title="Edit this curriculum group"
+                    >
+                      Edit Group
+                    </button>
+                  </div>
+                )}
               </div>
               <div className="semesters-stacked-container">
                 {semesterIds.map((semesterId) => {
@@ -890,34 +958,36 @@ const CurriculumManagement = () => {
                     <div key={semesterId} className="semester-section">
                       <div className="semester-section-header">
                         <h3>{(yearGroup.yearLevelName || 'Unknown Year').toUpperCase()} - {(semester.semesterName || 'Unknown Semester').toUpperCase()}</h3>
-                        <button
-                          className="delete-semester-button"
-                          onClick={async () => {
-                            if (semester.curricula.length === 0) return;
-                            const confirmMessage = `Are you sure you want to delete all subjects in:\n\nProgram: ${yearGroup.programName}\nYear Level: ${yearGroup.yearLevelName}\nSemester: ${semester.semesterName}\n\nThis will delete ${semester.curricula.length} subject(s).\n\nThis action cannot be undone!`;
-                            const ok = await swalConfirm({
-                              title: 'Delete entire semester?',
-                              text: confirmMessage,
-                              confirmButtonText: 'Delete all',
-                            });
-                            if (!ok) return;
-                            try {
-                              const deletePromises = semester.curricula.map(curriculum => 
-                                api.delete(`/curriculum/${curriculum.curriculum_id}`)
-                              );
-                              await Promise.all(deletePromises);
-                              fetchCurricula();
-                              swalToast('success', 'Semester subjects deleted');
-                            } catch (error) {
-                              const msg = error.response?.data?.message || 'Failed to delete semester curriculum';
-                              setError(msg);
-                              await swalError('Delete failed', msg);
-                            }
-                          }}
-                          title="Delete all subjects in this semester"
-                        >
-                          Delete Semester
-                        </button>
+                        {canMutateCurriculum && (
+                          <button
+                            className="delete-semester-button"
+                            onClick={async () => {
+                              if (semester.curricula.length === 0) return;
+                              const confirmMessage = `Are you sure you want to delete all subjects in:\n\nProgram: ${yearGroup.programName}\nYear Level: ${yearGroup.yearLevelName}\nSemester: ${semester.semesterName}\n\nThis will delete ${semester.curricula.length} subject(s).\n\nThis action cannot be undone!`;
+                              const ok = await swalConfirm({
+                                title: 'Delete entire semester?',
+                                text: confirmMessage,
+                                confirmButtonText: 'Delete all',
+                              });
+                              if (!ok) return;
+                              try {
+                                const deletePromises = semester.curricula.map(curriculum => 
+                                  api.delete(`/curriculum/${curriculum.curriculum_id}`)
+                                );
+                                await Promise.all(deletePromises);
+                                fetchCurricula();
+                                swalToast('success', 'Semester subjects deleted');
+                              } catch (error) {
+                                const msg = error.response?.data?.message || 'Failed to delete semester curriculum';
+                                setError(msg);
+                                await swalError('Delete failed', msg);
+                              }
+                            }}
+                            title="Delete all subjects in this semester"
+                          >
+                            Delete Semester
+                          </button>
+                        )}
                       </div>
                       <div className="table-container">
                         <table className="data-table semester-table">
@@ -930,13 +1000,13 @@ const CurriculumManagement = () => {
                               <th>Hours</th>
                               <th>Passing Grade</th>
                               <th>Type</th>
-                              <th>Actions</th>
+                              {canMutateCurriculum && <th>Actions</th>}
                             </tr>
                           </thead>
                           <tbody>
                             {semester.curricula.length === 0 ? (
                               <tr>
-                                <td colSpan="8" className="no-subjects">No subjects</td>
+                                <td colSpan={canMutateCurriculum ? 8 : 7} className="no-subjects">No subjects</td>
                               </tr>
                             ) : (
                               semester.curricula.map((curriculum) => {
@@ -980,53 +1050,55 @@ const CurriculumManagement = () => {
                                         curriculum.subject_type || '-'
                                       )}
                                     </td>
-                                    <td>
-                                      <div className="action-buttons">
-                                        <button
-                                          className="edit-button"
-                                          onClick={async () => {
-                                            setSelectedCurriculum(curriculum);
-                                            setEditingCurriculum(curriculum);
-                                            setBulkFormData({
-                                              program_id: curriculum.program_id?.toString() || '',
-                                              year_level: normalizeYearLevelId(curriculum.year_level),
-                                              semester_id: curriculum.semester_id?.toString() || '',
-                                            });
-                                            setSubjectRows([{
-                                              subject_id: curriculum.subject_id?.toString() || '',
-                                              elective_slot_id: curriculum.elective_slot_id?.toString() || '',
-                                              is_elective_slot: !!curriculum.elective_slot_id,
-                                              passing_grade: curriculum.passing_grade?.toString() || '',
-                                              subject_type: curriculum.subject_type || '',
-                                              requisite_id: (curriculum.requisite_id ?? curriculum.prerequisite_id ?? curriculum.requisites_id)?.toString() || '',
-                                            }]);
-                                            if (curriculum.subject_id) {
-                                              await fetchPrerequisitesForSubject(curriculum.subject_id);
-                                            }
-                                            setShowEditPanel(true);
-                                          }}
-                                          title="Edit this curriculum"
-                                        >
-                                          Edit
-                                        </button>
-                                        <button
-                                          className="delete-button"
-                                          onClick={async () => {
-                                            const displayName = isElectiveSlot 
-                                              ? (electiveSlot?.slot_name || `Elective Slot #${curriculum.elective_slot_id}`)
-                                              : (subject?.subject_code || 'N/A');
-                                            const confirmText = `${isElectiveSlot ? 'Elective Slot' : 'Subject'}: ${displayName}\nProgram: ${curriculum.program?.program_name || 'N/A'}\nYear: ${curriculum.yearLevel?.year_level || 'N/A'}\nSemester: ${curriculum.semester?.semester_name || 'N/A'}`;
-                                            await handleDelete(curriculum.curriculum_id, {
-                                              title: 'Delete curriculum entry?',
-                                              confirmText,
-                                            });
-                                          }}
-                                          title="Delete this curriculum"
-                                        >
-                                          Delete
-                                        </button>
-                                      </div>
-                                    </td>
+                                    {canMutateCurriculum && (
+                                      <td>
+                                        <div className="action-buttons">
+                                          <button
+                                            className="edit-button"
+                                            onClick={async () => {
+                                              setSelectedCurriculum(curriculum);
+                                              setEditingCurriculum(curriculum);
+                                              setBulkFormData({
+                                                program_id: curriculum.program_id?.toString() || '',
+                                                year_level: normalizeYearLevelId(curriculum.year_level),
+                                                semester_id: curriculum.semester_id?.toString() || '',
+                                              });
+                                              setSubjectRows([{
+                                                subject_id: curriculum.subject_id?.toString() || '',
+                                                elective_slot_id: curriculum.elective_slot_id?.toString() || '',
+                                                is_elective_slot: !!curriculum.elective_slot_id,
+                                                passing_grade: curriculum.passing_grade?.toString() || '',
+                                                subject_type: curriculum.subject_type || '',
+                                                requisite_id: (curriculum.requisite_id ?? curriculum.prerequisite_id ?? curriculum.requisites_id)?.toString() || '',
+                                              }]);
+                                              if (curriculum.subject_id) {
+                                                await fetchPrerequisitesForSubject(curriculum.subject_id);
+                                              }
+                                              setShowEditPanel(true);
+                                            }}
+                                            title="Edit this curriculum"
+                                          >
+                                            Edit
+                                          </button>
+                                          <button
+                                            className="delete-button"
+                                            onClick={async () => {
+                                              const displayName = isElectiveSlot 
+                                                ? (electiveSlot?.slot_name || `Elective Slot #${curriculum.elective_slot_id}`)
+                                                : (subject?.subject_code || 'N/A');
+                                              const confirmText = `${isElectiveSlot ? 'Elective Slot' : 'Subject'}: ${displayName}\nProgram: ${curriculum.program?.program_name || 'N/A'}\nYear: ${curriculum.yearLevel?.year_level || 'N/A'}\nSemester: ${curriculum.semester?.semester_name || 'N/A'}`;
+                                              await handleDelete(curriculum.curriculum_id, {
+                                                title: 'Delete curriculum entry?',
+                                                confirmText,
+                                              });
+                                            }}
+                                            title="Delete this curriculum"
+                                          >
+                                            Delete
+                                          </button>
+                                        </div>
+                                      </td>
+                                    )}
                                   </tr>
                                 );
                               })
@@ -1042,11 +1114,15 @@ const CurriculumManagement = () => {
           );
         })
       ) : (
-        <div className="no-data">No curriculum entries found. Click "Add Curriculum" to create one.</div>
+        <div className="no-data">
+          {canMutateCurriculum
+            ? 'No curriculum entries found. Click "Add Curriculum" to create one.'
+            : 'No curriculum entries found.'}
+        </div>
       )}
 
 
-      {showModal && (
+      {canMutateCurriculum && showModal && (
         <div className="modal-overlay" onClick={handleCloseModal}>
           <div className="modal-content bulk-modal" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
@@ -1392,7 +1468,7 @@ const CurriculumManagement = () => {
       )}
 
       {/* Edit Panel - Right Side */}
-      {showEditPanel && (
+      {canMutateCurriculum && showEditPanel && (
         <div className="edit-panel-overlay" onClick={() => setShowEditPanel(false)}>
           <div className="edit-panel" onClick={(e) => e.stopPropagation()}>
             <div className="edit-panel-header">
@@ -1681,7 +1757,7 @@ const CurriculumManagement = () => {
       )}
 
       {/* Co-requisite Modal */}
-      {showCorequisiteModal && (
+      {canMutateCurriculum && showCorequisiteModal && (
         <div className="modal-overlay" onClick={handleCloseCorequisiteModal}>
           <div className="modal-content" onClick={(e) => e.stopPropagation()}>
             <h3>Add Co-requisite</h3>

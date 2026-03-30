@@ -2,6 +2,52 @@ import React, { useState, useEffect } from 'react';
 import api from '../../api/axios';
 import { swalConfirm, swalToast, swalError } from '../../utils/swal';
 import './SystemManagement.css';
+import CreditEvaluationManagement from './CreditEvaluationManagement';
+
+/** Laravel JSON uses snake_case for relations: `other_school_subject` not `otherSchoolSubject`. */
+function formatOtherSchoolSubjectLabel(item, lookupList = []) {
+  const rel = item.otherSchoolSubject ?? item.other_school_subject;
+  if (rel && typeof rel === 'object' && !Array.isArray(rel)) {
+    const code = rel.subject_code;
+    const name = rel.subject_name;
+    if (code != null || name != null) {
+      return `${code ?? '—'} — ${name ?? '—'}`;
+    }
+  }
+  const oid = item.other_school_subject;
+  if (oid != null && oid !== '' && Array.isArray(lookupList) && lookupList.length > 0) {
+    const found = lookupList.find((s) => String(s.other_subject_id) === String(oid));
+    if (found) {
+      return `${found.subject_code ?? '—'} — ${found.subject_name ?? '—'}`;
+    }
+  }
+  return '—';
+}
+
+function getEquivalenceOtherSchoolSubjectId(item) {
+  const raw = item?.other_school_subject ?? item?.otherSchoolSubject;
+  if (raw == null || raw === '') return null;
+  if (typeof raw === 'object' && !Array.isArray(raw)) {
+    return raw.other_subject_id != null ? raw.other_subject_id : null;
+  }
+  return raw;
+}
+
+function isSubjectEquivalenceActive(item) {
+  const s = item?.status;
+  if (s == null || s === '') return true;
+  return String(s).toLowerCase() === 'active';
+}
+
+function emptyOtherSchoolSubjectRow() {
+  return {
+    subject_code: '',
+    subject_name: '',
+    units: '',
+    hours: '',
+    description: '',
+  };
+}
 
 const SystemManagement = () => {
   const [activeTab, setActiveTab] = useState('schools');
@@ -10,6 +56,9 @@ const SystemManagement = () => {
   const [showModal, setShowModal] = useState(false);
   const [editingItem, setEditingItem] = useState(null);
   const [formData, setFormData] = useState({});
+  const [ossBulkSchoolId, setOssBulkSchoolId] = useState('');
+  const [ossBulkRows, setOssBulkRows] = useState([emptyOtherSchoolSubjectRow()]);
+  const [ossBulkSubmitting, setOssBulkSubmitting] = useState(false);
   const [data, setData] = useState({
     schools: [],
     otherSchoolSubjects: [],
@@ -18,23 +67,27 @@ const SystemManagement = () => {
   const [lookupData, setLookupData] = useState({
     schools: [],
     subjects: [],
+    otherSchoolSubjects: [],
   });
 
   useEffect(() => {
+    if (activeTab === 'credit-evaluation') return; // Credit evaluation has its own component/state
     fetchLookupData();
     fetchData();
   }, [activeTab]);
 
   const fetchLookupData = async () => {
     try {
-      const [schoolsResp, subjectsResp] = await Promise.allSettled([
+      const [schoolsResp, subjectsResp, ossResp] = await Promise.allSettled([
         api.get('/schools'),
         api.get('/lookup/subjects'),
+        api.get('/other-school-subjects'),
       ]);
 
       setLookupData({
         schools: schoolsResp.status === 'fulfilled' ? (schoolsResp.value.data || []) : [],
         subjects: subjectsResp.status === 'fulfilled' ? (subjectsResp.value.data || []) : [],
+        otherSchoolSubjects: ossResp.status === 'fulfilled' ? (ossResp.value.data || []) : [],
       });
     } catch (err) {
       console.error('Error fetching lookup data:', err);
@@ -77,15 +130,86 @@ const SystemManagement = () => {
     }
   };
 
+  const handleToggleSubjectEquivalenceStatus = async (item) => {
+    const active = isSubjectEquivalenceActive(item);
+    const ok = await swalConfirm({
+      title: active ? 'Deactivate this subject equivalence?' : 'Activate this subject equivalence?',
+      text: active
+        ? 'It will not be used for automatic credit-evaluation mapping until reactivated.'
+        : 'This mapping will be available again for credit evaluation.',
+      confirmButtonText: active ? 'Deactivate' : 'Activate',
+    });
+    if (!ok) return;
+
+    const otherId = getEquivalenceOtherSchoolSubjectId(item);
+    const subjectId = item.subject_id ?? item.subject?.subject_id;
+    if (otherId == null || subjectId == null) {
+      await swalError('Cannot update', 'Missing subject data for this row. Open Edit to fix it.');
+      return;
+    }
+
+    try {
+      await api.put(`/subject-equivalences/${item.equivalence_id}`, {
+        other_school_subject: Number(otherId),
+        subject_id: Number(subjectId),
+        credited_units: item.credited_units != null && item.credited_units !== '' ? Number(item.credited_units) : null,
+        credit_basis: item.credit_basis ?? null,
+        remarks: item.remarks ?? null,
+        status: active ? 'inactive' : 'active',
+      });
+      await fetchData();
+      swalToast('success', active ? 'Subject equivalence deactivated' : 'Subject equivalence activated');
+    } catch (err) {
+      const msg = err.response?.data?.message || 'Update failed';
+      setError(msg);
+      await swalError('Update failed', msg);
+    }
+  };
+
+  const closeModal = () => {
+    setShowModal(false);
+    setEditingItem(null);
+    setOssBulkSchoolId('');
+    setOssBulkRows([emptyOtherSchoolSubjectRow()]);
+  };
+
+  const updateOssBulkRow = (index, field, value) => {
+    setOssBulkRows((rows) => {
+      const next = [...rows];
+      next[index] = { ...next[index], [field]: value };
+      return next;
+    });
+  };
+
+  const removeOssBulkRow = (index) => {
+    setOssBulkRows((rows) => (rows.length <= 1 ? rows : rows.filter((_, i) => i !== index)));
+  };
+
   const handleAdd = () => {
     setEditingItem(null);
     setFormData(getDefaultFormData());
+    if (activeTab === 'other-school-subjects') {
+      setOssBulkSchoolId('');
+      setOssBulkRows([emptyOtherSchoolSubjectRow()]);
+    }
     setShowModal(true);
   };
 
   const handleEdit = (item) => {
     setEditingItem(item);
-    setFormData(item);
+    if (activeTab === 'other-school-subjects') {
+      setOssBulkSchoolId('');
+      setOssBulkRows([emptyOtherSchoolSubjectRow()]);
+    }
+    if (activeTab === 'subject-equivalences') {
+      let oss = item.other_school_subject;
+      if (oss && typeof oss === 'object') {
+        oss = oss.other_subject_id ?? '';
+      }
+      setFormData({ ...item, other_school_subject: oss });
+    } else {
+      setFormData(item);
+    }
     setShowModal(true);
   };
 
@@ -105,9 +229,6 @@ const SystemManagement = () => {
           break;
         case 'other-school-subjects':
           endpoint = `/other-school-subjects/${id}`;
-          break;
-        case 'subject-equivalences':
-          endpoint = `/subject-equivalences/${id}`;
           break;
         case 'permissions':
           endpoint = `/permissions/${id}`;
@@ -129,6 +250,105 @@ const SystemManagement = () => {
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
+
+    if (activeTab === 'other-school-subjects' && !editingItem) {
+      if (ossBulkSubmitting) return;
+      const schoolId = ossBulkSchoolId ? Number(ossBulkSchoolId) : NaN;
+      if (!Number.isInteger(schoolId) || schoolId < 1) {
+        await swalError('School required', 'Please select a school.');
+        return;
+      }
+
+      const numOrNull = (v) => {
+        if (v === '' || v == null) return null;
+        const n = Number(v);
+        return Number.isFinite(n) ? n : null;
+      };
+
+      const normalized = ossBulkRows.map((r) => {
+        const code = (r.subject_code || '').trim();
+        const name = (r.subject_name || '').trim();
+        return {
+          code,
+          name,
+          units: numOrNull(r.units),
+          hours: numOrNull(r.hours),
+          description: (r.description || '').trim() || null,
+        };
+      });
+
+      for (const r of normalized) {
+        const hasAny =
+          r.code ||
+          r.name ||
+          r.units != null ||
+          r.hours != null ||
+          (r.description != null && r.description !== '');
+        const complete = r.code && r.name;
+        if (hasAny && !complete) {
+          await swalError(
+            'Incomplete row',
+            'Each row that has any data must include both Subject Code and Subject Name. Clear extra rows or fill them in.'
+          );
+          return;
+        }
+      }
+
+      const toSave = normalized.filter((r) => r.code && r.name);
+      if (toSave.length === 0) {
+        await swalError('Add at least one subject', 'Enter Subject Code and Subject Name in at least one row.');
+        return;
+      }
+
+      setOssBulkSubmitting(true);
+      try {
+        const results = await Promise.allSettled(
+          toSave.map((r) =>
+            api.post('/other-school-subjects', {
+              school_id: schoolId,
+              subject_code: r.code,
+              subject_name: r.name,
+              units: r.units,
+              hours: r.hours,
+              description: r.description,
+            })
+          )
+        );
+
+        const failed = results
+          .map((res, i) => ({ res, row: toSave[i] }))
+          .filter(({ res }) => res.status === 'rejected');
+
+        closeModal();
+        await fetchData();
+        fetchLookupData();
+
+        if (failed.length === 0) {
+          swalToast('success', `Saved ${toSave.length} subject${toSave.length === 1 ? '' : 's'}`);
+        } else {
+          const ok = toSave.length - failed.length;
+          const lines = failed.slice(0, 5).map(({ row, res }) => {
+            const msg =
+              res.reason?.response?.data?.message ||
+              res.reason?.message ||
+              'Request failed';
+            return `${row.code}: ${msg}`;
+          });
+          const more = failed.length > 5 ? `\n… and ${failed.length - 5} more` : '';
+          await swalError(
+            'Some subjects could not be saved',
+            `${ok} saved, ${failed.length} failed.\n\n${lines.join('\n')}${more}`
+          );
+        }
+      } catch (err) {
+        const msg = err.response?.data?.message || err.message || 'Save failed';
+        setError(msg);
+        await swalError('Save failed', msg);
+      } finally {
+        setOssBulkSubmitting(false);
+      }
+      return;
+    }
 
     try {
       let endpoint = '';
@@ -155,7 +375,7 @@ const SystemManagement = () => {
         await api.post(endpoint, formData);
       }
 
-      setShowModal(false);
+      closeModal();
       fetchData();
       swalToast('success', editingItem ? `${getTabTitle()} updated` : `${getTabTitle()} created`);
     } catch (err) {
@@ -185,6 +405,7 @@ const SystemManagement = () => {
       'schools': 'School',
       'other-school-subjects': 'Other School Subject',
       'subject-equivalences': 'Subject Equivalence',
+      'credit-evaluation': 'Credit Evaluation',
       'permissions': 'Permission',
       'audit-logs': 'Audit Log',
     };
@@ -224,65 +445,164 @@ const SystemManagement = () => {
           </>
         );
       case 'other-school-subjects':
+        if (editingItem) {
+          return (
+            <>
+              <div className="form-group">
+                <label>School <span className="required">*</span></label>
+                <select
+                  value={formData.school_id || ''}
+                  onChange={(e) => setFormData({ ...formData, school_id: e.target.value ? parseInt(e.target.value) : '' })}
+                  required
+                >
+                  <option value="">Select School</option>
+                  {lookupData.schools.map((school) => (
+                    <option key={school.school_id} value={school.school_id}>
+                      {school.school_name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="form-group">
+                <label>Subject Code <span className="required">*</span></label>
+                <input
+                  type="text"
+                  value={formData.subject_code || ''}
+                  onChange={(e) => setFormData({ ...formData, subject_code: e.target.value })}
+                  required
+                />
+              </div>
+              <div className="form-group">
+                <label>Subject Name <span className="required">*</span></label>
+                <input
+                  type="text"
+                  value={formData.subject_name || ''}
+                  onChange={(e) => setFormData({ ...formData, subject_name: e.target.value })}
+                  required
+                />
+              </div>
+              <div className="form-group">
+                <label>Units</label>
+                <input
+                  type="number"
+                  value={formData.units || ''}
+                  onChange={(e) => setFormData({ ...formData, units: e.target.value ? parseInt(e.target.value) : '' })}
+                />
+              </div>
+              <div className="form-group">
+                <label>Hours</label>
+                <input
+                  type="number"
+                  value={formData.hours || ''}
+                  onChange={(e) => setFormData({ ...formData, hours: e.target.value ? parseInt(e.target.value) : '' })}
+                />
+              </div>
+              <div className="form-group">
+                <label>Description</label>
+                <textarea
+                  value={formData.description || ''}
+                  onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+                  rows="3"
+                />
+              </div>
+            </>
+          );
+        }
         return (
           <>
+            <p className="oss-bulk-hint">
+              Choose one school, then add as many subjects as you need. Blank rows are ignored. Each filled row is saved as its own record.
+            </p>
             <div className="form-group">
               <label>School <span className="required">*</span></label>
               <select
-                value={formData.school_id || ''}
-                onChange={(e) => setFormData({ ...formData, school_id: e.target.value ? parseInt(e.target.value) : '' })}
-                required
+                value={ossBulkSchoolId}
+                onChange={(e) => setOssBulkSchoolId(e.target.value)}
               >
                 <option value="">Select School</option>
                 {lookupData.schools.map((school) => (
-                  <option key={school.school_id} value={school.school_id}>
+                  <option key={school.school_id} value={String(school.school_id)}>
                     {school.school_name}
                   </option>
                 ))}
               </select>
             </div>
-            <div className="form-group">
-              <label>Subject Code <span className="required">*</span></label>
-              <input
-                type="text"
-                value={formData.subject_code || ''}
-                onChange={(e) => setFormData({ ...formData, subject_code: e.target.value })}
-                required
-              />
+            <div className="oss-bulk-table-wrap">
+              <table className="oss-bulk-table">
+                <thead>
+                  <tr>
+                    <th>Subject code <span className="required">*</span></th>
+                    <th>Subject name <span className="required">*</span></th>
+                    <th>Units</th>
+                    <th>Hours</th>
+                    <th>Description</th>
+                    <th aria-label="Remove row" />
+                  </tr>
+                </thead>
+                <tbody>
+                  {ossBulkRows.map((row, index) => (
+                    <tr key={index}>
+                      <td>
+                        <input
+                          type="text"
+                          value={row.subject_code}
+                          onChange={(e) => updateOssBulkRow(index, 'subject_code', e.target.value)}
+                          placeholder="e.g. MATH101"
+                        />
+                      </td>
+                      <td>
+                        <input
+                          type="text"
+                          value={row.subject_name}
+                          onChange={(e) => updateOssBulkRow(index, 'subject_name', e.target.value)}
+                          placeholder="Course title"
+                        />
+                      </td>
+                      <td>
+                        <input
+                          type="number"
+                          value={row.units}
+                          onChange={(e) => updateOssBulkRow(index, 'units', e.target.value)}
+                        />
+                      </td>
+                      <td>
+                        <input
+                          type="number"
+                          value={row.hours}
+                          onChange={(e) => updateOssBulkRow(index, 'hours', e.target.value)}
+                        />
+                      </td>
+                      <td>
+                        <input
+                          type="text"
+                          value={row.description}
+                          onChange={(e) => updateOssBulkRow(index, 'description', e.target.value)}
+                          placeholder="Optional"
+                        />
+                      </td>
+                      <td>
+                        <button
+                          type="button"
+                          className="oss-bulk-remove"
+                          onClick={() => removeOssBulkRow(index)}
+                          disabled={ossBulkRows.length <= 1}
+                          title="Remove row"
+                        >
+                          Remove
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
-            <div className="form-group">
-              <label>Subject Name <span className="required">*</span></label>
-              <input
-                type="text"
-                value={formData.subject_name || ''}
-                onChange={(e) => setFormData({ ...formData, subject_name: e.target.value })}
-                required
-              />
-            </div>
-            <div className="form-group">
-              <label>Units</label>
-              <input
-                type="number"
-                value={formData.units || ''}
-                onChange={(e) => setFormData({ ...formData, units: e.target.value ? parseInt(e.target.value) : '' })}
-              />
-            </div>
-            <div className="form-group">
-              <label>Hours</label>
-              <input
-                type="number"
-                value={formData.hours || ''}
-                onChange={(e) => setFormData({ ...formData, hours: e.target.value ? parseInt(e.target.value) : '' })}
-              />
-            </div>
-            <div className="form-group">
-              <label>Description</label>
-              <textarea
-                value={formData.description || ''}
-                onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                rows="3"
-              />
-            </div>
+            <button
+              type="button"
+              className="oss-bulk-add-row"
+              onClick={() => setOssBulkRows((rows) => [...rows, emptyOtherSchoolSubjectRow()])}
+            >
+              + Add row
+            </button>
           </>
         );
       case 'subject-equivalences':
@@ -448,23 +768,40 @@ const SystemManagement = () => {
                   <td colSpan="6" className="no-data">No subject equivalences found</td>
                 </tr>
               ) : (
-                currentData.map((item) => (
-                  <tr key={item.equivalence_id}>
-                    <td>{item.otherSchoolSubject?.subject_code} - {item.otherSchoolSubject?.subject_name}</td>
-                    <td>{item.subject?.subject_code} - {item.subject?.subject_name}</td>
-                    <td>{item.credited_units || '-'}</td>
-                    <td>{item.credit_basis || '-'}</td>
-                    <td>
-                      <span className={`status-badge status-${item.status?.toLowerCase()}`}>
-                        {item.status}
-                      </span>
-                    </td>
-                    <td className="actions">
-                      <button className="edit-button" onClick={() => handleEdit(item)}>Edit</button>
-                      <button className="delete-button" onClick={() => handleDelete(item.equivalence_id)}>Delete</button>
-                    </td>
-                  </tr>
-                ))
+                currentData.map((item) => {
+                  const eqActive = isSubjectEquivalenceActive(item);
+                  return (
+                    <tr key={item.equivalence_id} className={!eqActive ? 'subject-equiv-row-inactive' : undefined}>
+                      <td>{formatOtherSchoolSubjectLabel(item, lookupData.otherSchoolSubjects)}</td>
+                      <td>
+                        {item.subject
+                          ? `${item.subject.subject_code ?? '—'} — ${item.subject.subject_name ?? '—'}`
+                          : '—'}
+                      </td>
+                      <td>{item.credited_units || '-'}</td>
+                      <td>{item.credit_basis || '-'}</td>
+                      <td>
+                        <span
+                          className={`status-badge status-${(item.status || 'active').toLowerCase()}`}
+                        >
+                          {item.status || 'Active'}
+                        </span>
+                      </td>
+                      <td className="actions">
+                        <button type="button" className="edit-button" onClick={() => handleEdit(item)}>
+                          Edit
+                        </button>
+                        <button
+                          type="button"
+                          className={eqActive ? 'toggle-equiv-btn deactivate' : 'toggle-equiv-btn activate'}
+                          onClick={() => handleToggleSubjectEquivalenceStatus(item)}
+                        >
+                          {eqActive ? 'Deactivate' : 'Activate'}
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })
               )}
             </tbody>
           </table>
@@ -477,10 +814,12 @@ const SystemManagement = () => {
   return (
     <div className="system-management">
       <div className="management-header">
-        <h2>System Management</h2>
-        <button className="add-button" onClick={handleAdd}>
-          Add {getTabTitle()}
-        </button>
+        <h2>Academic Management</h2>
+        {activeTab !== 'credit-evaluation' && (
+          <button className="add-button" onClick={handleAdd}>
+            Add {getTabTitle()}
+          </button>
+        )}
       </div>
 
       {error && <div className="error-message">{error}</div>}
@@ -491,6 +830,12 @@ const SystemManagement = () => {
           onClick={() => setActiveTab('schools')}
         >
           Schools
+        </button>
+        <button
+          className={activeTab === 'credit-evaluation' ? 'tab active' : 'tab'}
+          onClick={() => setActiveTab('credit-evaluation')}
+        >
+          Credit Evaluation
         </button>
         <button
           className={activeTab === 'other-school-subjects' ? 'tab active' : 'tab'}
@@ -506,7 +851,11 @@ const SystemManagement = () => {
         </button>
       </div>
 
-      {loading ? (
+      {activeTab === 'credit-evaluation' ? (
+        <div className="table-container">
+          <CreditEvaluationManagement />
+        </div>
+      ) : loading ? (
         <div className="loading">Loading {getTabTitle()}...</div>
       ) : (
         <div className="table-container">
@@ -514,22 +863,45 @@ const SystemManagement = () => {
         </div>
       )}
 
-      {showModal && (
-        <div className="modal-overlay" onClick={() => setShowModal(false)}>
-          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+      {activeTab !== 'credit-evaluation' && showModal && (
+        <div className="modal-overlay" onClick={closeModal}>
+          <div
+            className={
+              activeTab === 'other-school-subjects' && !editingItem
+                ? 'modal-content modal-content--wide'
+                : 'modal-content'
+            }
+            onClick={(e) => e.stopPropagation()}
+          >
             <div className="modal-header">
-              <h3>{editingItem ? 'Edit' : 'Add'} {getTabTitle()}</h3>
-              <button className="close-button" onClick={() => setShowModal(false)}>×</button>
+              <h3>
+                {editingItem
+                  ? `Edit ${getTabTitle()}`
+                  : activeTab === 'other-school-subjects'
+                    ? 'Add Other School Subjects'
+                    : `Add ${getTabTitle()}`}
+              </h3>
+              <button type="button" className="close-button" onClick={closeModal}>×</button>
             </div>
             <form onSubmit={handleSubmit} className="modal-form">
               {error && <div className="error-message">{error}</div>}
               {renderForm()}
               <div className="form-actions">
-                <button type="button" className="cancel-button" onClick={() => setShowModal(false)}>
+                <button type="button" className="cancel-button" onClick={closeModal}>
                   Cancel
                 </button>
-                <button type="submit" className="submit-button">
-                  {editingItem ? 'Update' : 'Create'}
+                <button
+                  type="submit"
+                  className="submit-button"
+                  disabled={activeTab === 'other-school-subjects' && !editingItem && ossBulkSubmitting}
+                >
+                  {editingItem
+                    ? 'Update'
+                    : activeTab === 'other-school-subjects'
+                      ? ossBulkSubmitting
+                        ? 'Saving…'
+                        : 'Save all subjects'
+                      : 'Create'}
                 </button>
               </div>
             </form>

@@ -56,7 +56,7 @@ class Curriculum extends Model
 
     public function requisite()
     {
-        return $this->belongsTo(Prerequisite::class, 'requisite_id', 'requisites_id');
+        return $this->hasMany(Prerequisite::class, 'subject_id', 'subject_id');
     }
 
     public function electiveSlot()

@@ -19,6 +19,13 @@
   margin: 0;
 }
 
+.lookup-active-panel-label {
+  margin: -1rem 0 1.25rem;
+  font-size: 1.05rem;
+  font-weight: 600;
+  color: #475569;
+}
+
 .refresh-button {
   background: #007bff;
   color: white;

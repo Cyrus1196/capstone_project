@@ -24,11 +24,12 @@ class CurriculumController extends Controller
             // Load relationships to avoid N+1 queries
             // Include nested relationships for elective slots (subjects and tracks)
             $curricula = Curriculum::with([
-                'program', 
+                'program',
+                'curriculumHeader',
                 'subject', 
                 'semester', 
                 'yearLevel', 
-                'requisite', 
+                'requisite.requiredSubject', 
                 'electiveSlot.electiveSubjects.subject',
                 'electiveSlot.electiveSubjects.track'
             ])
@@ -111,8 +112,24 @@ class CurriculumController extends Controller
                 'subjects' => $subjects,
                 'yearLevels' => $yearLevels,
                 'semesters' => $semesters,
-                'requisites' => $requisites, 
+                'requisites' => $requisites,
             ];
+
+            $user = $request->user('api');
+            if ($user && method_exists($user, 'canAccessLookupResource') && ! $user->isAdmin()) {
+                $map = [
+                    'programs' => 'programs',
+                    'subjects' => 'subjects',
+                    'yearLevels' => 'year_levels',
+                    'semesters' => 'semesters',
+                    'requisites' => 'requisites',
+                ];
+                foreach ($map as $key => $slug) {
+                    if (! $user->canAccessLookupResource($slug, false)) {
+                        $data[$key] = [];
+                    }
+                }
+            }
 
             return response()->json($data);
         } catch (\Exception $e) {

@@ -38,6 +38,17 @@
   letter-spacing:0.2px;
   color:#0b1220;
 }
+
+.curriculum-view-only-banner{
+  margin: -6px 0 16px;
+  padding: 10px 14px;
+  border-radius: var(--radius);
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  color: #1e40af;
+  font-size: 0.9rem;
+  line-height: 1.45;
+}
 .add-button{
   background:var(--accent);
   color:#fff;

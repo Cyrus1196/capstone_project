@@ -14,6 +14,7 @@ class CreditEvaluationDetail extends Model
     public $timestamps = false;
 
     protected $fillable = [
+        'credit_eval_id',
         'student_id',
         'other_subject_id',
         'subject_id',
@@ -21,6 +22,11 @@ class CreditEvaluationDetail extends Model
         'credit_basis',
         'remarks',
     ];
+
+    public function creditEvaluation()
+    {
+        return $this->belongsTo(CreditEvaluation::class, 'credit_eval_id', 'credit_eval_id');
+    }
 
     public function student()
     {

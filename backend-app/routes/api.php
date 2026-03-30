@@ -3,6 +3,7 @@
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\AuthController;
+use App\Http\Controllers\JwtAuthController;
 use App\Http\Controllers\UserController;
 use App\Http\Controllers\CurriculumController;
 use App\Http\Controllers\LookupDataController;
@@ -22,9 +23,20 @@ use App\Http\Controllers\SubjectEquivalenceController;
 use App\Http\Controllers\PermissionController;
 use App\Http\Controllers\AuditLogController;
 use App\Http\Controllers\ElectiveSlotController;
+use App\Http\Controllers\GuestCreditSimulationController;
+use App\Http\Controllers\SecuritySettingsController;
 
 // Public routes
 Route::post('/login', [AuthController::class, 'login']);
+
+// JWT Authentication routes (public)
+Route::prefix('jwt')->group(function () {
+    Route::post('/login', [JwtAuthController::class, 'login']);
+    Route::post('/register', [JwtAuthController::class, 'register']);
+});
+
+// Refresh: allows expired access token within refresh_ttl (tymon jwt.refresh)
+Route::post('/jwt/refresh', [JwtAuthController::class, 'refresh'])->middleware('jwt.refresh');
 
 // Requisite Management (temporarily public for testing)
 Route::prefix('requisites')->group(function () {
@@ -54,6 +66,10 @@ Route::prefix('corequisites')->group(function () {
     Route::delete('/{id}', [CorequisiteController::class, 'destroy']);
 });
 
+// Public read-only (landing / guest simulation — no login)
+Route::post('/guest/credit-simulation', [GuestCreditSimulationController::class, 'simulate']);
+Route::get('/schools', [SchoolController::class, 'index']);
+
 // Curriculum management (admin only) - temporarily public for testing
 Route::prefix('curriculum')->group(function () {
     Route::get('/lookup/data', [CurriculumController::class, 'lookupData']);
@@ -65,10 +81,18 @@ Route::prefix('curriculum')->group(function () {
     Route::delete('/{id}', [CurriculumController::class, 'destroy']);
 });
 
-// Protected routes
-Route::middleware('auth')->group(function () {
+// Protected routes (JWT Bearer via auth:api guard)
+Route::middleware('auth:api')->group(function () {
     Route::post('/logout', [AuthController::class, 'logout']);
     Route::get('/user', [AuthController::class, 'user']);
+
+    Route::get('/settings/security', [SecuritySettingsController::class, 'show']);
+    Route::put('/settings/security', [SecuritySettingsController::class, 'update']);
+
+    Route::prefix('jwt')->group(function () {
+        Route::post('/logout', [JwtAuthController::class, 'logout']);
+        Route::get('/me', [JwtAuthController::class, 'me']);
+    });
 
     // User management (admin only)
     Route::prefix('users')->group(function () {
@@ -175,14 +199,13 @@ Route::middleware('auth')->group(function () {
     Route::prefix('credit-evaluations')->group(function () {
         Route::get('/', [CreditEvaluationController::class, 'index']);
         Route::post('/', [CreditEvaluationController::class, 'store']);
+        Route::patch('/{id}/active', [CreditEvaluationController::class, 'setActive']);
         Route::get('/{id}', [CreditEvaluationController::class, 'show']);
         Route::put('/{id}', [CreditEvaluationController::class, 'update']);
-        Route::delete('/{id}', [CreditEvaluationController::class, 'destroy']);
     });
 
-    // Schools Management (admin only)
+    // Schools Management (admin only) — list is public; mutations require auth + permission
     Route::prefix('schools')->group(function () {
-        Route::get('/', [SchoolController::class, 'index']);
         Route::post('/', [SchoolController::class, 'store']);
         Route::put('/{id}', [SchoolController::class, 'update']);
         Route::delete('/{id}', [SchoolController::class, 'destroy']);
@@ -209,6 +232,9 @@ Route::middleware('auth')->group(function () {
         Route::get('/', [PermissionController::class, 'index']);
         Route::get('/for-role/{roleId}', [PermissionController::class, 'forRole']);
         Route::put('/sync-role/{roleId}', [PermissionController::class, 'syncRole']);
+        Route::get('/for-user/{userId}', [PermissionController::class, 'forUser']);
+        Route::put('/sync-user/{userId}', [PermissionController::class, 'syncUser']);
+        Route::post('/reset-user/{userId}', [PermissionController::class, 'resetUserToRole']);
         Route::post('/', [PermissionController::class, 'store']);
         Route::put('/{id}', [PermissionController::class, 'update']);
         Route::delete('/{id}', [PermissionController::class, 'destroy']);
@@ -235,6 +261,7 @@ Route::middleware('auth')->group(function () {
     // Student routes (authenticated students)
     Route::prefix('students')->group(function () {
         Route::get('/profile', [StudentController::class, 'getProfile']);
+        Route::get('/profile-options', [StudentController::class, 'getProfileOptions']);
         Route::post('/profile', [StudentController::class, 'createProfile']);
         Route::put('/profile', [StudentController::class, 'updateProfile']);
         Route::get('/enrollments', [StudentController::class, 'getEnrollments']);
@@ -264,6 +291,10 @@ Route::middleware('auth')->group(function () {
         
         // Comprehensive evaluation management with role-based access control
         Route::middleware('evaluation.access')->group(function () {
+            Route::post('/academic-record/complete', [StudentEvaluationController::class, 'markAcademicRecordComplete']);
+            Route::get('/academic-record/completions', [StudentEvaluationController::class, 'listAcademicRecordCompletions']);
+            Route::delete('/academic-record/complete/{recordId}', [StudentEvaluationController::class, 'deleteAcademicRecordCompletion']);
+
             Route::get('/', [EvaluationController::class, 'index']);
             Route::post('/', [EvaluationController::class, 'store']);
             Route::get('/{id}', [EvaluationController::class, 'show']);
@@ -276,7 +307,18 @@ Route::middleware('auth')->group(function () {
             Route::get('/reports/student/{studentId}', [EvaluationReportController::class, 'getStudentPerformanceReport']);
             Route::get('/reports/subject/{subjectId}', [EvaluationReportController::class, 'getSubjectPerformanceReport']);
             Route::get('/reports/summary', [EvaluationReportController::class, 'getEvaluationSummary']);
+            Route::get('/reports/dean-dashboard', [EvaluationReportController::class, 'deanDashboard']);
+            Route::get('/reports/subject-insights', [EvaluationReportController::class, 'subjectInsights']);
+            Route::get('/reports/at-risk-students', [EvaluationReportController::class, 'atRiskStudents']);
         });
+    });
+
+    // CSV Import Management (admin only)
+    Route::prefix('csv-import')->group(function () {
+        Route::get('/types', [\App\Http\Controllers\CsvImportController::class, 'getImportTypes']);
+        Route::post('/preview', [\App\Http\Controllers\CsvImportController::class, 'preview']);
+        Route::post('/import', [\App\Http\Controllers\CsvImportController::class, 'import']);
+        Route::get('/template/{importType}', [\App\Http\Controllers\CsvImportController::class, 'downloadTemplate']);
     });
 
     // Lookup data aliases for easier access (used by faculty and other roles)

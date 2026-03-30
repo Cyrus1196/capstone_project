@@ -3,13 +3,30 @@
 namespace App\Http\Controllers;
 
 use App\Models\TblUser;
+use App\Services\AuthSecurity;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Auth;
-use Illuminate\Support\Facades\Hash;
 use Illuminate\Validation\ValidationException;
+use Tymon\JWTAuth\Facades\JWTAuth;
 
 class AuthController extends Controller
 {
+    /**
+     * @return array{user_id: int|string|null, role_id: int|string|null, email: mixed, role: mixed, is_admin: bool, permissions: array<int, string>}
+     */
+    public static function userPayload(TblUser $user): array
+    {
+        $permissionNames = $user->permissionNamesForPayload();
+
+        return [
+            'user_id' => $user->user_id,
+            'role_id' => $user->role_id,
+            'email' => $user->email,
+            'role' => $user->role ? $user->role->role_name : null,
+            'is_admin' => $user->isAdmin(),
+            'permissions' => $permissionNames,
+        ];
+    }
+
     public function login(Request $request)
     {
         $request->validate([
@@ -19,45 +36,33 @@ class AuthController extends Controller
 
         $user = TblUser::whereEmail($request->email)->first();
 
-        if (!$user || !Hash::check($request->password, $user->password)) {
+        if (! $user) {
             throw ValidationException::withMessages([
                 'email' => ['The provided credentials are incorrect.'],
             ]);
         }
 
-        if ($user->status !== 'active' && $user->status !== null) {
-            throw ValidationException::withMessages([
-                'email' => ['Your account is not active.'],
-            ]);
-        }
+        AuthSecurity::validateCredentialsForLogin($user, $request->password);
 
-        Auth::login($user);
-
-        $request->session()->regenerate();
-
-        $user->loadMissing('role.permissions');
-        $permissionNames = $user->role
-            ? $user->role->permissions->pluck('permission_name')->values()->all()
-            : [];
+        $token = JWTAuth::fromUser($user);
 
         return response()->json([
-            'user' => [
-                'user_id' => $user->user_id,
-                'email' => $user->email,
-                'role' => $user->role ? $user->role->role_name : null,
-                'is_admin' => $user->isAdmin(),
-                'permissions' => $permissionNames,
-            ],
+            'user' => self::userPayload($user),
+            'access_token' => $token,
+            'token_type' => 'Bearer',
+            'expires_in' => (int) (config('jwt.ttl', 60) * 60),
             'message' => 'Login successful',
+            'security' => AuthSecurity::clientSessionPayload(),
         ]);
     }
 
-    public function logout(Request $request)
+    public function logout()
     {
-        Auth::logout();
-
-        $request->session()->invalidate();
-        $request->session()->regenerateToken();
+        try {
+            JWTAuth::parseToken()->invalidate(true);
+        } catch (\Throwable) {
+            // Token missing or already invalid
+        }
 
         return response()->json(['message' => 'Logged out successfully']);
     }
@@ -66,28 +71,17 @@ class AuthController extends Controller
     {
         try {
             $user = $request->user();
-            
+
             if (!$user) {
                 return response()->json(['user' => null], 401);
             }
 
-            $user->loadMissing('role.permissions');
-            $permissionNames = $user->role
-                ? $user->role->permissions->pluck('permission_name')->values()->all()
-                : [];
-
             return response()->json([
-                'user' => [
-                    'user_id' => $user->user_id,
-                    'email' => $user->email,
-                    'role' => $user->role ? $user->role->role_name : null,
-                    'is_admin' => $user->isAdmin(),
-                    'permissions' => $permissionNames,
-                ],
+                'user' => self::userPayload($user),
+                'security' => AuthSecurity::clientSessionPayload(),
             ]);
         } catch (\Exception $e) {
             return response()->json(['error' => 'Failed to get user', 'message' => $e->getMessage()], 500);
         }
     }
 }
-

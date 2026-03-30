@@ -17,19 +17,35 @@ use App\Models\OfferedSubject;
 use App\Models\ElectiveSubject;
 use App\Models\Prerequisite;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 
 class LookupDataController extends Controller
 {
+    private function normalizedSemesterStatus(?string $status): string
+    {
+        $s = strtolower(trim((string) ($status ?? '')));
 
-    private function denyIfNotAdmin(Request $request)
+        return $s === 'active' ? 'active' : 'inactive';
+    }
+
+    /** Ensure only one semester is active: deactivate all except $exceptSemesterId (when not null). */
+    private function deactivateAllSemestersExcept(?int $exceptSemesterId): void
+    {
+        $q = Semester::query();
+        if ($exceptSemesterId !== null) {
+            $q->where('semester_id', '!=', $exceptSemesterId);
+        }
+        $q->update(['status' => 'inactive']);
+    }
+
+    private function ensureLookupAccess(Request $request, string $slug, bool $write = false): ?\Illuminate\Http\JsonResponse
     {
         $user = $request->user();
-        if (!$user) {
+        if (! $user) {
             return response()->json(['message' => 'Unauthenticated'], 401);
         }
-
-        if (!method_exists($user, 'isAdmin') || !$user->isAdmin()) {
-            return response()->json(['message' => 'Unauthorized'], 403);
+        if (! $user->canAccessLookupResource($slug, $write)) {
+            return response()->json(['message' => 'Forbidden'], 403);
         }
 
         return null;
@@ -39,7 +55,7 @@ class LookupDataController extends Controller
     public function getCampus(Request $request)
     {
         try {
-            if ($resp = $this->denyIfNotAdmin($request)) {
+            if ($resp = $this->ensureLookupAccess($request, 'campus')) {
                 return $resp;
             }
             return response()->json(Campus::all());
@@ -50,8 +66,8 @@ class LookupDataController extends Controller
 
     public function createCampus(Request $request)
     {
-        if (!$request->user()->isAdmin()) {
-            return response()->json(['message' => 'Unauthorized'], 403);
+        if ($resp = $this->ensureLookupAccess($request, 'campus', true)) {
+            return $resp;
         }
         $validated = $request->validate(['campus_name' => 'required|string|max:100']);
         $campus = Campus::create($validated);
@@ -60,8 +76,8 @@ class LookupDataController extends Controller
 
     public function updateCampus(Request $request, $id)
     {
-        if (!$request->user()->isAdmin()) {
-            return response()->json(['message' => 'Unauthorized'], 403);
+        if ($resp = $this->ensureLookupAccess($request, 'campus', true)) {
+            return $resp;
         }
         $campus = Campus::findOrFail($id);
         $validated = $request->validate(['campus_name' => 'required|string|max:100']);
@@ -71,8 +87,8 @@ class LookupDataController extends Controller
 
     public function deleteCampus(Request $request, $id)
     {
-        if (!$request->user()->isAdmin()) {
-            return response()->json(['message' => 'Unauthorized'], 403);
+        if ($resp = $this->ensureLookupAccess($request, 'campus', true)) {
+            return $resp;
         }
         $campus = Campus::findOrFail($id);
         $campus->delete();
@@ -83,7 +99,7 @@ class LookupDataController extends Controller
     public function getDepartments(Request $request)
     {
         try {
-            if ($resp = $this->denyIfNotAdmin($request)) {
+            if ($resp = $this->ensureLookupAccess($request, 'departments')) {
                 return $resp;
             }
             return response()->json(Department::with('campus')->get());
@@ -97,8 +113,8 @@ class LookupDataController extends Controller
         try {
             \Log::info('Creating department with data:', $request->all());
 
-            if (!$request->user()->isAdmin()) {
-                return response()->json(['message' => 'Unauthorized'], 403);
+            if ($resp = $this->ensureLookupAccess($request, 'departments', true)) {
+                return $resp;
             }
 
             $validated = $request->validate([
@@ -127,8 +143,8 @@ class LookupDataController extends Controller
 
     public function updateDepartment(Request $request, $id)
     {
-        if (!$request->user()->isAdmin()) {
-            return response()->json(['message' => 'Unauthorized'], 403);
+        if ($resp = $this->ensureLookupAccess($request, 'departments', true)) {
+            return $resp;
         }
         $department = Department::findOrFail($id);
         $validated = $request->validate([
@@ -143,8 +159,8 @@ class LookupDataController extends Controller
 
     public function deleteDepartment(Request $request, $id)
     {
-        if (!$request->user()->isAdmin()) {
-            return response()->json(['message' => 'Unauthorized'], 403);
+        if ($resp = $this->ensureLookupAccess($request, 'departments', true)) {
+            return $resp;
         }
         $department = Department::findOrFail($id);
         $department->delete();
@@ -155,7 +171,7 @@ class LookupDataController extends Controller
     public function getPrograms(Request $request)
     {
         try {
-            if ($resp = $this->denyIfNotAdmin($request)) {
+            if ($resp = $this->ensureLookupAccess($request, 'programs')) {
                 return $resp;
             }
             return response()->json(Program::with('department')->get());
@@ -166,8 +182,8 @@ class LookupDataController extends Controller
 
     public function createProgram(Request $request)
     {
-        if (!$request->user()->isAdmin()) {
-            return response()->json(['message' => 'Unauthorized'], 403);
+        if ($resp = $this->ensureLookupAccess($request, 'programs', true)) {
+            return $resp;
         }
         $validated = $request->validate([
             'department_id' => 'required|exists:tbl_departments,department_id',
@@ -175,6 +191,22 @@ class LookupDataController extends Controller
             'program_name' => 'nullable|string|max:100',
             'total_units_required' => 'nullable|integer',
         ]);
+        
+        // Get campus_id from the department
+        $department = Department::find($validated['department_id']);
+        $campusId = $department->campus_id;
+        
+        // Fallback: if department has no campus, use the first available campus
+        if (!$campusId) {
+            $campus = Campus::first();
+            if (!$campus) {
+                return response()->json(['error' => 'No campus found. Please create a campus first.'], 400);
+            }
+            $campusId = $campus->campus_id;
+        }
+        
+        $validated['campus_id'] = $campusId;
+        
         $program = Program::create($validated);
         $program->load('department');
         return response()->json($program, 201);
@@ -182,8 +214,8 @@ class LookupDataController extends Controller
 
     public function updateProgram(Request $request, $id)
     {
-        if (!$request->user()->isAdmin()) {
-            return response()->json(['message' => 'Unauthorized'], 403);
+        if ($resp = $this->ensureLookupAccess($request, 'programs', true)) {
+            return $resp;
         }
         $program = Program::findOrFail($id);
         $validated = $request->validate([
@@ -192,6 +224,22 @@ class LookupDataController extends Controller
             'program_name' => 'nullable|string|max:100',
             'total_units_required' => 'nullable|integer',
         ]);
+        
+        // Get campus_id from the department if department changed
+        $department = Department::find($validated['department_id']);
+        $campusId = $department->campus_id;
+        
+        // Fallback: if department has no campus, use the first available campus
+        if (!$campusId) {
+            $campus = Campus::first();
+            if (!$campus) {
+                return response()->json(['error' => 'No campus found. Please create a campus first.'], 400);
+            }
+            $campusId = $campus->campus_id;
+        }
+        
+        $validated['campus_id'] = $campusId;
+        
         $program->update($validated);
         $program->load('department');
         return response()->json($program);
@@ -199,8 +247,8 @@ class LookupDataController extends Controller
 
     public function deleteProgram(Request $request, $id)
     {
-        if (!$request->user()->isAdmin()) {
-            return response()->json(['message' => 'Unauthorized'], 403);
+        if ($resp = $this->ensureLookupAccess($request, 'programs', true)) {
+            return $resp;
         }
         $program = Program::findOrFail($id);
         $program->delete();
@@ -211,7 +259,7 @@ class LookupDataController extends Controller
     public function getSubjects(Request $request)
     {
         try {
-            if ($resp = $this->denyIfNotAdmin($request)) {
+            if ($resp = $this->ensureLookupAccess($request, 'subjects')) {
                 return $resp;
             }
             return response()->json(Subject::all());
@@ -222,8 +270,8 @@ class LookupDataController extends Controller
 
     public function createSubject(Request $request)
     {
-        if (!$request->user()->isAdmin()) {
-            return response()->json(['message' => 'Unauthorized'], 403);
+        if ($resp = $this->ensureLookupAccess($request, 'subjects', true)) {
+            return $resp;
         }
         $validated = $request->validate([
             'subject_code' => 'required|string|max:50',
@@ -237,8 +285,8 @@ class LookupDataController extends Controller
 
     public function updateSubject(Request $request, $id)
     {
-        if (!$request->user()->isAdmin()) {
-            return response()->json(['message' => 'Unauthorized'], 403);
+        if ($resp = $this->ensureLookupAccess($request, 'subjects', true)) {
+            return $resp;
         }
         $subject = Subject::findOrFail($id);
         $validated = $request->validate([
@@ -253,8 +301,8 @@ class LookupDataController extends Controller
 
     public function deleteSubject(Request $request, $id)
     {
-        if (!$request->user()->isAdmin()) {
-            return response()->json(['message' => 'Unauthorized'], 403);
+        if ($resp = $this->ensureLookupAccess($request, 'subjects', true)) {
+            return $resp;
         }
         $subject = Subject::findOrFail($id);
         $subject->delete();
@@ -265,7 +313,7 @@ class LookupDataController extends Controller
     public function getYearLevels(Request $request)
     {
         try {
-            if ($resp = $this->denyIfNotAdmin($request)) {
+            if ($resp = $this->ensureLookupAccess($request, 'year_levels')) {
                 return $resp;
             }
             return response()->json(YearLevel::all());
@@ -276,8 +324,8 @@ class LookupDataController extends Controller
 
     public function createYearLevel(Request $request)
     {
-        if (!$request->user()->isAdmin()) {
-            return response()->json(['message' => 'Unauthorized'], 403);
+        if ($resp = $this->ensureLookupAccess($request, 'year_levels', true)) {
+            return $resp;
         }
         $validated = $request->validate(['year_level' => 'required|string|max:50']);
         $yearLevel = YearLevel::create($validated);
@@ -286,8 +334,8 @@ class LookupDataController extends Controller
 
     public function updateYearLevel(Request $request, $id)
     {
-        if (!$request->user()->isAdmin()) {
-            return response()->json(['message' => 'Unauthorized'], 403);
+        if ($resp = $this->ensureLookupAccess($request, 'year_levels', true)) {
+            return $resp;
         }
         $yearLevel = YearLevel::findOrFail($id);
         $validated = $request->validate(['year_level' => 'required|string|max:50']);
@@ -297,8 +345,8 @@ class LookupDataController extends Controller
 
     public function deleteYearLevel(Request $request, $id)
     {
-        if (!$request->user()->isAdmin()) {
-            return response()->json(['message' => 'Unauthorized'], 403);
+        if ($resp = $this->ensureLookupAccess($request, 'year_levels', true)) {
+            return $resp;
         }
         $yearLevel = YearLevel::findOrFail($id);
         $yearLevel->delete();
@@ -309,7 +357,7 @@ class LookupDataController extends Controller
     public function getSemesters(Request $request)
     {
         try {
-            if ($resp = $this->denyIfNotAdmin($request)) {
+            if ($resp = $this->ensureLookupAccess($request, 'semesters')) {
                 return $resp;
             }
             $semesters = Semester::all()->map(function ($semester) {
@@ -329,7 +377,7 @@ class LookupDataController extends Controller
     public function getAcademicYears(Request $request)
     {
         try {
-            if ($resp = $this->denyIfNotAdmin($request)) {
+            if ($resp = $this->ensureLookupAccess($request, 'academic_years')) {
                 return $resp;
             }
             $years = AcademicYear::all()->map(function ($y) {
@@ -347,8 +395,8 @@ class LookupDataController extends Controller
 
     public function createAcademicYear(Request $request)
     {
-        if (!$request->user()->isAdmin()) {
-            return response()->json(['message' => 'Unauthorized'], 403);
+        if ($resp = $this->ensureLookupAccess($request, 'academic_years', true)) {
+            return $resp;
         }
 
         $validated = $request->validate([
@@ -370,8 +418,8 @@ class LookupDataController extends Controller
 
     public function updateAcademicYear(Request $request, $id)
     {
-        if (!$request->user()->isAdmin()) {
-            return response()->json(['message' => 'Unauthorized'], 403);
+        if ($resp = $this->ensureLookupAccess($request, 'academic_years', true)) {
+            return $resp;
         }
 
         $year = AcademicYear::findOrFail($id);
@@ -395,8 +443,8 @@ class LookupDataController extends Controller
 
     public function deleteAcademicYear(Request $request, $id)
     {
-        if (!$request->user()->isAdmin()) {
-            return response()->json(['message' => 'Unauthorized'], 403);
+        if ($resp = $this->ensureLookupAccess($request, 'academic_years', true)) {
+            return $resp;
         }
 
         $year = AcademicYear::findOrFail($id);
@@ -406,8 +454,8 @@ class LookupDataController extends Controller
 
     public function createSemester(Request $request)
     {
-        if (!$request->user()->isAdmin()) {
-            return response()->json(['message' => 'Unauthorized'], 403);
+        if ($resp = $this->ensureLookupAccess($request, 'semesters', true)) {
+            return $resp;
         }
         $validated = $request->validate([
             'semester_name' => 'required|string|max:50',
@@ -419,9 +467,9 @@ class LookupDataController extends Controller
             $status = 'inactive';
         }
 
-        // If activating this semester, deactivate all others
+        // Only one semester may be active at a time
         if ($status === 'active') {
-            Semester::where('status', 'active')->update(['status' => 'inactive']);
+            $this->deactivateAllSemestersExcept(null);
         }
 
         $semester = Semester::create([
@@ -433,8 +481,8 @@ class LookupDataController extends Controller
 
     public function updateSemester(Request $request, $id)
     {
-        if (!$request->user()->isAdmin()) {
-            return response()->json(['message' => 'Unauthorized'], 403);
+        if ($resp = $this->ensureLookupAccess($request, 'semesters', true)) {
+            return $resp;
         }
         $semester = Semester::findOrFail($id);
         $validated = $request->validate([
@@ -447,9 +495,8 @@ class LookupDataController extends Controller
             $status = 'inactive';
         }
 
-        // If activating this semester, deactivate all others
         if ($status === 'active') {
-            Semester::where('semester_id', '!=', $id)->update(['status' => 'inactive']);
+            $this->deactivateAllSemestersExcept((int) $id);
         }
 
         $semester->update([
@@ -461,27 +508,31 @@ class LookupDataController extends Controller
 
     public function toggleSemesterStatus(Request $request, $id)
     {
-        if (!$request->user()->isAdmin()) {
-            return response()->json(['message' => 'Unauthorized'], 403);
+        if ($resp = $this->ensureLookupAccess($request, 'semesters', true)) {
+            return $resp;
         }
-        
+
+        $id = (int) $id;
         $semester = Semester::findOrFail($id);
-        $newStatus = $semester->status === 'active' ? 'inactive' : 'active';
-        
-        // If activating this semester, deactivate all others
-        if ($newStatus === 'active') {
-            Semester::where('semester_id', '!=', $id)->update(['status' => 'inactive']);
-        }
-        
-        $semester->update(['status' => $newStatus]);
-        
+        $current = $this->normalizedSemesterStatus($semester->status);
+        $newStatus = $current === 'active' ? 'inactive' : 'active';
+
+        DB::transaction(function () use ($semester, $id, $newStatus) {
+            if ($newStatus === 'active') {
+                $this->deactivateAllSemestersExcept($id);
+            }
+            $semester->update(['status' => $newStatus]);
+        });
+
+        $semester->refresh();
+
         return response()->json($semester);
     }
 
     public function deleteSemester(Request $request, $id)
     {
-        if (!$request->user()->isAdmin()) {
-            return response()->json(['message' => 'Unauthorized'], 403);
+        if ($resp = $this->ensureLookupAccess($request, 'semesters', true)) {
+            return $resp;
         }
         $semester = Semester::findOrFail($id);
         $semester->delete();
@@ -492,7 +543,7 @@ class LookupDataController extends Controller
     public function getRoles(Request $request)
     {
         try {
-            if ($resp = $this->denyIfNotAdmin($request)) {
+            if ($resp = $this->ensureLookupAccess($request, 'roles')) {
                 return $resp;
             }
             return response()->json(Role::all());
@@ -505,14 +556,14 @@ class LookupDataController extends Controller
     public function getAccessLevels(Request $request)
     {
         try {
-            if ($resp = $this->denyIfNotAdmin($request)) {
+            if ($resp = $this->ensureLookupAccess($request, 'roles')) {
                 return $resp;
             }
             
             // Return predefined access levels matching the database
             $accessLevels = [
                 ['id' => 10, 'name' => 'Admin', 'description' => 'Full system access'],
-                ['id' => 8, 'name' => 'Faculty', 'description' => 'Faculty access'],
+                ['id' => 8, 'name' => 'Evaluator', 'description' => 'Evaluator access'],
                 ['id' => 9, 'name' => 'Dean', 'description' => 'Dean access'],
                 ['id' => 5, 'name' => 'Student', 'description' => 'Student access'],
             ];
@@ -525,8 +576,8 @@ class LookupDataController extends Controller
 
     public function createRole(Request $request)
     {
-        if (!$request->user()->isAdmin()) {
-            return response()->json(['message' => 'Unauthorized'], 403);
+        if ($resp = $this->ensureLookupAccess($request, 'roles', true)) {
+            return $resp;
         }
 
         $validated = $request->validate([
@@ -546,8 +597,8 @@ class LookupDataController extends Controller
 
     public function updateRole(Request $request, $id)
     {
-        if (!$request->user()->isAdmin()) {
-            return response()->json(['message' => 'Unauthorized'], 403);
+        if ($resp = $this->ensureLookupAccess($request, 'roles', true)) {
+            return $resp;
         }
 
         $role = Role::findOrFail($id);
@@ -565,8 +616,8 @@ class LookupDataController extends Controller
 
     public function deleteRole(Request $request, $id)
     {
-        if (!$request->user()->isAdmin()) {
-            return response()->json(['message' => 'Unauthorized'], 403);
+        if ($resp = $this->ensureLookupAccess($request, 'roles', true)) {
+            return $resp;
         }
 
         $role = Role::findOrFail($id);
@@ -579,7 +630,7 @@ class LookupDataController extends Controller
     public function getSections(Request $request)
     {
         try {
-            if ($resp = $this->denyIfNotAdmin($request)) {
+            if ($resp = $this->ensureLookupAccess($request, 'sections')) {
                 return $resp;
             }
             $sections = Section::all()->map(function ($s) {
@@ -596,8 +647,8 @@ class LookupDataController extends Controller
 
     public function createSection(Request $request)
     {
-        if (!$request->user()->isAdmin()) {
-            return response()->json(['message' => 'Unauthorized'], 403);
+        if ($resp = $this->ensureLookupAccess($request, 'sections', true)) {
+            return $resp;
         }
 
         $validated = $request->validate([
@@ -619,8 +670,8 @@ class LookupDataController extends Controller
 
     public function updateSection(Request $request, $id)
     {
-        if (!$request->user()->isAdmin()) {
-            return response()->json(['message' => 'Unauthorized'], 403);
+        if ($resp = $this->ensureLookupAccess($request, 'sections', true)) {
+            return $resp;
         }
 
         $section = Section::findOrFail($id);
@@ -641,8 +692,8 @@ class LookupDataController extends Controller
 
     public function deleteSection(Request $request, $id)
     {
-        if (!$request->user()->isAdmin()) {
-            return response()->json(['message' => 'Unauthorized'], 403);
+        if ($resp = $this->ensureLookupAccess($request, 'sections', true)) {
+            return $resp;
         }
 
         $section = Section::findOrFail($id);
@@ -655,7 +706,7 @@ class LookupDataController extends Controller
     public function getTracks(Request $request)
     {
         try {
-            if ($resp = $this->denyIfNotAdmin($request)) {
+            if ($resp = $this->ensureLookupAccess($request, 'tracks')) {
                 return $resp;
             }
             return response()->json(Track::all());
@@ -666,8 +717,8 @@ class LookupDataController extends Controller
 
     public function createTrack(Request $request)
     {
-        if (!$request->user()->isAdmin()) {
-            return response()->json(['message' => 'Unauthorized'], 403);
+        if ($resp = $this->ensureLookupAccess($request, 'tracks', true)) {
+            return $resp;
         }
 
         $validated = $request->validate([
@@ -681,8 +732,8 @@ class LookupDataController extends Controller
 
     public function updateTrack(Request $request, $id)
     {
-        if (!$request->user()->isAdmin()) {
-            return response()->json(['message' => 'Unauthorized'], 403);
+        if ($resp = $this->ensureLookupAccess($request, 'tracks', true)) {
+            return $resp;
         }
 
         $track = Track::findOrFail($id);
@@ -697,8 +748,8 @@ class LookupDataController extends Controller
 
     public function deleteTrack(Request $request, $id)
     {
-        if (!$request->user()->isAdmin()) {
-            return response()->json(['message' => 'Unauthorized'], 403);
+        if ($resp = $this->ensureLookupAccess($request, 'tracks', true)) {
+            return $resp;
         }
 
         $track = Track::findOrFail($id);
@@ -711,7 +762,7 @@ class LookupDataController extends Controller
     public function getRequisites(Request $request)
     {
         try {
-            if ($resp = $this->denyIfNotAdmin($request)) {
+            if ($resp = $this->ensureLookupAccess($request, 'requisites')) {
                 return $resp;
             }
 
@@ -724,8 +775,8 @@ class LookupDataController extends Controller
 
     public function createRequisite(Request $request)
     {
-        if (!$request->user()->isAdmin()) {
-            return response()->json(['message' => 'Unauthorized'], 403);
+        if ($resp = $this->ensureLookupAccess($request, 'requisites', true)) {
+            return $resp;
         }
 
         $validated = $request->validate([
@@ -742,8 +793,8 @@ class LookupDataController extends Controller
 
     public function updateRequisite(Request $request, $id)
     {
-        if (!$request->user()->isAdmin()) {
-            return response()->json(['message' => 'Unauthorized'], 403);
+        if ($resp = $this->ensureLookupAccess($request, 'requisites', true)) {
+            return $resp;
         }
 
         $requisite = Prerequisite::findOrFail($id);
@@ -762,8 +813,8 @@ class LookupDataController extends Controller
 
     public function deleteRequisite(Request $request, $id)
     {
-        if (!$request->user()->isAdmin()) {
-            return response()->json(['message' => 'Unauthorized'], 403);
+        if ($resp = $this->ensureLookupAccess($request, 'requisites', true)) {
+            return $resp;
         }
 
         $requisite = Prerequisite::findOrFail($id);
@@ -776,7 +827,7 @@ class LookupDataController extends Controller
     public function getCurriculumHeaders(Request $request)
     {
         try {
-            if ($resp = $this->denyIfNotAdmin($request)) {
+            if ($resp = $this->ensureLookupAccess($request, 'curriculum_headers')) {
                 return $resp;
             }
 
@@ -789,8 +840,8 @@ class LookupDataController extends Controller
 
     public function createCurriculumHeader(Request $request)
     {
-        if (!$request->user()->isAdmin()) {
-            return response()->json(['message' => 'Unauthorized'], 403);
+        if ($resp = $this->ensureLookupAccess($request, 'curriculum_headers', true)) {
+            return $resp;
         }
 
         $validated = $request->validate([
@@ -807,8 +858,8 @@ class LookupDataController extends Controller
 
     public function updateCurriculumHeader(Request $request, $id)
     {
-        if (!$request->user()->isAdmin()) {
-            return response()->json(['message' => 'Unauthorized'], 403);
+        if ($resp = $this->ensureLookupAccess($request, 'curriculum_headers', true)) {
+            return $resp;
         }
 
         $header = CurriculumHeader::findOrFail($id);
@@ -827,8 +878,8 @@ class LookupDataController extends Controller
 
     public function deleteCurriculumHeader(Request $request, $id)
     {
-        if (!$request->user()->isAdmin()) {
-            return response()->json(['message' => 'Unauthorized'], 403);
+        if ($resp = $this->ensureLookupAccess($request, 'curriculum_headers', true)) {
+            return $resp;
         }
 
         $header = CurriculumHeader::findOrFail($id);
@@ -841,7 +892,7 @@ class LookupDataController extends Controller
     public function getOfferedSubjects(Request $request)
     {
         try {
-            if ($resp = $this->denyIfNotAdmin($request)) {
+            if ($resp = $this->ensureLookupAccess($request, 'offered_subjects')) {
                 return $resp;
             }
 
@@ -854,8 +905,8 @@ class LookupDataController extends Controller
 
     public function createOfferedSubject(Request $request)
     {
-        if (!$request->user()->isAdmin()) {
-            return response()->json(['message' => 'Unauthorized'], 403);
+        if ($resp = $this->ensureLookupAccess($request, 'offered_subjects', true)) {
+            return $resp;
         }
 
         $validated = $request->validate([
@@ -876,8 +927,8 @@ class LookupDataController extends Controller
 
     public function updateOfferedSubject(Request $request, $id)
     {
-        if (!$request->user()->isAdmin()) {
-            return response()->json(['message' => 'Unauthorized'], 403);
+        if ($resp = $this->ensureLookupAccess($request, 'offered_subjects', true)) {
+            return $resp;
         }
 
         $offered = OfferedSubject::findOrFail($id);
@@ -900,8 +951,8 @@ class LookupDataController extends Controller
 
     public function deleteOfferedSubject(Request $request, $id)
     {
-        if (!$request->user()->isAdmin()) {
-            return response()->json(['message' => 'Unauthorized'], 403);
+        if ($resp = $this->ensureLookupAccess($request, 'offered_subjects', true)) {
+            return $resp;
         }
 
         $offered = OfferedSubject::findOrFail($id);
@@ -914,7 +965,7 @@ class LookupDataController extends Controller
     public function getElectiveSubjects(Request $request)
     {
         try {
-            if ($resp = $this->denyIfNotAdmin($request)) {
+            if ($resp = $this->ensureLookupAccess($request, 'elective_subjects')) {
                 return $resp;
             }
 
@@ -927,8 +978,8 @@ class LookupDataController extends Controller
 
     public function createElectiveSubject(Request $request)
     {
-        if (!$request->user()->isAdmin()) {
-            return response()->json(['message' => 'Unauthorized'], 403);
+        if ($resp = $this->ensureLookupAccess($request, 'elective_subjects', true)) {
+            return $resp;
         }
 
         $validated = $request->validate([
@@ -945,8 +996,8 @@ class LookupDataController extends Controller
 
     public function updateElectiveSubject(Request $request, $id)
     {
-        if (!$request->user()->isAdmin()) {
-            return response()->json(['message' => 'Unauthorized'], 403);
+        if ($resp = $this->ensureLookupAccess($request, 'elective_subjects', true)) {
+            return $resp;
         }
 
         $elective = ElectiveSubject::findOrFail($id);
@@ -965,8 +1016,8 @@ class LookupDataController extends Controller
 
     public function deleteElectiveSubject(Request $request, $id)
     {
-        if (!$request->user()->isAdmin()) {
-            return response()->json(['message' => 'Unauthorized'], 403);
+        if ($resp = $this->ensureLookupAccess($request, 'elective_subjects', true)) {
+            return $resp;
         }
 
         $elective = ElectiveSubject::findOrFail($id);

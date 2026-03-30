@@ -17,7 +17,7 @@ class EvaluationController extends Controller
     {
         try {
             $user = $request->user();
-            if (!$user || (!$user->isAdmin() && !$user->hasRole('Dean') && !$user->hasRole('Faculty') && !$user->hasRole('Adviser'))) {
+            if (!$user || (! $user->canWorkOnStudentEvaluations())) {
                 return response()->json(['message' => 'Unauthorized'], 401);
             }
 
@@ -56,7 +56,7 @@ class EvaluationController extends Controller
     {
         try {
             $user = $request->user();
-            if (!$user || (!$user->isAdmin() && !$user->hasRole('Dean') && !$user->hasRole('Faculty') && !$user->hasRole('Adviser'))) {
+            if (!$user || (! $user->canWorkOnStudentEvaluations())) {
                 return response()->json(['message' => 'Unauthorized'], 401);
             }
 
@@ -104,7 +104,7 @@ class EvaluationController extends Controller
     {
         try {
             $user = request()->user();
-            if (!$user || (!$user->isAdmin() && !$user->hasRole('Dean') && !$user->hasRole('Faculty') && !$user->hasRole('Adviser'))) {
+            if (!$user || (! $user->canWorkOnStudentEvaluations())) {
                 return response()->json(['message' => 'Unauthorized'], 401);
             }
 
@@ -128,7 +128,7 @@ class EvaluationController extends Controller
     {
         try {
             $user = $request->user();
-            if (!$user || (!$user->isAdmin() && !$user->hasRole('Dean') && !$user->hasRole('Faculty') && !$user->hasRole('Adviser'))) {
+            if (!$user || (! $user->canWorkOnStudentEvaluations())) {
                 return response()->json(['message' => 'Unauthorized'], 401);
             }
 
@@ -175,7 +175,7 @@ class EvaluationController extends Controller
     {
         try {
             $user = request()->user();
-            if (!$user || (!$user->isAdmin() && !$user->hasRole('Dean'))) {
+            if (! $user || ! $user->canDeleteEvaluationsOrDeanAcademicRecords()) {
                 return response()->json(['message' => 'Unauthorized'], 401);
             }
 
@@ -217,7 +217,7 @@ class EvaluationController extends Controller
     {
         try {
             $user = $request->user();
-            if (!$user || (!$user->isAdmin() && !$user->hasRole('Dean') && !$user->hasRole('Faculty') && !$user->hasRole('Adviser'))) {
+            if (!$user || (! $user->canWorkOnStudentEvaluations())) {
                 return response()->json(['message' => 'Unauthorized'], 401);
             }
 

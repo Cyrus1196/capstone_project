@@ -1,5 +1,35 @@
 /* Student curriculum: reuses CurriculumManagement.css; these are small overrides */
 
+.student-curriculum-management-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 1rem;
+}
+
+.student-curriculum-download-eval {
+  padding: 0.5rem 1rem;
+  background: #276749;
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  font-weight: 600;
+  font-size: 0.9rem;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.15s ease;
+}
+
+.student-curriculum-download-eval:hover:not(:disabled) {
+  background: #1e5637;
+}
+
+.student-curriculum-download-eval:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+}
+
 .student-curriculum-page {
   min-height: auto;
   padding: 0;
@@ -39,6 +69,24 @@
   max-width: 140px;
 }
 
+/* Status column: badge + label on one line (matches PASSED + Grade) */
+.student-curriculum-table .student-curriculum-status-td {
+  vertical-align: middle;
+  min-width: 11rem;
+}
+
+.student-curriculum-status-inline {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  flex-wrap: nowrap;
+  line-height: 1.25;
+}
+
+.student-curriculum-status-inline .status-badge {
+  flex-shrink: 0;
+}
+
 .student-curriculum-row-passed td {
   background: rgba(22, 163, 74, 0.06);
 }
@@ -51,6 +99,31 @@
 
 .muted-status {
   color: #9ca3af;
+}
+
+.status-not-eligible {
+  background: #dc2626;
+  color: #fff;
+  padding: 4px 10px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.status-credited {
+  background: #0f766e;
+  color: #fff;
+  padding: 4px 10px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.student-curriculum-credit-note {
+  color: #0f766e;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
 }
 
 .student-curriculum-page .year-group {

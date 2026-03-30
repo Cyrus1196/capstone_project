@@ -7,11 +7,34 @@ use Illuminate\Http\Request;
 
 class SubjectEquivalenceController extends Controller
 {
+    /**
+     * Who may read the equivalence list (for Credit Evaluation UI and Subject Equivalences admin).
+     * Mutations still require System Management only.
+     */
+    protected function canViewSubjectEquivalencesList($user): bool
+    {
+        if (!$user) {
+            return false;
+        }
+        if ($user->hasPermission('System Management')) {
+            return true;
+        }
+
+        return $user->isAdmin()
+            || $user->hasAnyPermission([
+                'Credit Evaluation',
+                'credit_eval.view',
+                'credit_eval.create',
+                'credit_eval.approve',
+            ])
+            || $user->isEvaluatorLike();
+    }
+
     public function index(Request $request)
     {
         try {
             $user = $request->user();
-            if (!$user || !$user->hasPermission('System Management')) {
+            if (!$this->canViewSubjectEquivalencesList($user)) {
                 return response()->json(['message' => 'Unauthorized'], 403);
             }
 

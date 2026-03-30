@@ -20,9 +20,14 @@ class CreditEvaluationController extends Controller
             return true;
         }
 
-        return $user->hasRole('Dean')
-            || $user->hasRole('Faculty')
-            || $user->hasRole('Adviser');
+        return $user->hasAnyPermission([
+            'Credit Evaluation',
+            'credit_eval.view',
+            'credit_eval.create',
+            'credit_eval.approve',
+        ])
+            || $user->isEvaluatorLike()
+            || $user->hasRole('Secretary');
     }
 
     public function index(Request $request)
@@ -55,7 +60,6 @@ class CreditEvaluationController extends Controller
                 'credit_type' => 'required|string|max:50',
                 'evaluated_by' => 'required|exists:tbl_users,user_id',
                 'evaluation_date' => 'required|date',
-                'status' => 'nullable|string|max:50',
                 'remarks' => 'nullable|string',
                 'credit_details' => 'required|array|min:1',
                 'credit_details.*.other_subject_id' => 'required|exists:tbl_other_school_subjects,other_subject_id',
@@ -73,12 +77,14 @@ class CreditEvaluationController extends Controller
                 'credit_type' => $validated['credit_type'],
                 'evaluated_by' => $validated['evaluated_by'],
                 'evaluation_date' => $validated['evaluation_date'],
-                'status' => $validated['status'] ?? 'pending',
+                'status' => 'pending',
                 'remarks' => $validated['remarks'] ?? null,
+                'is_active' => true,
             ]);
 
             foreach ($validated['credit_details'] as $detail) {
                 CreditEvaluationDetail::create([
+                    'credit_eval_id' => $evaluation->credit_eval_id,
                     'student_id' => $validated['student_id'],
                     'other_subject_id' => $detail['other_subject_id'],
                     'subject_id' => $detail['subject_id'],
@@ -126,17 +132,30 @@ class CreditEvaluationController extends Controller
             $evaluation = CreditEvaluation::findOrFail($id);
 
             if ($user->isAdmin()) {
-                $validated = $request->validate([
-                    'student_id' => 'required|exists:tbl_student_profile,student_id',
-                    'school_id' => 'required|exists:tbl_schools,school_id',
-                    'credit_type' => 'required|string|max:50',
-                    'evaluated_by' => 'required|exists:tbl_users,user_id',
-                    'evaluation_date' => 'required|date',
-                    'status' => 'nullable|string|max:50',
-                    'remarks' => 'nullable|string',
-                ]);
-                $evaluation->update($validated);
+                if ($request->has('student_id')) {
+                    $validated = $request->validate([
+                        'student_id' => 'required|exists:tbl_student_profile,student_id',
+                        'school_id' => 'required|exists:tbl_schools,school_id',
+                        'credit_type' => 'required|string|max:50',
+                        'evaluated_by' => 'required|exists:tbl_users,user_id',
+                        'evaluation_date' => 'required|date',
+                        'remarks' => 'nullable|string',
+                    ]);
+                    $evaluation->update($validated);
+                } else {
+                    $validated = $request->validate([
+                        'status' => 'required|string|max:50',
+                        'remarks' => 'nullable|string',
+                    ]);
+                    $evaluation->update($validated);
+                }
             } else {
+                if (! $user->canApproveTransferCredits()) {
+                    return response()->json([
+                        'message' => 'Only administrators or users with credit evaluation approval permission may approve or reject.',
+                    ], 403);
+                }
+
                 $validated = $request->validate([
                     'status' => 'required|string|max:50',
                     'remarks' => 'nullable|string',
@@ -152,25 +171,27 @@ class CreditEvaluationController extends Controller
         }
     }
 
-    public function destroy(Request $request, $id)
+    /**
+     * Admin: activate/deactivate a credit evaluation (soft toggle; row is kept).
+     */
+    public function setActive(Request $request, $id)
     {
         try {
             if (!$request->user() || !$request->user()->isAdmin()) {
                 return response()->json(['message' => 'Unauthorized'], 403);
             }
 
-            DB::beginTransaction();
+            $validated = $request->validate([
+                'is_active' => 'required|boolean',
+            ]);
 
             $evaluation = CreditEvaluation::findOrFail($id);
-            CreditEvaluationDetail::where('student_id', $evaluation->student_id)->delete();
-            $evaluation->delete();
+            $evaluation->update(['is_active' => $validated['is_active']]);
+            $evaluation->load(['student', 'school', 'evaluator', 'creditDetails.subject', 'creditDetails.otherSchoolSubject']);
 
-            DB::commit();
-
-            return response()->json(['message' => 'Credit evaluation deleted successfully']);
+            return response()->json($evaluation);
         } catch (\Exception $e) {
-            DB::rollBack();
-            return response()->json(['error' => 'Failed to delete credit evaluation', 'message' => $e->getMessage()], 500);
+            return response()->json(['error' => 'Failed to update credit evaluation', 'message' => $e->getMessage()], 500);
         }
     }
 }
