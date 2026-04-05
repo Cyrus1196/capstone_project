@@ -1,0 +1,213 @@
+/* Student curriculum: reuses CurriculumManagement.css; these are small overrides */
+
+.student-curriculum-management-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 1rem;
+}
+
+.student-curriculum-header-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.student-curriculum-pct-toggle,
+.student-curriculum-conv-tables {
+  padding: 0.5rem 0.85rem;
+  border-radius: 8px;
+  font-weight: 600;
+  font-size: 0.85rem;
+  cursor: pointer;
+  border: 1px solid #c7d2e0;
+  background: #fff;
+  color: #334155;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+
+.student-curriculum-pct-toggle:hover,
+.student-curriculum-conv-tables:hover {
+  border-color: #336699;
+  color: #254a6e;
+}
+
+.student-curriculum-pct-toggle.active {
+  background: #e8f0f8;
+  border-color: #336699;
+  color: #1e3a5f;
+}
+
+.student-curriculum-conv-tables {
+  background: #f8fafc;
+}
+
+.student-curriculum-download-eval {
+  padding: 0.5rem 1rem;
+  background: #336699;
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  font-weight: 600;
+  font-size: 0.9rem;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.15s ease;
+}
+
+.student-curriculum-download-eval:hover:not(:disabled) {
+  background: #254a6e;
+}
+
+.student-curriculum-download-eval:disabled {
+  opacity: 0.65;
+  cursor: not-allowed;
+}
+
+.student-curriculum-page {
+  min-height: auto;
+  padding: 0;
+  background: transparent;
+}
+
+.student-curriculum-year-tabs {
+  flex-wrap: wrap;
+  margin-bottom: 18px;
+}
+
+.year-tab-pill {
+  padding: 8px 16px;
+  border-radius: 8px;
+  border: 1px solid #e6e9ef;
+  background: #fff;
+  cursor: pointer;
+  font-size: 14px;
+  color: #6b7280;
+  font-weight: 500;
+}
+
+.year-tab-pill:hover {
+  border-color: #336699;
+  color: #336699;
+}
+
+.year-tab-pill.active {
+  background: #336699;
+  color: #fff;
+  border-color: #336699;
+}
+
+.student-curriculum-table .prereq-cell {
+  font-style: italic;
+  color: #6b7280;
+  max-width: 140px;
+}
+
+/* Status column: badge + label on one line (matches PASSED + Grade) */
+.student-curriculum-table .student-curriculum-status-td {
+  vertical-align: middle;
+  min-width: 11rem;
+}
+
+.student-curriculum-status-inline {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.35rem;
+  line-height: 1.25;
+}
+
+.student-curriculum-status-inline .status-badge {
+  flex-shrink: 0;
+}
+
+.student-curriculum-row-passed td {
+  background: rgba(22, 163, 74, 0.06);
+}
+
+.student-curriculum-grade-block {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.2rem;
+}
+
+.student-curriculum-grade {
+  color: #15803d;
+  font-weight: 600;
+  font-size: 12px;
+}
+
+.student-curriculum-grade-pct {
+  color: #1d4ed8;
+  font-weight: 700;
+  font-size: 12px;
+}
+
+.muted-status {
+  color: #9ca3af;
+}
+
+.status-not-eligible {
+  background: #dc2626;
+  color: #fff;
+  padding: 4px 10px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.status-credited {
+  background: #0f766e;
+  color: #fff;
+  padding: 4px 10px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.student-curriculum-credit-note {
+  color: #0f766e;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.student-curriculum-page .year-group {
+  margin-top: 0;
+}
+
+.student-curriculum-inc-hint {
+  display: block;
+  font-size: 11px;
+  font-weight: 600;
+  color: #b45309;
+  line-height: 1.35;
+  max-width: 220px;
+}
+
+.student-curriculum-empty {
+  max-width: 36rem;
+  margin: 1.5rem auto;
+  padding: 1.25rem 1.5rem;
+  border-radius: 12px;
+  border: 1px solid rgba(51, 102, 153, 0.2);
+  background: #f8fafc;
+  text-align: left;
+}
+
+.student-curriculum-empty-title {
+  margin: 0 0 0.5rem;
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: #254a6e;
+}
+
+.student-curriculum-empty-body {
+  margin: 0;
+  font-size: 0.95rem;
+  line-height: 1.5;
+  color: #4b5563;
+}
