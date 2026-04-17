@@ -1,0 +1,293 @@
+/* Figma-style “promote to next semester” modal — aligns with Curriculum Evaluation greens + pills */
+.promote-modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 1200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+  background: rgba(15, 23, 42, 0.45);
+  backdrop-filter: blur(2px);
+}
+
+.promote-modal {
+  width: min(920px, 100%);
+  max-height: min(92vh, 900px);
+  display: flex;
+  flex-direction: column;
+  background: #eef2ef;
+  border-radius: 18px;
+  box-shadow: 0 24px 60px rgba(15, 23, 42, 0.25);
+  border: 1px solid rgba(45, 135, 90, 0.18);
+  overflow: hidden;
+  font-family:
+    "DM Sans",
+    system-ui,
+    -apple-system,
+    "Segoe UI",
+    Roboto,
+    sans-serif;
+}
+
+.promote-modal__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1.1rem 1.25rem 0.85rem;
+  border-bottom: 1px solid rgba(45, 135, 90, 0.12);
+  background: linear-gradient(180deg, #f4faf6 0%, #eef2ef 100%);
+}
+
+.promote-modal__title {
+  margin: 0;
+  font-size: 1.2rem;
+  font-weight: 800;
+  color: #0f172a;
+  letter-spacing: -0.02em;
+  line-height: 1.25;
+}
+
+.promote-modal__close {
+  flex-shrink: 0;
+  width: 40px;
+  height: 40px;
+  border: none;
+  border-radius: 12px;
+  background: #dbeafe;
+  color: #1d4ed8;
+  font-size: 1.25rem;
+  line-height: 1;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.promote-modal__close:hover {
+  background: #bfdbfe;
+}
+
+.promote-modal__meta-bar {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 0.65rem;
+  padding: 0.85rem 1.25rem;
+  background: linear-gradient(90deg, #d8f3e4 0%, #c8ead8 50%, #d8f3e4 100%);
+  border-bottom: 1px solid rgba(45, 135, 90, 0.15);
+}
+
+.promote-modal__meta-item {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  min-width: 0;
+}
+
+.promote-modal__meta-label {
+  font-size: 0.65rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #166534;
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+
+.promote-modal__meta-label i {
+  opacity: 0.85;
+  font-size: 0.75rem;
+}
+
+.promote-modal__meta-value {
+  font-size: 0.88rem;
+  font-weight: 700;
+  color: #14532d;
+  background: #fff;
+  border-radius: 10px;
+  padding: 0.4rem 0.55rem;
+  border: 1px solid rgba(45, 135, 90, 0.2);
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+}
+
+.promote-modal__body {
+  flex: 1;
+  overflow: auto;
+  padding: 0.85rem 1.25rem 1rem;
+}
+
+.promote-modal__table-wrap {
+  border-radius: 12px;
+  overflow: hidden;
+  border: 1px solid #cbd5e1;
+  background: #fff;
+}
+
+.promote-modal__table {
+  width: 100%;
+  table-layout: fixed;
+  border-collapse: collapse;
+  font-size: 0.86rem;
+}
+
+.promote-modal__table thead th {
+  background: #2f3e46;
+  color: #fff;
+  text-align: left;
+  padding: 0.55rem 0.65rem;
+  font-weight: 700;
+  font-size: 0.72rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.promote-modal__table thead th:nth-child(1),
+.promote-modal__table tbody td:nth-child(1) {
+  width: 11%;
+  white-space: nowrap;
+  vertical-align: middle;
+}
+
+.promote-modal__table thead th:nth-child(2),
+.promote-modal__table tbody td:nth-child(2) {
+  width: 52%;
+  min-width: 0;
+  vertical-align: top;
+}
+
+.promote-modal__table thead th:nth-child(3),
+.promote-modal__table tbody td:nth-child(3) {
+  width: 10%;
+  white-space: nowrap;
+  vertical-align: middle;
+}
+
+.promote-modal__table thead th:nth-child(4),
+.promote-modal__table tbody td:nth-child(4) {
+  width: 27%;
+  min-width: 0;
+  vertical-align: top;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.promote-modal__table tbody td {
+  padding: 0.5rem 0.65rem;
+  border-top: 1px solid #e2e8f0;
+  color: #1e293b;
+}
+
+.promote-modal__pill {
+  display: inline-block;
+  max-width: 100%;
+  padding: 0.2rem 0.5rem;
+  border-radius: 999px;
+  background: #e0f2fe;
+  color: #0369a1;
+  font-weight: 700;
+  font-size: 0.8rem;
+  box-sizing: border-box;
+}
+
+.promote-modal__title-cell {
+  display: block;
+  max-width: 100%;
+  box-sizing: border-box;
+  background: #f8fafc;
+  border-radius: 8px;
+  border: 1px solid #e2e8f0;
+  padding: 0.35rem 0.5rem;
+  font-weight: 600;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  hyphens: auto;
+}
+
+.promote-modal__foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.9rem 1.25rem 1.15rem;
+  border-top: 1px solid rgba(45, 135, 90, 0.12);
+  background: #f4faf6;
+}
+
+.promote-modal__total {
+  margin-left: auto;
+  font-size: 0.88rem;
+  font-weight: 700;
+  color: #334155;
+}
+
+.promote-modal__total-badge {
+  display: inline-block;
+  margin-left: 0.35rem;
+  padding: 0.2rem 0.55rem;
+  border-radius: 999px;
+  background: #e0f2fe;
+  color: #0369a1;
+  font-variant-numeric: tabular-nums;
+}
+
+.promote-modal__eval-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 0.75rem;
+  flex: 1;
+  min-width: 200px;
+}
+
+.promote-modal__eval-row label {
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: #475569;
+}
+
+.promote-modal__eval-input {
+  flex: 1;
+  min-width: 160px;
+  max-width: 320px;
+  padding: 0.5rem 0.65rem;
+  border-radius: 10px;
+  border: 1px solid #cbd5e1;
+  font: inherit;
+  font-size: 0.88rem;
+}
+
+.promote-modal__save {
+  padding: 0.65rem 1.6rem;
+  border: none;
+  border-radius: 12px;
+  background: #16a34a;
+  color: #fff;
+  font-weight: 800;
+  font-size: 0.92rem;
+  cursor: pointer;
+  box-shadow: 0 4px 14px rgba(22, 163, 74, 0.35);
+}
+
+.promote-modal__save:hover:not(:disabled) {
+  background: #15803d;
+}
+
+.promote-modal__save:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+@media (max-width: 640px) {
+  .promote-modal__foot {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .promote-modal__total {
+    margin-left: 0;
+  }
+}
