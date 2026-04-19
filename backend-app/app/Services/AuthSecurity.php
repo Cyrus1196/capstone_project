@@ -9,6 +9,14 @@ use Illuminate\Validation\ValidationException;
 
 class AuthSecurity
 {
+    /** Whole minutes until lockout ends (at least 1 while still locked). */
+    public static function minutesUntilLockExpires(\DateTimeInterface $lockedUntil): int
+    {
+        $seconds = max(0, $lockedUntil->getTimestamp() - now()->getTimestamp());
+
+        return max(1, (int) ceil($seconds / 60));
+    }
+
     public static function clientSessionPayload(): array
     {
         $s = SecuritySetting::current();
@@ -27,8 +35,17 @@ class AuthSecurity
         $settings = SecuritySetting::current();
 
         if ($user->locked_until && $user->locked_until->isFuture()) {
+            $mins = self::minutesUntilLockExpires($user->locked_until);
+            $unit = $mins === 1 ? 'minute' : 'minutes';
+
             throw ValidationException::withMessages([
-                'email' => ['This account is temporarily locked. Try again later.'],
+                'email' => [
+                    sprintf(
+                        'This account is temporarily locked. You can try again in %d %s.',
+                        $mins,
+                        $unit
+                    ),
+                ],
             ]);
         }
 
@@ -42,7 +59,13 @@ class AuthSecurity
 
             $base = 'The provided credentials are incorrect.';
             if ($user->locked_until && $user->locked_until->isFuture()) {
-                $detail = ' Your account has been temporarily locked due to too many failed attempts.';
+                $mins = self::minutesUntilLockExpires($user->locked_until);
+                $unit = $mins === 1 ? 'minute' : 'minutes';
+                $detail = sprintf(
+                    ' Your account has been temporarily locked due to too many failed attempts. Try again in %d %s.',
+                    $mins,
+                    $unit
+                );
             } elseif ($remaining > 0) {
                 $word = $remaining === 1 ? 'attempt' : 'attempts';
                 $detail = sprintf(' You have %d %s remaining before your account is temporarily locked.', $remaining, $word);
@@ -77,6 +100,7 @@ class AuthSecurity
     {
         $user->failed_login_attempts = 0;
         $user->locked_until = null;
+        $user->last_login_at = now();
         $user->save();
     }
 

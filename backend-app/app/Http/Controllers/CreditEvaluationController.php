@@ -30,6 +30,18 @@ class CreditEvaluationController extends Controller
             || $user->hasRole('Secretary');
     }
 
+    protected function canCreateCreditEvaluations($user): bool
+    {
+        if (!$user) {
+            return false;
+        }
+        if ($user->isAdmin()) {
+            return true;
+        }
+
+        return $user->hasAnyPermission(['credit_eval.create', 'credit_eval.approve']);
+    }
+
     public function index(Request $request)
     {
         try {
@@ -50,8 +62,11 @@ class CreditEvaluationController extends Controller
     public function store(Request $request)
     {
         try {
-            if (!$request->user() || !$request->user()->isAdmin()) {
-                return response()->json(['message' => 'Unauthorized — only administrators can create credit requests'], 403);
+            $user = $request->user();
+            if (! $user || ! $this->canCreateCreditEvaluations($user)) {
+                return response()->json([
+                    'message' => 'Unauthorized — administrators or users with credit evaluation create permission may add credit requests.',
+                ], 403);
             }
 
             $validated = $request->validate([

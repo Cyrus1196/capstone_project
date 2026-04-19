@@ -398,7 +398,6 @@ const CurriculumEvaluation = () => {
                                                                             <option value="">Select Status</option>
                                                                             <option value="passed">Passed</option>
                                                                             <option value="failed">Failed</option>
-                                                                            <option value="inc">INC</option>
                                                                             <option value="ongoing">Ongoing</option>
                                                                         </select>
                                                                     ) : (

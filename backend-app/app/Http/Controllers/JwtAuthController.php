@@ -68,6 +68,8 @@ class JwtAuthController extends Controller
             'password_changed_at' => now(),
         ]);
 
+        AuthSecurity::clearLoginState($user->fresh());
+
         $token = JWTAuth::fromUser($user);
 
         return response()->json([

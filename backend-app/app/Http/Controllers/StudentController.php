@@ -433,18 +433,66 @@ class StudentController extends Controller
                     }
                 }
 
-                // Get all prerequisites for this subject
+                // Prerequisites and corequisites (tbl_prerequisite.requisite_type)
                 $prerequisites = [];
+                $corequisites = [];
                 if ($resolvedSubject && $resolvedSubject->prerequisites) {
-                    $prerequisites = $resolvedSubject->prerequisites->map(function($prereq) {
-                        return [
-                            'subject_code' => $prereq->requiredSubject->subject_code ?? null,
-                            'prereq_subject_code' => $prereq->requiredSubject->subject_code ?? null,
+                    foreach ($resolvedSubject->prerequisites as $edge) {
+                        $type = strtolower((string) ($edge->requisite_type ?? 'prerequisite'));
+                        $c = $edge->requiredSubject->subject_code ?? null;
+                        if ($c === null || trim((string) $c) === '') {
+                            continue;
+                        }
+                        $c = trim((string) $c);
+                        $requisiteRow = [
+                            'subject_code' => $c,
+                            'prereq_subject_code' => $c,
+                            'requisite_type' => $type === 'corequisite' ? 'corequisite' : 'prerequisite',
                         ];
-                    })->toArray();
+                        if ($type === 'corequisite') {
+                            $corequisites[] = $requisiteRow;
+                        } else {
+                            $prerequisites[] = $requisiteRow;
+                        }
+                    }
                 }
 
-                if (!$resolvedSubject) {
+                if (! $resolvedSubject) {
+                    if ($item->electiveSlot) {
+                        $slot = $item->electiveSlot;
+
+                        return [
+                            'curriculum_id' => $item->curriculum_id,
+                            'program_id' => $item->program_id,
+                            'subject_id' => null,
+                            'subject_code' => trim((string) ($slot->slot_name ?? '')) !== ''
+                                ? $slot->slot_name
+                                : 'Elective 1',
+                            'subject_name' => 'Pending track selection',
+                            'units' => 0,
+                            'hours' => null,
+                            'year_level_id' => $item->year_level,
+                            'year_level_name' => $item->yearLevel->year_level ?? null,
+                            'semester_id' => $item->semester_id,
+                            'semester_name' => $item->semester->semester_name ?? null,
+                            'passing_grade' => $item->passing_grade,
+                            'subject_type' => $item->subject_type,
+                            'year_level' => $item->yearLevel,
+                            'semester' => $item->semester,
+                            'subject' => null,
+                            'program' => $item->program,
+                            'student_track_id' => $profile->track_id,
+                            'student_track_name' => $profile->track->track_name ?? null,
+                            'resolved_from_elective_slot' => true,
+                            'resolved_track' => null,
+                            'elective_unresolved' => true,
+                            'elective_slot_name' => $slot->slot_name,
+                            'prerequisites' => [],
+                            'corequisites' => [],
+                            'passed_via_transfer_credit' => false,
+                        ];
+                    }
+
                     return null;
                 }
 
@@ -474,6 +522,7 @@ class StudentController extends Controller
                     'resolved_from_elective_slot' => $resolvedFromElective,
                     'resolved_track' => $resolvedTrack,
                     'prerequisites' => $prerequisites,
+                    'corequisites' => $corequisites,
                     'passed_via_transfer_credit' => $passedViaTransferCredit,
                 ];
                 })

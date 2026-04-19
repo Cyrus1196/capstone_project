@@ -9,8 +9,9 @@ class ElectiveSubjectResolver
 {
     /**
      * Resolve which subject applies for a curriculum row tied to an elective slot.
-     * Prefer subjects the student already has in tbl_evaluation (their actual elective),
-     * then track-based mapping, then generic / first option.
+     * Without a track on the student profile, never resolve to a concrete subject (UI shows the slot, e.g. Elective 1).
+     * With a track: use the catalog row for that track, then a legacy generic row (null track_id), then any
+     * existing evaluation whose subject is one of the slot options.
      *
      * @param  Collection<int, \App\Models\ElectiveSubject>  $electiveSubjects
      * @param  Collection<int, \App\Models\Evaluation>  $studentEvaluations  subject relation loaded
@@ -25,51 +26,54 @@ class ElectiveSubjectResolver
             return null;
         }
 
+        if (! $studentTrackId) {
+            return null;
+        }
+
+        $matched = $electiveSubjects->first(
+            fn ($es) => (int) $es->track_id === (int) $studentTrackId
+        );
+        if ($matched && $matched->subject) {
+            return $matched->subject;
+        }
+
+        $generic = $electiveSubjects->first(static fn ($es) => $es->track_id === null || (int) $es->track_id === 0);
+        if ($generic && $generic->subject) {
+            return $generic->subject;
+        }
+
         $optionSubjectIds = $electiveSubjects
             ->pluck('subject_id')
             ->map(fn ($id) => (int) $id)
             ->unique()
             ->values();
 
-        if ($studentEvaluations->isNotEmpty() && $optionSubjectIds->isNotEmpty()) {
-            $matching = $studentEvaluations->filter(function ($ev) use ($optionSubjectIds) {
-                return $ev->subject_id !== null && $optionSubjectIds->contains((int) $ev->subject_id);
-            });
+        if ($studentEvaluations->isEmpty() || $optionSubjectIds->isEmpty()) {
+            return null;
+        }
 
-            $sortKey = fn ($ev) => sprintf(
-                '%010d-%010d',
-                (int) $ev->academic_year_id,
-                (int) $ev->evaluation_id
-            );
+        $matching = $studentEvaluations->filter(function ($ev) use ($optionSubjectIds) {
+            return $ev->subject_id !== null && $optionSubjectIds->contains((int) $ev->subject_id);
+        });
 
-            if ($curriculumSemesterId !== null) {
-                $semMatch = $matching
-                    ->filter(fn ($ev) => (int) $ev->semester_id === (int) $curriculumSemesterId)
-                    ->sortByDesc($sortKey);
-                $pick = $semMatch->first();
-                if ($pick && $pick->subject) {
-                    return $pick->subject;
-                }
-            }
+        $sortKey = fn ($ev) => sprintf(
+            '%010d-%010d',
+            (int) $ev->academic_year_id,
+            (int) $ev->evaluation_id
+        );
 
-            $pick = $matching->sortByDesc($sortKey)->first();
+        if ($curriculumSemesterId !== null) {
+            $semMatch = $matching
+                ->filter(fn ($ev) => (int) $ev->semester_id === (int) $curriculumSemesterId)
+                ->sortByDesc($sortKey);
+            $pick = $semMatch->first();
             if ($pick && $pick->subject) {
                 return $pick->subject;
             }
         }
 
-        if ($studentTrackId) {
-            $matched = $electiveSubjects->first(
-                fn ($es) => (int) $es->track_id === (int) $studentTrackId
-            );
-            if ($matched && $matched->subject) {
-                return $matched->subject;
-            }
-        }
+        $pick = $matching->sortByDesc($sortKey)->first();
 
-        $matched = $electiveSubjects->first(fn ($es) => empty($es->track_id))
-            ?? $electiveSubjects->first();
-
-        return $matched?->subject;
+        return $pick?->subject;
     }
 }

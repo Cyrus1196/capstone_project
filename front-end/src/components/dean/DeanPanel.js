@@ -6,7 +6,6 @@ import DeanProfile from './DeanProfile';
 import DeanDashboard from './DeanDashboard';
 import DeanAnalytics from './DeanAnalytics';
 import StudentEvaluationView from '../common/StudentEvaluationView';
-import CreditEvaluationManagement from '../admin/CreditEvaluationManagement';
 import ElectiveSlotManagement from '../admin/ElectiveSlotManagement';
 import AcademicManagement from '../admin/AcademicManagement';
 import UserManagement from '../admin/UserManagement';
@@ -16,7 +15,6 @@ import CsvImport from '../admin/CsvImport';
 import SecuritySettings from '../admin/SecuritySettings';
 import {
   ACADEMIC_MANAGEMENT_TAB_PERMISSIONS,
-  CREDIT_EVALUATION_SIDEBAR_PERMISSIONS,
   CURRICULUM_HEADERS_TAB_PERMISSIONS,
   CURRICULUM_TAB_PERMISSIONS,
   CSV_IMPORT_TAB_PERMISSIONS,
@@ -69,7 +67,6 @@ const DeanPanel = () => {
   }, [user, navigate]);
 
   const showStudentEvalTabs = canAccessModule(STUDENT_EVALUATION_TAB_PERMISSIONS);
-  const showCreditsTab = canAccessModule(CREDIT_EVALUATION_SIDEBAR_PERMISSIONS);
   const showUserManagement = canAccessModule(USER_MANAGEMENT_TAB_PERMISSIONS);
   const showElectiveTab = canAccessModule(ELECTIVE_SLOTS_TAB_PERMISSIONS);
   const showSystemTab = canAccessModule(ACADEMIC_MANAGEMENT_TAB_PERMISSIONS);
@@ -108,13 +105,6 @@ const DeanPanel = () => {
         id: 'academic-record',
         label: 'Student',
         icon: 'fa-solid fa-user-graduate',
-      });
-    }
-    if (showCreditsTab) {
-      evalItems.push({
-        id: 'credits',
-        label: 'Credit evaluation',
-        icon: 'fa-solid fa-file-invoice-dollar',
       });
     }
     if (showStudentEvalTabs) {
@@ -182,7 +172,7 @@ const DeanPanel = () => {
       groups.push({ id: 'overview', title: 'Overview', items: overviewItems });
     }
     if (evalItems.length) {
-      groups.push({ id: 'eval', title: 'Evaluation & credits', items: evalItems });
+      groups.push({ id: 'eval', title: 'Evaluation', items: evalItems });
     }
     if (adminItems.length) {
       groups.push({ id: 'admin', title: 'Administration', items: adminItems });
@@ -191,7 +181,6 @@ const DeanPanel = () => {
     return groups;
   }, [
     showStudentEvalTabs,
-    showCreditsTab,
     showUserManagement,
     showCurriculumHeadersTab,
     showAdminCurriculumTab,
@@ -208,7 +197,6 @@ const DeanPanel = () => {
       ['dean-dashboard', showStudentEvalTabs],
       ['dean-analytics', showStudentEvalTabs],
       ['academic-record', showStudentEvalTabs],
-      ['credits', showCreditsTab],
       ['user-management', showUserManagement],
       ['curriculum-headers', showCurriculumHeadersTab],
       ['admin-curriculum', showAdminCurriculumTab],
@@ -224,7 +212,6 @@ const DeanPanel = () => {
     return hit ? hit[0] : 'profile';
   }, [
     showStudentEvalTabs,
-    showCreditsTab,
     showUserManagement,
     showCurriculumHeadersTab,
     showAdminCurriculumTab,
@@ -248,6 +235,10 @@ const DeanPanel = () => {
       setActiveTab(firstAllowedDeanTab);
       return;
     }
+    if (activeTab === 'credits') {
+      setActiveTab(showSystemTab ? 'system-mgmt' : firstAllowedDeanTab);
+      return;
+    }
     const allowed = {
       'dean-dashboard': showStudentEvalTabs,
       'dean-analytics': showStudentEvalTabs,
@@ -261,7 +252,6 @@ const DeanPanel = () => {
       'admin-curriculum': showAdminCurriculumTab,
       'csv-import': showCsvTab,
       'security-settings': showSecurityTab,
-      credits: showCreditsTab,
       profile: true,
     };
     if (allowed[activeTab] === false) {
@@ -280,7 +270,6 @@ const DeanPanel = () => {
     showAdminCurriculumTab,
     showCsvTab,
     showSecurityTab,
-    showCreditsTab,
   ]);
 
   const handleDeanSidebarSelect = (id) => {
@@ -369,9 +358,6 @@ const DeanPanel = () => {
         )}
         {activeTab === 'evaluated-students' && showStudentEvalTabs && (
           <StudentEvaluationView listMode="already-evaluated" />
-        )}
-        {activeTab === 'credits' && showCreditsTab && (
-          <CreditEvaluationManagement approvalMode />
         )}
         {activeTab === 'user-management' && showUserManagement && <UserManagement userScope="staff" />}
         {activeTab === 'curriculum-headers' && showCurriculumHeadersTab && (

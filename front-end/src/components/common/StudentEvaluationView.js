@@ -64,28 +64,6 @@ function formatEvalGradeReadonly(gradeRaw, row) {
   return p.primaryText;
 }
 
-/** Calendar date in local timezone (YYYY-MM-DD). */
-function localDateIso() {
-  const d = new Date();
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  return `${y}-${m}-${day}`;
-}
-
-function addDaysIsoDate(days) {
-  const d = new Date();
-  d.setHours(0, 0, 0, 0);
-  d.setDate(d.getDate() + Number(days || 0));
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  return `${y}-${m}-${day}`;
-}
-
-/** Default INC window when no “Comply by” is chosen (matches backend `config/academic.php` default). */
-const INC_DEFAULT_COMPLIANCE_DAYS = 30;
-
 /** UI uses `inc`; API stores `incomplete`. */
 function normalizeStatusForUi(status) {
   if (status == null || status === '') return '';
@@ -94,12 +72,11 @@ function normalizeStatusForUi(status) {
   return String(status).trim();
 }
 
-/** Grade + status when choosing a remark button (P / F / I / clear). */
+/** Grade + status when choosing a remark button (P / F / clear). Pass–fail evaluation only. */
 function gradeAndStatusForRemarkClick(status) {
   if (status === '') return { status: '', grade: '' };
   if (status === 'passed') return { status: 'passed', grade: '75' };
   if (status === 'failed') return { status: 'failed', grade: '49' };
-  if (status === 'inc') return { status: 'inc', grade: '0' };
   return { status, grade: '' };
 }
 
@@ -149,19 +126,31 @@ function findEvalRowBySubjectCode(rows, code) {
 function formatPromotionPrerequisiteDisplay(row) {
   const direct = row?.prerequisite != null ? String(row.prerequisite).trim() : '';
   if (direct) return direct;
-  const codes = row?.prerequisite_subject_codes;
-  if (Array.isArray(codes) && codes.length > 0) {
-    const list = codes.map((c) => String(c).trim()).filter(Boolean);
-    if (list.length) return `P: ${list.join(', ')}`;
+  const pre = row?.prerequisite_subject_codes;
+  const co = row?.corequisite_subject_codes;
+  const parts = [];
+  if (Array.isArray(pre) && pre.length > 0) {
+    const list = pre.map((c) => String(c).trim()).filter(Boolean);
+    if (list.length) parts.push(`P: ${list.join(', ')}`);
   }
+  if (Array.isArray(co) && co.length > 0) {
+    const list = co.map((c) => String(c).trim()).filter(Boolean);
+    if (list.length) parts.push(`Co: ${list.join(', ')}`);
+  }
+  if (parts.length) return parts.join(' · ');
   return '';
 }
 
-/** Same rule as student My Curriculum: failed / INC / missing prereq blocks grading this subject. */
+/** Same rule as student My Curriculum: only prerequisites block; corequisites are concurrent. */
 function evalRowPrerequisitesMet(allRows, targetRow) {
-  const codes = targetRow.prerequisite_subject_codes;
-  if (!Array.isArray(codes) || codes.length === 0) return true;
+  const pre = targetRow.prerequisite_subject_codes;
+  const codes = [...(Array.isArray(pre) ? pre : [])];
+  const seen = new Set();
+  if (codes.length === 0) return true;
   for (const code of codes) {
+    const cn = normalizeEvalSubjectCode(code);
+    if (!cn || seen.has(cn)) continue;
+    seen.add(cn);
     const pr = findEvalRowBySubjectCode(allRows, code);
     if (!pr) continue;
     if (pr.passed_via_transfer_credit === true) continue;
@@ -664,14 +653,6 @@ const StudentEvaluationView = ({
     const merged = { ...base, ...patch };
     if (merged.status !== 'inc') {
       merged.inc_compliance_deadline = '';
-    } else if (!merged.inc_compliance_deadline) {
-      merged.inc_compliance_deadline = addDaysIsoDate(INC_DEFAULT_COMPLIANCE_DAYS);
-    }
-    if (merged.status === 'inc' && merged.inc_compliance_deadline) {
-      const min = localDateIso();
-      if (merged.inc_compliance_deadline < min) {
-        merged.inc_compliance_deadline = min;
-      }
     }
     setDrafts({ ...drafts, [key]: merged });
     setModifiedKeys((prev) => {
@@ -712,8 +693,6 @@ const StudentEvaluationView = ({
         newGrade = '75';
       } else if (status === 'failed') {
         newGrade = '49';
-      } else if (status === 'inc') {
-        newGrade = '0';
       } else {
         newGrade =
           currentDraft.grade === '' || currentDraft.grade == null
@@ -721,20 +700,11 @@ const StudentEvaluationView = ({
             : String(currentDraft.grade);
       }
 
-      const minD = localDateIso();
-      let incPick =
-        status === 'inc'
-          ? currentDraft.inc_compliance_deadline || addDaysIsoDate(INC_DEFAULT_COMPLIANCE_DAYS)
-          : '';
-      if (status === 'inc' && incPick < minD) {
-        incPick = minD;
-      }
-      const incDeadline = status === 'inc' ? incPick : '';
       nextDrafts[key] = {
         ...currentDraft,
         status,
         grade: newGrade,
-        inc_compliance_deadline: incDeadline,
+        inc_compliance_deadline: '',
       };
     }
 
@@ -973,7 +943,7 @@ const StudentEvaluationView = ({
     if (!currentTermCompleteForPromotion) {
       void swalInfo(
         'Current term not ready to promote',
-        'At least one subject is still marked Ongoing with no final outcome. Failed grades, INC, empty slots (retakes later), or Not eligible rows do not block promotion.'
+        'At least one subject is still marked Ongoing with no final outcome. Failed grades, empty slots (retakes later), or Not eligible rows do not block promotion.'
       );
       return;
     }
@@ -1071,7 +1041,7 @@ const StudentEvaluationView = ({
                 disabled={!nextPromotionTerm || !currentTermCompleteForPromotion}
                 title={
                   !currentTermCompleteForPromotion
-                    ? 'Resolve any subject still marked Ongoing (no final outcome). Failed, INC, empty, or Not eligible rows do not block promotion.'
+                    ? 'Resolve any subject still marked Ongoing (no final outcome). Failed, empty, or Not eligible rows do not block promotion.'
                     : !nextPromotionTerm
                       ? 'No next term in the curriculum after this year/semester.'
                       : 'Review next-term courses and record promotion'
@@ -1234,8 +1204,6 @@ const StudentEvaluationView = ({
       }
     }
 
-    const hiddenTermCount = orderedEntries.length - entriesToRender.length;
-
     const matchesTermFilters = ([, rows]) => {
       const r0 = rows[0];
       if (!r0) return false;
@@ -1278,13 +1246,6 @@ const StudentEvaluationView = ({
                       title="Mark all as Failed"
                     >
                       All Fail
-                    </button>
-                    <button
-                      className="batch-btn inc"
-                      onClick={() => batchUpdateStatus(rows, 'inc')}
-                      title="Mark all as INC"
-                    >
-                      All INC
                     </button>
                     <button
                       className="batch-btn clear"
@@ -1335,7 +1296,7 @@ const StudentEvaluationView = ({
                             : !gradable
                               ? 'Grades apply only after this curriculum row maps to a subject (track/elective slot).'
                               : prereqBlocksEditing
-                                ? 'Prerequisite not satisfied on record (failed, INC, or not taken). Pass or credit required courses first.'
+                                ? 'Prerequisite not satisfied on record (failed or not taken). Pass or credit required courses first.'
                                 : undefined
                         }
                       >
@@ -1425,7 +1386,7 @@ const StudentEvaluationView = ({
                           ) : canEditEvaluationRows && gradable ? (
                             <div className="status-cell-inner">
                               <div className="status-buttons">
-                                {['passed', 'failed', 'inc', ''].map((s) => (
+                                {['passed', 'failed', ''].map((s) => (
                                   <button
                                     key={s || 'clear'}
                                     type="button"
@@ -1439,23 +1400,9 @@ const StudentEvaluationView = ({
                                 ))}
                               </div>
                               {draft.status === 'inc' && (
-                                <label className="eval-inc-deadline">
-                                  <span className="eval-inc-deadline__label">Comply by</span>
-                                  <input
-                                    type="date"
-                                    className="eval-inc-deadline__input"
-                                    min={localDateIso()}
-                                    value={draft.inc_compliance_deadline || ''}
-                                    onChange={(e) => {
-                                      const min = localDateIso();
-                                      let v = e.target.value;
-                                      if (v && v < min) v = min;
-                                      updateDraft(row, { inc_compliance_deadline: v });
-                                    }}
-                                    disabled={savingAll}
-                                    title="Cannot be before today. After this date passes without completion, the grade becomes failed automatically."
-                                  />
-                                </label>
+                                <p className="eval-legacy-inc-hint" role="note">
+                                  This row is still recorded as incomplete. Use Pass or Fail (or clear) to update it.
+                                </p>
                               )}
                             </div>
                           ) : canEditEvaluationRows && !gradable ? (
@@ -1484,23 +1431,6 @@ const StudentEvaluationView = ({
             </div>
           );
         })}
-        {useSequentialTerms && hiddenTermCount > 0 ? (
-          <p className="eval-sequential-term-hint" role="status">
-            {isEvaluatorOnly ? (
-              <>
-                <strong>{hiddenTermCount}</strong> more term{hiddenTermCount !== 1 ? 's are' : ' is'} hidden until the
-                previous term has completed imported grades on record. Evaluators do not edit rows here—only confirm
-                when the student may proceed, then use <strong>Store evaluation record</strong>.
-              </>
-            ) : (
-              <>
-                <strong>{hiddenTermCount}</strong> more term{hiddenTermCount !== 1 ? 's are' : ' is'} hidden until the
-                previous term is fully saved: use <strong>Save All Changes</strong> so every course has a stored grade
-                or status (Pass, Fail, or INC). Unsaved edits do not unlock the next term.
-              </>
-            )}
-          </p>
-        ) : null}
       </div>
     );
   };
@@ -1579,14 +1509,6 @@ const StudentEvaluationView = ({
       : isEvaluatedModule
         ? 'Evaluated students'
         : 'Student list';
-  const sectionLead =
-    isCurriculumTracking && !isEvaluatedModule
-      ? 'See each student’s program subjects, grades, and progress (earned vs remaining units). Filter by program, search, then select a student.'
-      : isEvaluatedModule
-        ? 'Students with a stored academic record evaluation on file. Select a row to review grades, history, or add another review entry.'
-        : isEvaluatorOnly
-          ? 'Grades are imported into this system. Open a student to review their record; when imported grades show they may continue, store the evaluation so they move to Evaluated students.'
-          : 'Filter by program, search by name or ID, then open a student to record curriculum evaluation.';
   const listPanelTitle =
     isCurriculumTracking && !isEvaluatedModule
       ? 'Students'
@@ -1599,14 +1521,6 @@ const StudentEvaluationView = ({
       : isEvaluatedModule
         ? `${filteredStudents.length} stored`
         : `${filteredStudents.length} pending`;
-  const listIntro =
-    isCurriculumTracking && !isEvaluatedModule
-      ? 'All students in scope. Open one to review curriculum rows, prerequisites, and standing.'
-      : isEvaluatedModule
-        ? 'Search within students who already have a stored academic record evaluation.'
-        : isEvaluatorOnly
-          ? 'Use program and search to narrow the list. You cannot edit grades here—only confirm completion with Store evaluation record when imported grades support advancing the student.'
-          : 'Use program and search to narrow the list. Save grades, then store the evaluation record when the review is complete.';
 
   return (
     <div
@@ -1617,7 +1531,6 @@ const StudentEvaluationView = ({
       <div className="section-header section-header--academic-record">
         <div className="section-header-titles">
           <h2>{sectionTitle}</h2>
-          <p className="student-eval-lead">{sectionLead}</p>
         </div>
         {canEditEvaluationRows && modifiedKeys.size > 0 && (
           <div className="header-actions">
@@ -1652,7 +1565,6 @@ const StudentEvaluationView = ({
               <h3>{listPanelTitle}</h3>
               <span className="eval-list-header-count">{listCountLabel}</span>
             </div>
-            <p className="eval-list-intro">{listIntro}</p>
             <div className="eval-list-toolbar">
               <label className="eval-list-toolbar__field">
                 <span className="eval-list-toolbar__hint">Program</span>
@@ -1767,20 +1679,7 @@ const StudentEvaluationView = ({
             canEdit &&
             data?.student?.student_id &&
             selectedStudent && (
-              <div className="eval-need-store-cta">
-                <p className="eval-need-store-cta__text">
-                  {isEvaluatorOnly ? (
-                    <>
-                      When imported grades show this student may continue, store the review so they move to{' '}
-                      <strong>Evaluated students</strong>.
-                    </>
-                  ) : (
-                    <>
-                      When the review is finished, store it so this student moves to{' '}
-                      <strong>Evaluated students</strong>.
-                    </>
-                  )}
-                </p>
+              <div className="eval-need-store-cta eval-need-store-cta--btn-only">
                 <button
                   type="button"
                   className="eval-need-store-cta__btn"
@@ -1789,7 +1688,9 @@ const StudentEvaluationView = ({
                   title={
                     isEvaluatorOnly && !evaluatorHasImportedGrades
                       ? 'At least one subject needs an imported grade on file before you can store this evaluation.'
-                      : undefined
+                      : isEvaluatorOnly
+                        ? 'Store the evaluation when imported grades show this student may continue; they move to Evaluated students.'
+                        : 'When the review is finished, store so this student moves to Evaluated students.'
                   }
                 >
                   {storingRecord ? 'Storing…' : 'Store evaluation record'}

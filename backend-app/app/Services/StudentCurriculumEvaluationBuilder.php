@@ -108,9 +108,11 @@ class StudentCurriculumEvaluationBuilder
                     'semester_id' => $item->semester_id,
                     'semester_name' => $item->semester->semester_name ?? null,
                     'subject_id' => null,
-                    'subject_code' => $slot?->slot_name ? 'Elective' : null,
-                    'subject_name' => $slot?->slot_name
-                        ? ($slot->slot_name.' — set student track or add subjects to this elective slot')
+                    'subject_code' => ($slot && trim((string) $slot->slot_name) !== '')
+                        ? $slot->slot_name
+                        : 'Elective 1',
+                    'subject_name' => ($slot && trim((string) $slot->slot_name) !== '')
+                        ? 'Pending track selection'
                         : 'Curriculum row has no subject (admin should fix this entry)',
                     'units' => 0,
                     'passing_grade' => $item->passing_grade,
@@ -121,6 +123,7 @@ class StudentCurriculumEvaluationBuilder
                     'prerequisite' => null,
                     'corequisite' => null,
                     'prerequisite_subject_codes' => [],
+                    'corequisite_subject_codes' => [],
                     'evaluation_id' => null,
                     'academic_year_id' => $defaultAcademicYearId,
                     'evaluated_by' => null,
@@ -158,13 +161,18 @@ class StudentCurriculumEvaluationBuilder
             $totalUnitsEarned += $unitsEarned;
 
             $prereqCodes = [];
+            $coreqCodes = [];
             foreach ($subject->prerequisites ?? [] as $p) {
-                if (strtolower((string) ($p->requisite_type ?? '')) !== 'prerequisite') {
+                $type = strtolower((string) ($p->requisite_type ?? 'prerequisite'));
+                $c = $p->requiredSubject->subject_code ?? null;
+                if ($c === null || trim((string) $c) === '') {
                     continue;
                 }
-                $c = $p->requiredSubject->subject_code ?? null;
-                if ($c !== null && trim((string) $c) !== '') {
-                    $prereqCodes[] = trim((string) $c);
+                $c = trim((string) $c);
+                if ($type === 'corequisite') {
+                    $coreqCodes[] = $c;
+                } else {
+                    $prereqCodes[] = $c;
                 }
             }
 
@@ -186,6 +194,7 @@ class StudentCurriculumEvaluationBuilder
                 'prerequisite' => null,
                 'corequisite' => null,
                 'prerequisite_subject_codes' => $prereqCodes,
+                'corequisite_subject_codes' => $coreqCodes,
                     'evaluation_id' => $evaluation?->evaluation_id ?? null,
                     'academic_year_id' => $evaluation?->academic_year_id ?? $defaultAcademicYearId,
                     'evaluated_by' => $evaluation?->evaluatedBy,
@@ -291,8 +300,8 @@ class StudentCurriculumEvaluationBuilder
     }
 
     /**
-     * Whether prerequisite subjects in the same built payload are satisfied for grading this slot
-     * (aligns with the student My Curriculum “Not eligible” rule).
+     * Whether prerequisite subjects in the same built payload are satisfied for grading this slot.
+     * Corequisites are concurrent with this subject and are not required to be passed beforehand.
      *
      * @param  list<array<string, mixed>>  $allRows
      * @param  array<string, mixed>  $targetRow
@@ -300,7 +309,7 @@ class StudentCurriculumEvaluationBuilder
     public function rowPrerequisitesMet(array $allRows, array $targetRow): bool
     {
         /** @var list<string> $codes */
-        $codes = $targetRow['prerequisite_subject_codes'] ?? [];
+        $codes = array_values(array_unique($targetRow['prerequisite_subject_codes'] ?? []));
         if ($codes === []) {
             return true;
         }

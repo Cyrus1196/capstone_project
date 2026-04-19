@@ -52,6 +52,7 @@ class TblUser extends Authenticatable implements JWTSubject
         'failed_login_attempts',
         'locked_until',
         'password_changed_at',
+        'last_login_at',
     ];
 
     protected $hidden = [
@@ -64,6 +65,7 @@ class TblUser extends Authenticatable implements JWTSubject
             'password' => 'hashed',
             'locked_until' => 'datetime',
             'password_changed_at' => 'datetime',
+            'last_login_at' => 'datetime',
             'use_custom_permissions' => 'boolean',
         ];
     }

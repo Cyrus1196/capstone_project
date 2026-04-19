@@ -35,6 +35,8 @@ const FRIENDLY_PERMISSION_MERGE_INTO = {
   'Elective Slots': 'electives',
   'User Management': 'users',
   'Student Evaluation': 'evaluation',
+  /** Merge with system.settings / system.backup — one "Security Settings" block in the UI */
+  'System Management': 'system',
 };
 
 const moduleKeyFromPermissionName = (name) => {
@@ -51,7 +53,17 @@ const moduleKeyFromPermissionName = (name) => {
 /** Dot-prefix module keys → clearer titles (not the same as the user’s role name). */
 const MODULE_LABEL_OVERRIDES = {
   curriculum: 'Curriculum Management',
+  system: 'Security Settings',
+  users: 'User Management',
 };
+
+/** DB permission_name → label in lists (backend still uses "System Management"). */
+const PERMISSION_DISPLAY_NAME_OVERRIDES = {
+  'System Management': 'Security Settings',
+};
+
+const displayPermissionName = (name) =>
+  PERMISSION_DISPLAY_NAME_OVERRIDES[name] ?? name;
 
 const userRoleName = (u) => u?.role?.role_name || u?.role_name || '';
 
@@ -74,7 +86,6 @@ const RoleSettings = () => {
   const [portalPanelIds, setPortalPanelIds] = useState([]);
   const [permissionsReadOnly, setPermissionsReadOnly] = useState(false);
   const [useCustomPermissions, setUseCustomPermissions] = useState(false);
-  const [permissionsUiScoped, setPermissionsUiScoped] = useState(false);
 
   useEffect(() => {
     fetchUsers();
@@ -89,7 +100,6 @@ const RoleSettings = () => {
       setPortalPanelIds([]);
       setPermissionsReadOnly(false);
       setUseCustomPermissions(false);
-      setPermissionsUiScoped(false);
     }
   }, [selectedUser?.user_id]);
 
@@ -124,7 +134,6 @@ const RoleSettings = () => {
       setPortalPanelIds(data.portal_panel_permission_ids || []);
       setPermissionsReadOnly(!!data.permissions_read_only);
       setUseCustomPermissions(!!data.use_custom_permissions);
-      setPermissionsUiScoped(!!data.permissions_ui_scoped);
     } catch (err) {
       setError('Failed to load permissions for user');
       setPermissions([]);
@@ -132,7 +141,6 @@ const RoleSettings = () => {
       setPortalPanelIds([]);
       setPermissionsReadOnly(false);
       setUseCustomPermissions(false);
-      setPermissionsUiScoped(false);
       swalError('Could not load permissions', 'Failed to load permissions for this user.');
     } finally {
       setLoading(false);
@@ -400,32 +408,6 @@ const RoleSettings = () => {
                   Admin accounts always have full access. Permission rows are shown for reference only.
                 </p>
               )}
-              {!permissionsReadOnly && !loading && permissions.length > 0 && (
-                <p className="role-settings-permissions-hint">
-                  {permissionsUiScoped ? (
-                    <>
-                      Showing only modules that apply to this user&apos;s role (Dean, Program Head, Secretary,
-                      Evaluator, or Adviser). The first save turns on custom permissions; use &quot;Reset to
-                      role&quot; for role defaults. Other roles still see the full permission list.
-                    </>
-                  ) : (
-                    <>
-                      This list is every RBAC permission in the database ({permissions.length} total). The first
-                      save for this user turns on custom permissions; use &quot;Reset to role&quot; to go back to
-                      their role’s defaults. If you change your own account, refresh the session (save does this
-                      automatically).
-                    </>
-                  )}
-                </p>
-              )}
-              {portalPanelIds.length > 0 && !permissionsReadOnly && (
-                <p className="role-settings-portal-note">
-                  Portal roles show baseline evaluation access as checked when using role defaults; curriculum,
-                  elective slots, lookup data, and system settings appear when granted. Friendly names group with
-                  dotted permissions so one module uses View only / Full access. Green-tinted blocks are
-                  portal-related.
-                </p>
-              )}
               {loading ? (
                 <div className="role-settings-loading">Loading permissions...</div>
               ) : (
@@ -575,7 +557,7 @@ const RoleSettings = () => {
                           const radioName = `module-tier-${uid}-${category}-${moduleKey}`;
                           const tierHint =
                             moduleKey === 'system'
-                              ? 'View only: change system settings. Full access: settings and backups.'
+                              ? 'View only: system settings. Full access: Security Settings (permissions), settings, and backups.'
                               : 'View only: browse and open this area. Full access: all actions for this module (create, edit, delete, approve, etc., as defined).';
 
                           return (
@@ -717,7 +699,9 @@ const RoleSettings = () => {
                                           <code className="permission-crud-full">{name}</code>
                                         </span>
                                       ) : (
-                                        <span className="permission-name">{name}</span>
+                                        <span className="permission-name">
+                                          {displayPermissionName(name)}
+                                        </span>
                                       )}
                                     </label>
                                     {p.description && (

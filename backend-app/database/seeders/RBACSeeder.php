@@ -345,6 +345,7 @@ class RBACSeeder extends Seeder
                 'evaluation.approve',
                 'evaluation.export_pdf',
                 'credit_eval.view',
+                'credit_eval.create',
                 'credit_eval.approve',
                 'electives.view',
                 'faculty.view',

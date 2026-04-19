@@ -8,6 +8,17 @@ function isStudentRoleName(name) {
   return String(name || '').trim().toLowerCase() === 'student';
 }
 
+function formatLastLoginAt(value) {
+  if (value == null || value === '') return '—';
+  try {
+    const d = new Date(value);
+    if (Number.isNaN(d.getTime())) return '—';
+    return d.toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
+  } catch {
+    return '—';
+  }
+}
+
 /**
  * @param {{ userScope?: 'staff' | 'students' }} props
  * staff — directory staff only (excludes Student role). students — Student role only.
@@ -696,13 +707,14 @@ const UserManagement = ({ userScope = 'staff' }) => {
                 <th>Program</th>
                 <th>Access Level</th>
                 <th>Status</th>
+                <th>Last login</th>
                 <th>Actions</th>
               </tr>
             </thead>
             <tbody>
               {filteredUsers.length === 0 ? (
                 <tr>
-                  <td colSpan="8" className="no-data">
+                  <td colSpan="9" className="no-data">
                     {users.length === 0 ? 'No users found' : 'No users match your filters'}
                   </td>
                 </tr>
@@ -741,6 +753,7 @@ const UserManagement = ({ userScope = 'staff' }) => {
                           {user.status === 'active' ? 'Active' : 'Inactive'}
                         </span>
                       </td>
+                      <td className="user-last-login-cell">{formatLastLoginAt(user.last_login_at)}</td>
                       <td className="actions">
                         <button
                           type="button"

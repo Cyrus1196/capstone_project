@@ -84,6 +84,9 @@ const CreditEvaluationManagement = ({ approvalMode = false }) => {
     !approvalMode ||
     isAdmin ||
     hasAnyPermission(['credit_eval.approve', 'Credit Evaluation']);
+  /** Approve permission implies intake workflow (same as Dean); create is explicit for Secretary etc. */
+  const canCreateCreditEval =
+    isAdmin || hasAnyPermission(['credit_eval.create', 'credit_eval.approve']);
   const [evaluations, setEvaluations] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -406,9 +409,9 @@ const CreditEvaluationManagement = ({ approvalMode = false }) => {
     <div className="credit-evaluation-management">
       <div className="management-header">
         <h2>{approvalMode ? 'Credit evaluation (review)' : 'Credit Evaluation Management'}</h2>
-        {!approvalMode && isAdmin && (
-          <button className="add-button" onClick={handleAdd}>
-            Add Credit Evaluation
+        {canCreateCreditEval && (
+          <button type="button" className="add-button" onClick={handleAdd}>
+            Add credit evaluation
           </button>
         )}
       </div>

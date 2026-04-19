@@ -265,11 +265,6 @@ const StudentProfile = () => {
           <h3 id="student-profile-academic-heading" className="student-profile-section-title">
             Academic record
           </h3>
-          <p className="student-profile-section-lead">
-            Program is set on your account (usually by an administrator). Year level and academic status
-            on record update automatically from stored grades and curriculum progress. Use{' '}
-            <strong>Save profile</strong> for the editable fields above only.
-          </p>
           <div className="student-profile-grid">
             <div className="form-group student-profile-field--full">
               <label htmlFor="student_program_readonly">Program</label>
@@ -287,7 +282,6 @@ const StudentProfile = () => {
                 disabled
                 readOnly
               />
-              <span className="student-profile-hint">Set on your student account.</span>
             </div>
 
             <div className="form-group">
@@ -306,9 +300,6 @@ const StudentProfile = () => {
                 <option value="Probationary">Probationary</option>
                 <option value="On Leave">On Leave</option>
               </select>
-              <span className="student-profile-hint">
-                Your official academic standing on record (updates when evaluations are saved).
-              </span>
             </div>
 
             <div className="form-group">
@@ -328,7 +319,6 @@ const StudentProfile = () => {
                   </option>
                 ))}
               </select>
-              <span className="student-profile-hint">Updated from curriculum progress.</span>
             </div>
 
             {shouldShowTrack ? (
@@ -350,7 +340,6 @@ const StudentProfile = () => {
                     </option>
                   ))}
                 </select>
-                <span className="student-profile-hint">Set when your program uses tracks.</span>
               </div>
             ) : null}
           </div>

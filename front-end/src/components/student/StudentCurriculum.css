@@ -176,6 +176,34 @@
   font-weight: 600;
 }
 
+.student-curriculum-grid .status-failed {
+  display: inline-block;
+  background: #f8d7da;
+  color: #721c24;
+  padding: 4px 10px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.student-curriculum-grid .status-incomplete {
+  display: inline-block;
+  background: #fff3cd;
+  color: #856404;
+  padding: 4px 10px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.student-curriculum-coreq-hint {
+  font-size: 11px;
+  font-weight: 600;
+  color: #64748b;
+  max-width: 14rem;
+  line-height: 1.35;
+}
+
 .status-credited {
   background: #0f766e;
   color: #fff;

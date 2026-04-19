@@ -56,6 +56,65 @@ function normalizeSubjectCode(code) {
     .replace(/\s+/g, '');
 }
 
+/**
+ * Prerequisite + corequisite required subjects for a curriculum row.
+ * Prefer top-level `prerequisites` / `corequisites` from `/students/curriculum`; otherwise nested `subject.*`.
+ * Avoid `a || b` when `a` is `[]` (truthy) but empty.
+ */
+function requisitesListForRow(row) {
+  const subject = row.subject || row;
+  const seen = new Set();
+  const out = [];
+
+  const consume = (list) => {
+    if (!Array.isArray(list)) return;
+    for (const p of list) {
+      const rt = String(p.requisite_type || '').toLowerCase();
+      if (rt && rt !== 'prerequisite' && rt !== 'corequisite') continue;
+      const code = p.subject_code || p.prereq_subject_code || p.requiredSubject?.subject_code;
+      const n = normalizeSubjectCode(code);
+      if (!n || seen.has(n)) continue;
+      seen.add(n);
+      out.push(p);
+    }
+  };
+
+  const hasTop =
+    (Array.isArray(row.prerequisites) && row.prerequisites.length > 0) ||
+    (Array.isArray(row.corequisites) && row.corequisites.length > 0);
+  if (hasTop) {
+    consume(row.prerequisites);
+    consume(row.corequisites);
+    return out;
+  }
+  consume(subject.prerequisites);
+  consume(subject.corequisites);
+  return out;
+}
+
+/** True when this evaluation row has a real outcome or grade (not a blank placeholder). */
+function evaluationRecordHasOutcome(e) {
+  if (!e) return false;
+  const st = String(e.evaluation_status || e.status || '').toLowerCase().trim();
+  if (
+    st === 'passed' ||
+    st === 'pass' ||
+    st === 'failed' ||
+    st === 'fail' ||
+    st === 'f' ||
+    st === 'inc' ||
+    st === 'incomplete' ||
+    st === 'credit' ||
+    st === 'completed' ||
+    st === 'ongoing'
+  ) {
+    return true;
+  }
+  const g = e.grade;
+  if (g == null || String(g).trim() === '') return false;
+  return !Number.isNaN(parseFloat(g));
+}
+
 const StudentCurriculum = () => {
   const [curriculum, setCurriculum] = useState([]);
   const [evaluations, setEvaluations] = useState([]);
@@ -255,6 +314,152 @@ const StudentCurriculum = () => {
       : null;
   };
 
+  const minPassingForCurriculumRow = (r) => {
+    const pgRaw = r?.passing_grade ?? r?.subject?.passing_grade;
+    return pgRaw !== undefined && pgRaw !== null && pgRaw !== '' && !Number.isNaN(parseFloat(pgRaw))
+      ? parseFloat(pgRaw)
+      : 70;
+  };
+
+  /**
+   * Outcome for this curriculum slot (subject + term), used for corequisite pairing.
+   * @returns {'none'|'passed'|'failed'|'incomplete'}
+   */
+  const curriculumSlotKind = (subjectId, semesterId, minPassing) => {
+    if (subjectId == null || subjectId === '') return 'none';
+    const raw = pickEnrollment(subjectId, semesterId);
+    if (!raw) return 'none';
+    const vm = enrollmentToViewModel(raw, minPassing);
+    const evalSt = String(raw.evaluation_status || '').toLowerCase().trim();
+    const enrollSt = String(raw.status || '').toLowerCase().trim();
+    if (
+      enrollSt === 'inc' ||
+      enrollSt === 'incomplete' ||
+      evalSt === 'inc' ||
+      evalSt === 'incomplete'
+    ) {
+      return 'incomplete';
+    }
+    const gradeRaw = raw.grade;
+    const numGrade =
+      gradeRaw !== '' && gradeRaw != null && !Number.isNaN(parseFloat(gradeRaw))
+        ? parseFloat(gradeRaw)
+        : NaN;
+
+    const isPassed =
+      !!(vm && vm.completed) ||
+      enrollSt === 'passed' ||
+      enrollSt === 'pass' ||
+      enrollSt === 'credit' ||
+      enrollSt === 'completed' ||
+      evalSt === 'passed' ||
+      evalSt === 'pass' ||
+      evalSt === 'credit' ||
+      evalSt === 'completed' ||
+      (!Number.isNaN(numGrade) && numGrade >= minPassing);
+
+    const isFailed =
+      enrollSt === 'failed' ||
+      enrollSt === 'fail' ||
+      enrollSt === 'f' ||
+      evalSt === 'failed' ||
+      evalSt === 'fail' ||
+      evalSt === 'f' ||
+      (!Number.isNaN(numGrade) && numGrade < minPassing);
+
+    if (isFailed && !isPassed) return 'failed';
+    if (isPassed) return 'passed';
+    return 'none';
+  };
+
+  /** Same-term rows linked by corequisite edges (bidirectional). */
+  const collectCorequisiteClusterRows = (seedRow, sameTermRows) => {
+    const byCode = new Map();
+    sameTermRows.forEach((r) => {
+      const c = normalizeSubjectCode(r.subject_code || r.subject?.subject_code);
+      if (c) byCode.set(c, r);
+    });
+    const cluster = new Set([seedRow]);
+    let frontier = [seedRow];
+    for (let hop = 0; hop < 6 && frontier.length; hop += 1) {
+      const nextF = [];
+      const addNeighbors = (r) => {
+        const neighbors = [];
+        const rCode = normalizeSubjectCode(r.subject_code || r.subject?.subject_code);
+        for (const p of requisitesListForRow(r)) {
+          if (String(p.requisite_type || '').toLowerCase() !== 'corequisite') continue;
+          const code = normalizeSubjectCode(
+            p.subject_code || p.prereq_subject_code || p.requiredSubject?.subject_code
+          );
+          const hit = code ? byCode.get(code) : null;
+          if (hit && hit !== r) neighbors.push(hit);
+        }
+        if (rCode) {
+          for (const other of sameTermRows) {
+            if (other === r) continue;
+            for (const p of requisitesListForRow(other)) {
+              if (String(p.requisite_type || '').toLowerCase() !== 'corequisite') continue;
+              const code = normalizeSubjectCode(
+                p.subject_code || p.prereq_subject_code || p.requiredSubject?.subject_code
+              );
+              if (code === rCode) neighbors.push(other);
+            }
+          }
+        }
+        return neighbors;
+      };
+      for (const r of frontier) {
+        for (const nb of addNeighbors(r)) {
+          if (!cluster.has(nb)) {
+            cluster.add(nb);
+            nextF.push(nb);
+          }
+        }
+      }
+      frontier = nextF;
+    }
+    return [...cluster];
+  };
+
+  /**
+   * If any course in a same-term corequisite cluster fails or is INC, every non-credited
+   * member of the pair shows that outcome (retake together).
+   */
+  const computeLinkedCorequisiteDisplay = (row, sameTermRows) => {
+    if (isRowTransferCredited(row)) return null;
+    const cluster = collectCorequisiteClusterRows(row, sameTermRows).filter(
+      (r) => !isRowTransferCredited(r)
+    );
+    if (cluster.length < 2) return null;
+
+    const kinds = cluster.map((r) => {
+      const sid = r.subject_id || r.subject?.subject_id;
+      const sem = r.semester_id || r.semester?.semester_id;
+      return curriculumSlotKind(sid, sem, minPassingForCurriculumRow(r));
+    });
+    const anyFailed = kinds.some((k) => k === 'failed');
+    const anyIncomplete = kinds.some((k) => k === 'incomplete');
+    if (!anyFailed && !anyIncomplete) return null;
+
+    let incDeadline = null;
+    if (anyIncomplete && !anyFailed) {
+      for (const r of cluster) {
+        const rid = r.subject_id || r.subject?.subject_id;
+        const raw = pickEnrollment(rid, r.semester_id || r.semester?.semester_id);
+        if (raw?.inc_compliance_deadline) {
+          incDeadline = raw.inc_compliance_deadline;
+          break;
+        }
+      }
+    }
+
+    return {
+      failed: anyFailed,
+      incomplete: anyIncomplete && !anyFailed,
+      incDeadline,
+    };
+  };
+
   const isRowTransferCredited = (row) => row?.passed_via_transfer_credit === true;
 
   /** Row is considered passed for “year complete” (aligns with backend passing_grade + status). */
@@ -317,17 +522,17 @@ const StudentCurriculum = () => {
   }, [loading, curriculum, enrollments, yearLevels, visibleYearLevels]);
 
   const getPrerequisites = (row) => {
-    const subject = row.subject || row;
-    if (row.prerequisites && row.prerequisites.length > 0) {
-      return row.prerequisites.map((p) => p.subject_code || p.prereq_subject_code).join(', ');
-    }
-    if (subject.prerequisites && subject.prerequisites.length > 0) {
-      return subject.prerequisites
-        .map((p) => p.requiredSubject?.subject_code || p.subject_code)
-        .filter(Boolean)
-        .join(', ');
-    }
-    return 'None';
+    const list = requisitesListForRow(row);
+    if (list.length === 0) return 'None';
+    return list
+      .map((p) => {
+        const code = p.subject_code || p.prereq_subject_code || p.requiredSubject?.subject_code;
+        const t = String(p.requisite_type || '').toLowerCase();
+        const prefix = t === 'corequisite' ? 'Co' : 'P';
+        return code ? `${prefix}: ${code}` : '';
+      })
+      .filter(Boolean)
+      .join(', ');
   };
 
   /** Human text for INC compliance countdown on the student curriculum view. */
@@ -343,16 +548,21 @@ const StudentCurriculum = () => {
     return `${days} day(s) left to comply`;
   };
 
-  // Check if all prerequisites are passed
+  /**
+   * Prerequisites must be passed before the row is eligible.
+   * Corequisites are concurrent (taken the same term); they do not block “Not eligible” here.
+   */
   const arePrerequisitesPassed = (row) => {
-    const subject = row.subject || row;
-    const prerequisites = row.prerequisites || subject.prerequisites || [];
+    const prerequisites = requisitesListForRow(row);
 
     if (prerequisites.length === 0) return { passed: true, failedPrereqs: [] };
 
     const failedPrereqs = [];
 
     for (const prereq of prerequisites) {
+      const reqType = String(prereq.requisite_type || '').toLowerCase();
+      if (reqType === 'corequisite') continue;
+
       const prereqCode =
         prereq.subject_code ||
         prereq.prereq_subject_code ||
@@ -683,6 +893,10 @@ const StudentCurriculum = () => {
                       ) : (
                         semester.rows.map((row) => {
                           const sid = row.subject_id || row.subject?.subject_id;
+                          const pickedForRow =
+                            sid != null && sid !== ''
+                              ? pickEnrollment(sid, row.semester_id)
+                              : null;
                           const enrollment = sid ? getEnrollmentStatus(sid, row.semester_id) : null;
                           const code =
                             row.subject_code || row.subject?.subject_code || '—';
@@ -700,12 +914,20 @@ const StudentCurriculum = () => {
                           const type = row.subject_type || '—';
                           const prereq = getPrerequisites(row);
                           const transferCredited = isRowTransferCredited(row);
-                          const done = transferCredited || enrollment?.completed;
+                          const linkedCoreq = computeLinkedCorequisiteDisplay(row, semester.rows);
+                          const linkedCoreqBlocksPass =
+                            !!linkedCoreq && (linkedCoreq.failed || linkedCoreq.incomplete);
+                          const done =
+                            transferCredited ||
+                            (enrollment?.completed && !linkedCoreqBlocksPass);
 
                           // Check prerequisite eligibility (for subjects not yet taken / no grade on file).
                           const prereqCheck = arePrerequisitesPassed(row);
-                          /** If there is any stored evaluation for this subject+term, show that outcome — do not replace "failed" with Not Eligible when prereqs were also unmet. */
-                          const hasStoredEvaluation = enrollment != null;
+                          /**
+                           * Only treat as “has a record” when the evaluation row has a real status or grade.
+                           * Otherwise a blank placeholder row for this term blocks “Not eligible” incorrectly.
+                           */
+                          const hasStoredEvaluation = evaluationRecordHasOutcome(pickedForRow);
                           const notEligible =
                             !transferCredited &&
                             !prereqCheck.passed &&
@@ -717,10 +939,17 @@ const StudentCurriculum = () => {
                             statusLc === 'incomplete' ? 'INC' : statusRaw || '—';
                           const isIncStatus =
                             statusLc === 'incomplete' || statusLc === 'inc';
-                          const incHint =
-                            isIncStatus && enrollment?.inc_compliance_deadline
-                              ? incComplianceHint(enrollment.inc_compliance_deadline)
-                              : null;
+                          const incDeadlineSource =
+                            (isIncStatus && enrollment?.inc_compliance_deadline) ||
+                            (linkedCoreq?.incomplete &&
+                              (linkedCoreq.incDeadline || enrollment?.inc_compliance_deadline)) ||
+                            null;
+                          const incHint = incDeadlineSource
+                            ? incComplianceHint(incDeadlineSource)
+                            : null;
+                          const incByDateSuffix = incDeadlineSource
+                            ? ` (by ${String(incDeadlineSource).slice(0, 10)})`
+                            : '';
 
                           const gradeDisplayParts =
                             enrollment?.grade != null &&
@@ -779,6 +1008,29 @@ const StudentCurriculum = () => {
                                         Not Eligible
                                       </span>
                                     </span>
+                                  ) : linkedCoreq?.failed ? (
+                                    <span className="student-curriculum-status-inline">
+                                      <span className="status-badge status-failed">Failed</span>
+                                      <span className="student-curriculum-coreq-hint">
+                                        Co-requisite pair — retake together
+                                      </span>
+                                    </span>
+                                  ) : linkedCoreq?.incomplete ? (
+                                    <span className="student-curriculum-status-inline">
+                                      <span className="status-badge status-incomplete">INC</span>
+                                      <span className="student-curriculum-coreq-hint">
+                                        Co-requisite pair — complete together
+                                      </span>
+                                      {incHint ? (
+                                        <span
+                                          className="student-curriculum-inc-hint"
+                                          title="Incomplete — complete requirements by this deadline"
+                                        >
+                                          {incHint}
+                                          {incByDateSuffix}
+                                        </span>
+                                      ) : null}
+                                    </span>
                                   ) : enrollment ? (
                                     <span className="student-curriculum-status-inline">
                                       <span
@@ -820,9 +1072,7 @@ const StudentCurriculum = () => {
                                       {incHint ? (
                                         <span className="student-curriculum-inc-hint" title="Incomplete — complete requirements by this deadline">
                                           {incHint}
-                                          {enrollment.inc_compliance_deadline
-                                            ? ` (by ${String(enrollment.inc_compliance_deadline).slice(0, 10)})`
-                                            : ''}
+                                          {incByDateSuffix}
                                         </span>
                                       ) : null}
                                     </span>

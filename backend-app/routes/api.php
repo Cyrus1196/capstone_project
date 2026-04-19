@@ -38,51 +38,45 @@ Route::prefix('jwt')->group(function () {
 // Refresh: allows expired access token within refresh_ttl (tymon jwt.refresh)
 Route::post('/jwt/refresh', [JwtAuthController::class, 'refresh'])->middleware('jwt.refresh');
 
-// Requisite Management (temporarily public for testing)
-Route::prefix('requisites')->group(function () {
-    Route::get('/', [RequisiteController::class, 'index']);
-    // For local/development use we allow these routes to reach the controller
-    // which contains an environment-aware admin check. In production the
-    // controller will still enforce authorization.
-    Route::post('/', [RequisiteController::class, 'store']);
-    Route::get('/{id}', [RequisiteController::class, 'show']);
-    Route::put('/{id}', [RequisiteController::class, 'update']);
-    Route::delete('/{id}', [RequisiteController::class, 'destroy']);
-    Route::get('/subject/{subjectId}', [RequisiteController::class, 'getBySubject']);
-});
-
-// Prerequisite Management (allow local/dev access)
-// Note: GET /prerequisites/subject/{id} is registered under auth:api so JWT populates $request->user().
-Route::prefix('prerequisites')->group(function () {
-    Route::get('/', [PrerequisiteController::class, 'index']);
-    Route::post('/', [PrerequisiteController::class, 'store']);
-    Route::delete('/{id}', [PrerequisiteController::class, 'destroy']);
-});
-
-// Corequisite Management (allow local/dev access)
-Route::prefix('corequisites')->group(function () {
-    Route::get('/', [CorequisiteController::class, 'index']);
-    Route::post('/', [CorequisiteController::class, 'store']);
-    Route::delete('/{id}', [CorequisiteController::class, 'destroy']);
-});
-
 // Public read-only (landing / guest simulation — no login)
 Route::post('/guest/credit-simulation', [GuestCreditSimulationController::class, 'simulate']);
 Route::get('/schools', [SchoolController::class, 'index']);
 
-// Curriculum management (admin only) - temporarily public for testing
-Route::prefix('curriculum')->group(function () {
-    Route::get('/lookup/data', [CurriculumController::class, 'lookupData']);
-    Route::get('/', [CurriculumController::class, 'index']);
-    Route::post('/batch', [CurriculumController::class, 'storeBatch']);
-    Route::post('/', [CurriculumController::class, 'store']);
-    Route::get('/{id}', [CurriculumController::class, 'show']);
-    Route::put('/{id}', [CurriculumController::class, 'update']);
-    Route::delete('/{id}', [CurriculumController::class, 'destroy']);
-});
+// Curriculum catalog: read-only list for guest panel and public browse (mutations require auth below)
+Route::get('/curriculum/lookup/data', [CurriculumController::class, 'lookupData']);
+Route::get('/curriculum', [CurriculumController::class, 'index']);
 
 // Protected routes (JWT Bearer via auth:api guard)
 Route::middleware('auth:api')->group(function () {
+    Route::prefix('requisites')->group(function () {
+        Route::get('/', [RequisiteController::class, 'index']);
+        Route::post('/', [RequisiteController::class, 'store']);
+        Route::get('/{id}', [RequisiteController::class, 'show']);
+        Route::put('/{id}', [RequisiteController::class, 'update']);
+        Route::delete('/{id}', [RequisiteController::class, 'destroy']);
+        Route::get('/subject/{subjectId}', [RequisiteController::class, 'getBySubject']);
+    });
+
+    Route::prefix('prerequisites')->group(function () {
+        Route::get('/', [PrerequisiteController::class, 'index']);
+        Route::post('/', [PrerequisiteController::class, 'store']);
+        Route::delete('/{id}', [PrerequisiteController::class, 'destroy']);
+    });
+
+    Route::prefix('corequisites')->group(function () {
+        Route::get('/', [CorequisiteController::class, 'index']);
+        Route::post('/', [CorequisiteController::class, 'store']);
+        Route::delete('/{id}', [CorequisiteController::class, 'destroy']);
+    });
+
+    Route::prefix('curriculum')->group(function () {
+        Route::post('/batch', [CurriculumController::class, 'storeBatch']);
+        Route::post('/', [CurriculumController::class, 'store']);
+        Route::get('/{id}', [CurriculumController::class, 'show']);
+        Route::put('/{id}', [CurriculumController::class, 'update']);
+        Route::delete('/{id}', [CurriculumController::class, 'destroy']);
+    });
+
     Route::get('/prerequisites/subject/{subjectId}', [PrerequisiteController::class, 'getBySubject']);
 
     Route::post('/logout', [AuthController::class, 'logout']);

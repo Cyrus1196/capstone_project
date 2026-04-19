@@ -523,13 +523,6 @@
   white-space: nowrap;
 }
 
-.eval-list-intro {
-  margin: 0 0 0.5rem;
-  font-size: 0.78rem;
-  color: #64748b;
-  line-height: 1.35;
-}
-
 .eval-student-table-card {
   flex: 1;
   min-height: 0;
@@ -681,6 +674,11 @@
 
 .eval-need-store-cta__btn:hover:not(:disabled) {
   background: #0d9488;
+}
+
+.eval-need-store-cta--btn-only {
+  justify-content: flex-end;
+  padding: 0.5rem 0.85rem;
 }
 
 .eval-need-store-cta__btn:disabled {
@@ -852,17 +850,9 @@
 }
 
 .section-header-titles h2 {
-  margin: 0 0 0.35rem 0;
+  margin: 0;
   font-size: 1.35rem;
   color: #1a1a1a;
-}
-
-.student-eval-lead {
-  margin: 0;
-  font-size: 0.9rem;
-  color: #5c5c5c;
-  line-height: 1.45;
-  max-width: 42rem;
 }
 
 .header-actions {
@@ -1090,6 +1080,14 @@
   flex-direction: column;
   align-items: flex-start;
   gap: 0.4rem;
+}
+
+.eval-legacy-inc-hint {
+  margin: 0.4rem 0 0;
+  max-width: 18rem;
+  font-size: 0.75rem;
+  line-height: 1.35;
+  color: #92400e;
 }
 
 .eval-inc-deadline {
@@ -1466,15 +1464,3 @@ button:disabled {
   color: #94a3b8;
   font-weight: 600;
 }
-
-.eval-sequential-term-hint {
-  margin: 1rem 0 0;
-  padding: 0.85rem 1rem;
-  background: #f8fafc;
-  border: 1px solid #e2e8f0;
-  border-radius: 8px;
-  font-size: 0.9rem;
-  color: #475569;
-  line-height: 1.45;
-}
-

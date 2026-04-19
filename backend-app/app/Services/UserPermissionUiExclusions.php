@@ -23,6 +23,15 @@ final class UserPermissionUiExclusions
             // workspace. Implicit merge (see implicitMergeIdsForRole) keeps Dean role baseline on custom saves.
             'dean.view',
             'dean.approve',
+            // Legacy module keys — not enforced in API (subjects/students use lookup.* and users.* instead).
+            'students.view',
+            'students.create',
+            'students.edit',
+            'students.enroll',
+            'subjects.view',
+            'subjects.create',
+            'subjects.edit',
+            'subjects.delete',
         ];
     }
 
@@ -57,8 +66,11 @@ final class UserPermissionUiExclusions
      */
     public static function implicitMergeIdsForRole(?string $roleName): array
     {
-        $always = RbacPortalMerge::portalAlwaysVisiblePermissionNames($roleName);
-        $forceNames = array_values(array_intersect(self::excludedPermissionNames(), $always));
+        $baselineNames = array_unique(array_merge(
+            RbacPortalMerge::portalAlwaysVisiblePermissionNames($roleName),
+            RbacPortalMerge::portalOptionalTabPermissionNames($roleName)
+        ));
+        $forceNames = array_values(array_intersect(self::excludedPermissionNames(), $baselineNames));
         if ($forceNames === []) {
             return [];
         }

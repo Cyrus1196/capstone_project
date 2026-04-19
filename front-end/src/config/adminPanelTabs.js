@@ -78,10 +78,6 @@ export const ACADEMIC_MANAGEMENT_TAB_PERMISSIONS = [
   'credit_eval.view',
   'credit_eval.create',
   'credit_eval.approve',
-  'subjects.view',
-  'subjects.create',
-  'subjects.edit',
-  'subjects.delete',
   'prerequisites.view',
   'prerequisites.manage',
 ];
