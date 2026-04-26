@@ -1,0 +1,797 @@
+.credit-evaluation-management {
+  padding: 20px;
+}
+
+.management-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
+}
+
+.management-header h2 {
+  margin: 0;
+  color: #333;
+}
+
+.add-button {
+  padding: 10px 20px;
+  background-color: #336699;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.add-button:hover {
+  background-color: #254a6e;
+}
+
+.table-container {
+  background: white;
+  border-radius: 8px;
+  overflow: hidden;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.data-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.data-table thead {
+  background-color: #f8f9fa;
+}
+
+.data-table th {
+  padding: 12px;
+  text-align: left;
+  font-weight: 600;
+  color: #333;
+  border-bottom: 2px solid #dee2e6;
+}
+
+.data-table td {
+  padding: 12px;
+  border-bottom: 1px solid #dee2e6;
+}
+
+.data-table tbody tr:hover {
+  background-color: #f8f9fa;
+}
+
+.no-data {
+  text-align: center;
+  padding: 40px;
+  color: #666;
+}
+
+.actions {
+  display: flex;
+  gap: 8px;
+}
+
+.edit-button,
+.delete-button {
+  padding: 6px 12px;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 12px;
+  transition: background-color 0.2s;
+}
+
+.edit-button {
+  background-color: #28a745;
+  color: white;
+}
+
+.edit-button:hover {
+  background-color: #218838;
+}
+
+.delete-button {
+  background-color: #dc3545;
+  color: white;
+}
+
+.delete-button:hover {
+  background-color: #c82333;
+}
+
+.status-badge {
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.status-badge.status-pending {
+  background-color: #fff3cd;
+  color: #856404;
+}
+
+.status-badge.status-approved {
+  background-color: #d4edda;
+  color: #155724;
+}
+
+.status-badge.status-rejected {
+  background-color: #f8d7da;
+  color: #721c24;
+}
+
+.status-badge.status-record-inactive {
+  margin-left: 6px;
+  background-color: #e2e3e5;
+  color: #383d41;
+}
+
+.credit-eval-status-cell {
+  vertical-align: middle;
+}
+
+.credit-eval-status-inline {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.credit-eval-row-inactive {
+  opacity: 0.78;
+}
+
+.credit-eval-inactive-notice {
+  margin: 0 0 12px;
+  padding: 10px 12px;
+  border-radius: 4px;
+  background: #f8f9fa;
+  border: 1px solid #dee2e6;
+  font-size: 0.875rem;
+  color: #495057;
+}
+
+.modal-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 1000;
+}
+
+.modal-content {
+  background: white;
+  border-radius: 8px;
+  padding: 0;
+  max-width: 800px;
+  width: 90%;
+  max-height: 90vh;
+  overflow-y: auto;
+}
+
+.modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 20px;
+  border-bottom: 1px solid #dee2e6;
+}
+
+.modal-header h3 {
+  margin: 0;
+  color: #333;
+}
+
+.close-button {
+  background: none;
+  border: none;
+  font-size: 24px;
+  cursor: pointer;
+  color: #666;
+  padding: 0;
+  width: 30px;
+  height: 30px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.close-button:hover {
+  color: #333;
+}
+
+.modal-form {
+  padding: 20px;
+}
+
+.form-group {
+  margin-bottom: 20px;
+}
+
+.form-group label {
+  display: block;
+  margin-bottom: 5px;
+  font-weight: 500;
+  color: #333;
+}
+
+.form-group input,
+.form-group select,
+.form-group textarea {
+  width: 100%;
+  padding: 8px 12px;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  font-size: 14px;
+}
+
+.form-group textarea {
+  resize: vertical;
+}
+
+.required {
+  color: #dc3545;
+}
+
+.credit-detail-row {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 10px;
+  align-items: flex-start;
+}
+
+.detail-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  flex: 1;
+}
+
+.detail-fields select,
+.detail-fields input {
+  width: 100%;
+  padding: 8px 12px;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  font-size: 14px;
+}
+
+.remove-detail-button,
+.add-detail-button {
+  padding: 8px 16px;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 14px;
+  margin-top: 10px;
+}
+
+.remove-detail-button {
+  background-color: #dc3545;
+  color: white;
+  height: fit-content;
+}
+
+.remove-detail-button:hover {
+  background-color: #c82333;
+}
+
+.add-detail-button {
+  background-color: #28a745;
+  color: white;
+}
+
+.add-detail-button:hover {
+  background-color: #218838;
+}
+
+.add-detail-button--secondary {
+  background-color: #5a6268;
+}
+
+.add-detail-button--secondary:hover {
+  background-color: #495057;
+}
+
+.credit-eval-add-detail-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  margin-top: 10px;
+}
+
+.ce-oss-entry-toggle {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 16px;
+  padding: 6px 0;
+  font-size: 13px;
+  color: #444;
+}
+
+.ce-oss-entry-toggle__opt {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+}
+
+.ce-new-oss-fields {
+  margin: 0;
+}
+
+.ce-new-oss-fields input {
+  width: 100%;
+}
+
+.ce-transfer-detail-fields {
+  display: grid;
+  grid-template-columns: 1fr 1fr minmax(5.5rem, 7rem);
+  gap: 10px 12px;
+  align-items: start;
+}
+
+.ce-transfer-grid-field--wide {
+  grid-column: 1 / -1;
+}
+
+@media (max-width: 640px) {
+  .ce-transfer-detail-fields {
+    grid-template-columns: 1fr;
+  }
+
+  .ce-transfer-grid-field--wide {
+    grid-column: 1;
+  }
+}
+
+.form-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 20px;
+  padding-top: 20px;
+  border-top: 1px solid #dee2e6;
+}
+
+.cancel-button,
+.submit-button {
+  padding: 10px 20px;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.cancel-button {
+  background-color: #6c757d;
+  color: white;
+}
+
+.cancel-button:hover {
+  background-color: #5a6268;
+}
+
+.submit-button {
+  background-color: #336699;
+  color: white;
+}
+
+.submit-button:hover {
+  background-color: #254a6e;
+}
+
+.error-message {
+  background-color: #f8d7da;
+  color: #721c24;
+  padding: 12px;
+  border-radius: 4px;
+  margin-bottom: 20px;
+}
+
+.loading {
+  text-align: center;
+  padding: 40px;
+  color: #666;
+}
+
+.view-button {
+  padding: 6px 12px;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 12px;
+  background-color: #17a2b8;
+  color: white;
+  transition: background-color 0.2s;
+}
+
+.view-button:hover {
+  background-color: #138496;
+}
+
+.modal-body {
+  padding: 20px;
+}
+
+.details-section {
+  margin-bottom: 30px;
+}
+
+.details-section h4 {
+  margin-bottom: 15px;
+  color: #333;
+  border-bottom: 2px solid #336699;
+  padding-bottom: 8px;
+}
+
+.detail-row {
+  display: flex;
+  padding: 10px 0;
+  border-bottom: 1px solid #eee;
+}
+
+.detail-row strong {
+  min-width: 150px;
+  color: #555;
+}
+
+.details-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 15px;
+}
+
+.details-table thead {
+  background-color: #f8f9fa;
+}
+
+.details-table th {
+  padding: 10px;
+  text-align: left;
+  font-weight: 600;
+  color: #333;
+  border-bottom: 2px solid #dee2e6;
+}
+
+.details-table td {
+  padding: 10px;
+  border-bottom: 1px solid #dee2e6;
+}
+
+.details-table tbody tr:hover {
+  background-color: #f8f9fa;
+}
+
+.modal-footer {
+  display: flex;
+  justify-content: flex-end;
+  padding: 20px;
+  border-top: 1px solid #dee2e6;
+}
+
+.credit-details-modal-footer {
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+}
+
+.modal-footer-close-btn {
+  padding: 10px 20px;
+  border: 1px solid #ced4da;
+  border-radius: 4px;
+  background: #f8f9fa;
+  color: #212529;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.modal-footer-close-btn:hover {
+  background: #e9ecef;
+}
+
+.credit-eval-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+}
+
+.credit-eval-filter-chip {
+  padding: 0.4rem 0.9rem;
+  border-radius: 999px;
+  border: 1px solid #ced4da;
+  background: #fff;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+  color: #495057;
+}
+
+.credit-eval-filter-chip:hover {
+  background: #f8f9fa;
+}
+
+.credit-eval-filter-chip.active {
+  background: #0d6efd;
+  border-color: #0d6efd;
+  color: #fff;
+}
+
+.approve-quick-btn {
+  padding: 6px 12px;
+  border: none;
+  border-radius: 4px;
+  background: #198754;
+  color: #fff;
+  font-weight: 600;
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.approve-quick-btn:hover {
+  filter: brightness(1.05);
+}
+
+.reject-quick-btn {
+  padding: 6px 12px;
+  border: none;
+  border-radius: 4px;
+  background: #dc3545;
+  color: #fff;
+  font-weight: 600;
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.reject-quick-btn:hover {
+  filter: brightness(1.05);
+}
+
+.credit-detail-status-row {
+  margin: 0 0 12px;
+}
+
+.credit-equiv-hint {
+  margin: 0 0 12px;
+  font-size: 0.875rem;
+  color: #495057;
+  line-height: 1.45;
+}
+
+.credit-equiv-warning {
+  grid-column: 1 / -1;
+  font-size: 0.8rem;
+  color: #856404;
+  background: #fff3cd;
+  border: 1px solid #ffc107;
+  border-radius: 4px;
+  padding: 8px 10px;
+  margin-top: 4px;
+}
+
+.credit-eval-bulk-actions {
+  margin-bottom: 12px;
+}
+
+.credit-eval-paste-block {
+  margin-bottom: 16px;
+  padding: 12px;
+  background: #f8f9fa;
+  border-radius: 6px;
+  border: 1px solid #dee2e6;
+}
+
+.credit-eval-paste-block label {
+  display: block;
+  font-weight: 600;
+  font-size: 0.875rem;
+  margin-bottom: 6px;
+  color: #333;
+}
+
+.credit-eval-paste-textarea {
+  width: 100%;
+  box-sizing: border-box;
+  margin-bottom: 8px;
+  padding: 8px;
+  border: 1px solid #ced4da;
+  border-radius: 4px;
+  font-family: inherit;
+  font-size: 0.875rem;
+  resize: vertical;
+}
+
+/* Grouped list: one row per student + school, many subject lines */
+.credit-eval-grouped-table .ce-group-subjects-cell {
+  max-width: 28rem;
+  vertical-align: top;
+}
+
+.ce-group-subjects-list {
+  margin: 0;
+  padding-left: 1.1rem;
+  font-size: 0.8rem;
+  line-height: 1.45;
+  color: #334155;
+}
+
+.ce-group-subjects-list li {
+  margin-bottom: 0.2rem;
+}
+
+.ce-group-empty {
+  color: #94a3b8;
+}
+
+.ce-group-units-sum {
+  font-weight: 700;
+  color: #0f172a;
+  white-space: nowrap;
+}
+
+.ce-group-types-cell,
+.ce-group-evaluators-cell {
+  font-size: 0.8rem;
+  color: #475569;
+  max-width: 10rem;
+}
+
+.ce-group-record-count {
+  display: inline-block;
+  margin-left: 0.35rem;
+  padding: 0.1rem 0.4rem;
+  font-size: 0.68rem;
+  font-weight: 600;
+  color: #4338ca;
+  background: #eef2ff;
+  border-radius: 4px;
+  vertical-align: middle;
+}
+
+.credit-eval-status-inline--wrap {
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.credit-eval-actions-cell {
+  flex-wrap: wrap;
+  max-width: 14rem;
+}
+
+.equiv-inline-btn {
+  padding: 6px 10px;
+  border: 1px solid #a5b4fc;
+  border-radius: 4px;
+  background: #eef2ff;
+  color: #3730a3;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.equiv-inline-btn:hover {
+  background: #e0e7ff;
+}
+
+.modal-content--credit-details-wide {
+  width: min(920px, 96vw);
+  max-height: min(92vh, 880px);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.modal-content--credit-details-wide .modal-body {
+  overflow-y: auto;
+}
+
+.ce-details-merge-note {
+  margin: 0.75rem 0 0;
+  padding: 0.6rem 0.75rem;
+  font-size: 0.82rem;
+  line-height: 1.45;
+  color: #334155;
+  background: #f1f5f9;
+  border-radius: 8px;
+  border: 1px solid #e2e8f0;
+}
+
+.ce-details-one-record {
+  border-top: 1px solid #e2e8f0;
+  margin-top: 0.5rem;
+  padding-top: 0.75rem;
+}
+
+.ce-details-record-meta {
+  font-weight: 500;
+  font-size: 0.85rem;
+  color: #64748b;
+}
+
+.ce-details-subheading {
+  margin: 0.75rem 0 0.5rem;
+  font-size: 0.9rem;
+  color: #0f172a;
+}
+
+.ce-details-inline-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+}
+
+.ce-student-line {
+  display: inline-block;
+  max-width: 16rem;
+  line-height: 1.35;
+}
+
+.ce-transfer-name-block {
+  margin-bottom: 1rem;
+  padding: 0.75rem 1rem;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+}
+
+.ce-transfer-name-intro {
+  margin: 0 0 0.75rem;
+  font-size: 0.82rem;
+  color: #475569;
+  line-height: 1.45;
+}
+
+.ce-transfer-name-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.75rem 1rem;
+}
+
+.ce-transfer-name-grid .form-group {
+  margin-bottom: 0;
+}
+
+@media (max-width: 720px) {
+  .ce-transfer-name-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.ce-transfer-help-panel {
+  margin: 0 0 1rem;
+  padding: 0.75rem 1rem;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  font-size: 0.85rem;
+  color: #334155;
+  line-height: 1.5;
+  max-width: 56rem;
+}
+
+.ce-transfer-help-panel__lead {
+  margin: 0 0 0.5rem;
+}
+
+.ce-transfer-help-panel__list {
+  margin: 0;
+  padding-left: 1.2rem;
+}
+
+.ce-transfer-help-panel__list li {
+  margin-bottom: 0.35rem;
+}
+

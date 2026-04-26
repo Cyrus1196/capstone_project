@@ -1,0 +1,65 @@
+/**
+ * Academic Evaluation Portal — shared tokens + main-area surface (matches login / landing / guest).
+ */
+:root {
+  --portal-primary: #336699;
+  --portal-primary-dark: #254a6e;
+  --portal-primary-soft: #5b8fc7;
+  --portal-text: #2c3540;
+  --portal-muted: #6b7788;
+  --portal-border: #d0dbe8;
+  --portal-surface: #eef3f8;
+  --portal-dot: rgba(51, 102, 153, 0.07);
+}
+
+.portal-shell {
+  position: relative;
+  background-color: var(--portal-surface);
+  background-image: radial-gradient(circle at 1px 1px, var(--portal-dot) 1px, transparent 0);
+  background-size: 28px 28px;
+  font-family:
+    "DM Sans",
+    system-ui,
+    -apple-system,
+    "Segoe UI",
+    Roboto,
+    "Helvetica Neue",
+    Arial,
+    sans-serif;
+  color: var(--portal-text);
+}
+
+.portal-shell::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  background: radial-gradient(ellipse 90% 55% at 50% -25%, rgba(51, 102, 153, 0.06), transparent 55%);
+  pointer-events: none;
+}
+
+.portal-shell__main {
+  position: relative;
+  z-index: 1;
+}
+
+/* Glass-style actions in headers */
+.portal-shell__main .logout-button,
+.portal-shell__main .admin-dean-portal-link,
+.portal-shell__main .dean-link-admin,
+.portal-shell__main .faculty-link-admin,
+.portal-shell__main .faculty-header .logout-button {
+  border-radius: 10px;
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.2) inset, 0 4px 14px rgba(0, 0, 0, 0.12);
+  transition: background 0.2s, box-shadow 0.2s, transform 0.15s;
+}
+
+.portal-shell__main .logout-button:hover,
+.portal-shell__main .admin-dean-portal-link:hover,
+.portal-shell__main .dean-link-admin:hover,
+.portal-shell__main .faculty-link-admin:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.28) inset, 0 6px 20px rgba(0, 0, 0, 0.15);
+}

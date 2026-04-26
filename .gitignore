@@ -1,0 +1,3 @@
+# Local / bulky (keep repo clone-friendly)
+db_backups/
+.cache/

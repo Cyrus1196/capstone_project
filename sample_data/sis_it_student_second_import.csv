@@ -1,0 +1,6 @@
+record_type,student_id_number,first_name,last_name,email,program_id,year_level_id,contact_number,address,academic_status,status,password,subject_code,academic_year_id,semester_id,section_id,grade,evaluation_status,enrolled_date,evaluation_date,modality_id,inc_compliance_deadline,requisite_subject_code,requisite_type
+student,2026-IT-IMPORT-002,Morgan,Riley,it.import.morgan@example.com,1,1,09189990002,"Cagayan de Oro, Philippines",active,active,ChangeMe123!,,,,,,,,,,,,
+grade,2026-IT-IMPORT-002,,,,,,,,,,,GEN 006,1,1,,92.9,passed,2025-08-01,2025-12-01,,,,
+grade,2026-IT-IMPORT-002,,,,,,,,,,,GEN 001,1,1,,92,passed,2025-08-15,2025-12-15,,,,
+grade,2026-IT-IMPORT-002,,,,,,,,,,,MAT 152,1,1,,97.4,passed,2025-08-15,2025-12-15,,,,
+grade,2026-IT-IMPORT-002,,,,,,,,,,,ITE 260,1,1,,86.3,passed,2025-08-15,2025-12-15,,,,

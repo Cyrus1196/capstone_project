@@ -1,0 +1,9 @@
+record_type,student_id_number,first_name,last_name,email,program_id,year_level_id,contact_number,address,academic_status,status,password,subject_code,academic_year_id,semester_id,section_id,grade,evaluation_status,enrolled_date,evaluation_date,modality_id,inc_compliance_deadline,requisite_subject_code,requisite_type
+student,2026-PERSONAL-001,Jordan,Rivera,,1,1,09171234567,"Manila, Philippines",active,active,,,,,,,,,,,,,
+account,2026-DEMO-NEW,Demo,Student,demo.new@example.com,,,,,,active,active,ChangeMe123!,,,,,,,,,,,
+grade,2026-PERSONAL-001,,,,,,,,,,,SSP 005,1,1,,1.0,passed,2025-08-01,2025-12-01,,,,
+grade,2026-PERSONAL-001,,,,,,,,,,,GEN 001,1,1,,1.25,passed,2025-08-15,2025-12-15,,,,
+grade,2026-PERSONAL-001,,,,,,,,,,,ITE 260,1,1,,1.5,passed,2025-08-15,2025-12-15,,,,
+grade,2026-PERSONAL-001,,,,,,,,,,,MAT 152,1,1,,1.0,passed,2025-08-15,2025-12-15,,,,
+grade,2026-PERSONAL-001,,,,,,,,,,,ITE 300,1,2,,1.75,passed,2026-01-10,2026-05-10,,,,
+prerequisite,,,,,,,,,,,,ITE 300,,,,,,,,,,ITE 260,prerequisite
