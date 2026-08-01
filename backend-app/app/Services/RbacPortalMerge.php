@@ -17,14 +17,6 @@ class RbacPortalMerge
     public static function portalAlwaysVisiblePermissionNames(?string $roleName): array
     {
         return match ($roleName) {
-            'Evaluator' => [
-                'evaluation.view',
-                'evaluation.create',
-                'evaluation.edit',
-                'evaluation.export_pdf',
-                'faculty.view',
-                'curriculum.view',
-            ],
             'Adviser' => [
                 'evaluation.view',
                 'evaluation.create',
@@ -89,11 +81,9 @@ class RbacPortalMerge
     public static function portalOptionalTabPermissionNames(?string $roleName): array
     {
         return match ($roleName) {
-            'Evaluator', 'Adviser', 'Dean' => array_merge([
+            'Adviser', 'Dean' => array_merge([
                 'electives.view',
                 'electives.manage',
-                'system.settings',
-                'system.backup',
                 'curriculum.view',
                 'curriculum.create',
                 'curriculum.edit',
@@ -101,13 +91,15 @@ class RbacPortalMerge
                 'curriculum.approve',
                 'Curriculum Management',
                 'Elective Slots',
-                'System Management',
                 'evaluation.view',
                 'evaluation.create',
                 'evaluation.edit',
                 'evaluation.approve',
                 'evaluation.export_pdf',
                 'Student Evaluation',
+                'Evaluation Reports',
+                'reports.view',
+                'reports.generate',
             ], LookupResourcePermissions::allGranularPermissionNames()),
             'Program Head' => array_merge([
                 'electives.view',
@@ -123,9 +115,6 @@ class RbacPortalMerge
                 'subjects.edit',
                 'subjects.delete',
                 'prerequisites.manage',
-                'system.settings',
-                'system.backup',
-                'System Management',
             ], LookupResourcePermissions::allGranularPermissionNames()),
             'Secretary' => array_merge([
                 'users.create',
@@ -185,7 +174,7 @@ class RbacPortalMerge
             ->map(fn ($id) => (int) $id)
             ->toArray();
 
-        $portalRoles = ['Evaluator', 'Adviser', 'Student', 'Dean', 'Program Head', 'Secretary'];
+        $portalRoles = ['Adviser', 'Student', 'Dean', 'Program Head', 'Secretary'];
         if ($roleName && in_array($roleName, $portalRoles, true)) {
             return array_values(array_unique(array_merge($dbAssigned, $alwaysIds)));
         }

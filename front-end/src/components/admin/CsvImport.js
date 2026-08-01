@@ -1,21 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import api from '../../api/axios';
-import { swalToast, swalError, swalConfirm } from '../../utils/swal';
+import { swalToast, swalConfirm } from '../../utils/swal';
 import './CsvImport.css';
-
-/** For SIS grade deliberation preview: show identifiers and term first. */
-const SIS_GRADE_DELIB_PREVIEW_COLUMN_PRIORITY = [
-  'student_id_number',
-  'subject_code',
-  'academic_year_id',
-  'semester_id',
-  'section_id',
-  'grade',
-  'evaluation_status',
-  'modality_id',
-  '_sis_session',
-  '_sis_row',
-];
 
 /** For sis_mixed preview: put row-type and grade fields first so they are visible without horizontal scroll. */
 const SIS_MIXED_PREVIEW_COLUMN_PRIORITY = [
@@ -48,28 +34,13 @@ const SIS_MIXED_PREVIEW_COLUMN_PRIORITY = [
 function orderPreviewHeaders(importTypeKey, headers) {
   if (!Array.isArray(headers) || headers.length === 0) return [];
   if (importTypeKey === 'sis_grade_deliberation') {
-    const priority = SIS_GRADE_DELIB_PREVIEW_COLUMN_PRIORITY;
-    const seen = new Set();
-    const ordered = [];
-    for (const h of priority) {
-      if (headers.includes(h) && !seen.has(h)) {
-        ordered.push(h);
-        seen.add(h);
-      }
-    }
-    for (const h of headers) {
-      if (!seen.has(h)) {
-        ordered.push(h);
-        seen.add(h);
-      }
-    }
-    return ordered;
+    return headers;
   }
   if (importTypeKey !== 'sis_mixed') return headers;
   const seen = new Set();
   const ordered = [];
   for (const h of SIS_MIXED_PREVIEW_COLUMN_PRIORITY) {
-    if (headers.includes(h) && !seen.has(h)) {
+    if (headers.includes(h)) {
       ordered.push(h);
       seen.add(h);
     }
@@ -83,14 +54,38 @@ function orderPreviewHeaders(importTypeKey, headers) {
   return ordered;
 }
 
+const SIS_INTERNAL_COLUMN_GROUP_TITLES = new Set(['Mapped system fields']);
+
+function filterColumnGroupsForGuide(groups, sisFileHeadersOnly) {
+  if (!Array.isArray(groups)) return [];
+  if (!sisFileHeadersOnly) return groups;
+  return groups.filter(
+    (group) =>
+      !SIS_INTERNAL_COLUMN_GROUP_TITLES.has(group.title) &&
+      Array.isArray(group.columns) &&
+      group.columns.length > 0
+  );
+}
+
 /**
- * @param {{ restrictToImportKeys?: string[] | null, excludeImportKeys?: string[] | null, pageTitle?: string, pageSubtitle?: string }} props
+ * @param {{
+ *   restrictToImportKeys?: string[] | null,
+ *   excludeImportKeys?: string[] | null,
+ *   pageTitle?: string,
+ *   pageSubtitle?: string,
+ *   hideColumnGuide?: boolean,
+ *   hideImportType?: boolean,
+ *   sisFileHeadersOnly?: boolean,
+ * }} props
  */
 const CsvImport = ({
   restrictToImportKeys = null,
   excludeImportKeys = null,
   pageTitle,
   pageSubtitle,
+  hideColumnGuide = false,
+  hideImportType = false,
+  sisFileHeadersOnly = false,
 }) => {
   const [importTypes, setImportTypes] = useState([]);
   const [selectedType, setSelectedType] = useState('');
@@ -138,6 +133,25 @@ const CsvImport = ({
 
   const isSisGradeDeliberation = selectedType === 'sis_grade_deliberation';
 
+  const maybeSwitchImportTypeForFile = (selectedFile) => {
+    if (!selectedFile || !importTypes.some((type) => type.key === 'sis_grade_deliberation')) {
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      const firstLine = String(reader.result || '').split(/\r?\n/)[0] || '';
+      const firstCell = firstLine.split(/[,\t]/)[0]?.replace(/^\uFEFF/, '').trim().toLowerCase();
+      if (firstCell === 'session' && selectedType !== 'sis_grade_deliberation') {
+        setSelectedType('sis_grade_deliberation');
+        setPreview(null);
+        setSisTermAyId('');
+        setSisTermSemId('');
+      }
+    };
+    reader.readAsText(selectedFile.slice(0, 2048));
+  };
+
   const handleFileChange = (e) => {
     const selectedFile = e.target.files[0];
     if (selectedFile) {
@@ -158,6 +172,7 @@ const CsvImport = ({
       setPreview(null);
       setError('');
       setSuccess('');
+      maybeSwitchImportTypeForFile(selectedFile);
     }
   };
 
@@ -253,7 +268,7 @@ const CsvImport = ({
     link.href = `${process.env.REACT_APP_API_URL || 'http://localhost:8000/api'}/csv-import/template/${selectedType}`;
     link.download =
       selectedType === 'sis_grade_deliberation'
-        ? 'sis_grade_deliberation_template.tsv'
+        ? 'sis_grade_deliberation_template.csv'
         : `${selectedType}_template.csv`;
     document.body.appendChild(link);
     link.click();
@@ -267,7 +282,13 @@ const CsvImport = ({
     [selectedType, preview?.headers]
   );
 
+  const columnGroupsForGuide = useMemo(
+    () => filterColumnGroupsForGuide(selectedTypeConfig?.column_groups, sisFileHeadersOnly),
+    [selectedTypeConfig?.column_groups, sisFileHeadersOnly]
+  );
+
   const hideTypeSelect = importTypes.length <= 1;
+  const showImportTypeField = !hideImportType && importTypes.length > 0;
 
   return (
     <div className="csv-import">
@@ -285,45 +306,55 @@ const CsvImport = ({
         {importTypes.length === 0 ? (
           <div className="csv-import-error">No import types are available for your account.</div>
         ) : null}
-        <div className="form-group">
-          <label htmlFor="import_type">Import Type</label>
-          {hideTypeSelect ? (
-            <div className="csv-import-type-static" id="import_type">
-              {importTypes[0]?.label || selectedType}
-            </div>
-          ) : (
-            <select
-              id="import_type"
-              value={selectedType}
-              onChange={(e) => {
-                setSelectedType(e.target.value);
-                setPreview(null);
-                setFile(null);
-                setSisTermAyId('');
-                setSisTermSemId('');
-              }}
-              className="form-select"
-            >
-              {importTypes.map((type) => (
-                <option key={type.key} value={type.key}>
-                  {type.label}
-                </option>
-              ))}
-            </select>
-          )}
-        </div>
+        {showImportTypeField ? (
+          <div className="form-group">
+            <label htmlFor="import_type">Import Type</label>
+            {hideTypeSelect ? (
+              <div className="csv-import-type-static" id="import_type">
+                {importTypes[0]?.label || selectedType}
+              </div>
+            ) : (
+              <select
+                id="import_type"
+                value={selectedType}
+                onChange={(e) => {
+                  setSelectedType(e.target.value);
+                  setPreview(null);
+                  setFile(null);
+                  setSisTermAyId('');
+                  setSisTermSemId('');
+                }}
+                className="form-select"
+              >
+                {importTypes.map((type) => (
+                  <option key={type.key} value={type.key}>
+                    {type.label}
+                  </option>
+                ))}
+              </select>
+            )}
+          </div>
+        ) : null}
 
-        {selectedTypeConfig && (
+        {selectedTypeConfig && !hideColumnGuide && (
           <div className="csv-requirements">
-            <h4>Required Columns:</h4>
-            <div className="column-tags">
-              {selectedTypeConfig.required_columns.map(col => (
-                <span key={col} className="column-tag required">{col}</span>
-              ))}
-            </div>
-            {selectedTypeConfig.column_groups?.length > 0 ? (
+            {!sisFileHeadersOnly ? (
+              <>
+                <h4>Required Columns:</h4>
+                <div className="column-tags">
+                  {selectedTypeConfig.required_columns.map((col) => (
+                    <span key={col} className="column-tag required">
+                      {col}
+                    </span>
+                  ))}
+                </div>
+              </>
+            ) : (
+              <h4>CSV header row (use these column names):</h4>
+            )}
+            {columnGroupsForGuide.length > 0 ? (
               <div className="csv-column-groups">
-                {selectedTypeConfig.column_groups.map((group) => (
+                {columnGroupsForGuide.map((group) => (
                   <div key={group.title} className="csv-column-group">
                     <h4 className="csv-column-group-title">{group.title}</h4>
                     {group.description ? (
@@ -332,19 +363,23 @@ const CsvImport = ({
                     {group.columns?.length > 0 ? (
                       <div className="column-tags">
                         {group.columns.map((col) => (
-                          <span key={col} className="column-tag optional">{col}</span>
+                          <span key={col} className="column-tag optional">
+                            {col}
+                          </span>
                         ))}
                       </div>
                     ) : null}
                   </div>
                 ))}
               </div>
-            ) : selectedTypeConfig.optional_columns.length > 0 ? (
+            ) : !sisFileHeadersOnly && selectedTypeConfig.optional_columns.length > 0 ? (
               <>
                 <h4>Optional Columns:</h4>
                 <div className="column-tags">
-                  {selectedTypeConfig.optional_columns.map(col => (
-                    <span key={col} className="column-tag optional">{col}</span>
+                  {selectedTypeConfig.optional_columns.map((col) => (
+                    <span key={col} className="column-tag optional">
+                      {col}
+                    </span>
                   ))}
                 </div>
               </>
@@ -352,12 +387,14 @@ const CsvImport = ({
           </div>
         )}
 
-        {isSisGradeDeliberation ? (
+        {isSisGradeDeliberation && !sisFileHeadersOnly ? (
           <div className="form-group csv-import-term-override">
             <p className="csv-column-group-desc">
               If preview shows a term error, set both IDs from <strong>Admin → Academic Years / Semesters</strong> (or your
-              lookup API). Leave blank when <code>SESSION</code> (e.g. <code>SY 25-26 SEM II</code>) matches your academic year
-              names.
+              lookup API). Leave blank when <code>SESSION</code> (e.g. <code>SY 25-26 SEM 1</code>) can match Lookup{' '}
+              <strong>Academic Year</strong> — <code>SY 25-26</code> maps to <code>2025-2026</code> in the database
+              (created automatically if missing). Preview columns <code>→ Academic Year (DB)</code> and{' '}
+              <code>→ Semester (DB)</code> show the matched Lookup rows.
             </p>
             <label htmlFor="sis_academic_year_id">Optional: Academic year ID</label>
             <input
@@ -445,9 +482,10 @@ const CsvImport = ({
           ) : null}
           {selectedType === 'sis_grade_deliberation' ? (
             <p className="csv-preview-sis-mixed-hint">
-              <strong>SIS export:</strong> Rows are one grade per subject. Extra columns between <code>SECTION</code> and{' '}
-              <code>MODALITY</code> (team-teaching) are handled when the file has no header row. With a header row, use the
-              23-column layout from your SIS. Excel: Save As → <em>Text (Tab-delimited)</em> or CSV UTF-8.
+              <strong>SIS export:</strong> Preview shows your <em>file</em> columns (SESSION, STUDENT ID, CODE,
+              GRADE, REMARKS, etc.) plus <code>→ Academic Year (DB)</code> / <code>→ Semester (DB)</code> so you can
+              verify SESSION matches Lookup. Example: <code>SY 25-26 SEM I</code> → Academic Year{' '}
+              <code>2025-2026</code>, 1st Semester. Excel: Save As → <em>Text (Tab-delimited)</em> or CSV UTF-8.
             </p>
           ) : null}
           

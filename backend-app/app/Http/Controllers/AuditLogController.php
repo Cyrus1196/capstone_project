@@ -3,19 +3,29 @@
 namespace App\Http\Controllers;
 
 use App\Models\AuditLog;
+use App\Models\UserSessionLog;
 use Illuminate\Http\Request;
 
 class AuditLogController extends Controller
 {
+    private function ensureCanViewAudit(Request $request)
+    {
+        $user = $request->user();
+        if (! $user) {
+            return response()->json(['message' => 'Unauthorized'], 403);
+        }
+        if (! $user->isAdmin() && ! $user->hasPermission('audit.view') && ! $user->hasPermission('Audit Logs')) {
+            return response()->json(['message' => 'Unauthorized'], 403);
+        }
+
+        return null;
+    }
+
     public function index(Request $request)
     {
         try {
-            $user = $request->user();
-            if (! $user) {
-                return response()->json(['message' => 'Unauthorized'], 403);
-            }
-            if (! $user->isAdmin() && ! $user->hasPermission('audit.view') && ! $user->hasPermission('Audit Logs')) {
-                return response()->json(['message' => 'Unauthorized'], 403);
+            if ($resp = $this->ensureCanViewAudit($request)) {
+                return $resp;
             }
 
             $query = AuditLog::with('user');
@@ -47,6 +57,50 @@ class AuditLogController extends Controller
             return response()->json($logs);
         } catch (\Exception $e) {
             return response()->json(['error' => 'Failed to fetch audit logs', 'message' => $e->getMessage()], 500);
+        }
+    }
+
+    public function sessions(Request $request)
+    {
+        try {
+            if ($resp = $this->ensureCanViewAudit($request)) {
+                return $resp;
+            }
+
+            $query = UserSessionLog::with('user.role');
+
+            if ($request->filled('email')) {
+                $query->where('email', 'like', '%' . $request->email . '%');
+            }
+
+            if ($request->filled('status')) {
+                if ($request->status === 'active') {
+                    $query->where('status', 'success')->whereNull('logout_at');
+                } elseif ($request->status === 'logged_out') {
+                    $query->where('status', 'success')->whereNotNull('logout_at');
+                } else {
+                    $query->where('status', $request->status);
+                }
+            }
+
+            if ($request->filled('ip_address')) {
+                $query->where('ip_address', 'like', '%' . $request->ip_address . '%');
+            }
+
+            if ($request->filled('date_from')) {
+                $query->where('login_at', '>=', $request->date_from);
+            }
+
+            if ($request->filled('date_to')) {
+                $query->where('login_at', '<=', $request->date_to);
+            }
+
+            $logs = $query->orderByDesc('login_at')
+                ->paginate($request->get('per_page', 50));
+
+            return response()->json($logs);
+        } catch (\Exception $e) {
+            return response()->json(['error' => 'Failed to fetch session logs', 'message' => $e->getMessage()], 500);
         }
     }
 }

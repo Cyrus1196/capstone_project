@@ -111,6 +111,21 @@
   margin-bottom: 1.5rem;
 }
 
+.profile-form {
+  max-width: 800px;
+}
+
+.form-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+  gap: 1.5rem;
+  margin-bottom: 1.5rem;
+}
+
+.form-row .form-group {
+  margin-bottom: 0;
+}
+
 .form-group label {
   font-weight: 600;
   color: #555;

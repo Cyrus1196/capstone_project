@@ -4,7 +4,9 @@ import { jsPDF } from 'jspdf';
 import api from '../../api/axios';
 import { useAuth } from '../../context/AuthContext';
 import { useNavigate } from 'react-router-dom';
-import { swalError } from '../../utils/swal';
+import { swalError, swalToast } from '../../utils/swal';
+import { formatCurriculumYearRange } from '../../utils/curriculumYear';
+import SearchableSelect from '../common/SearchableSelect';
 import './GuestPanel.css';
 
 const publicUrl = process.env.PUBLIC_URL || '';
@@ -31,11 +33,19 @@ function curriculumHeaderLabel(row) {
   if (!h) {
     return row.curriculum_header_id != null ? `Curriculum #${row.curriculum_header_id}` : '—';
   }
-  return h.Effective_Year || h.description || h.effective_year || `Curriculum #${row.curriculum_header_id}`;
+  const effectiveYear = h.Effective_Year ?? h.effective_year;
+  const schoolYear = formatCurriculumYearRange(effectiveYear);
+  return schoolYear || h.description || `Curriculum #${row.curriculum_header_id}`;
 }
 
 function electiveSlot(row) {
   return row.electiveSlot || row.elective_slot;
+}
+
+function electiveSubjects(row) {
+  const slot = electiveSlot(row);
+  const subjects = slot?.electiveSubjects || slot?.elective_subjects;
+  return Array.isArray(subjects) ? subjects : [];
 }
 
 /** Curriculum row tied to an elective slot (not a single fixed subject). */
@@ -43,10 +53,30 @@ function isElectiveSlotRow(row) {
   return row.elective_slot_id != null && row.elective_slot_id !== '';
 }
 
+function isInformationTechnologyProgram(program) {
+  if (!program) return false;
+  const code = String(program.program_code || program.code || '').trim().toUpperCase();
+  const name = String(program.program_name || program.name || '').trim().toLowerCase();
+  return code === 'BSIT' || name.includes('information technology');
+}
+
+function programForRow(row, programs) {
+  if (row.program) return row.program;
+  const slot = electiveSlot(row);
+  if (slot?.program) return slot.program;
+  const programId = row.program_id ?? slot?.program_id;
+  return programs.find((program) => String(program.program_id) === String(programId)) || null;
+}
+
+function isTrackBasedElectiveRow(row, programs) {
+  if (!isElectiveSlotRow(row)) return false;
+  if (!isInformationTechnologyProgram(programForRow(row, programs))) return false;
+  return electiveSubjects(row).some((es) => es.track_id != null && es.track_id !== '');
+}
+
 function getPenCodes(row) {
   if (row.subject?.subject_code) return row.subject.subject_code;
-  const slot = electiveSlot(row);
-  const subs = slot?.electiveSubjects || slot?.elective_subjects;
+  const subs = electiveSubjects(row);
   if (Array.isArray(subs) && subs.length > 0) {
     const codes = subs.map((es) => es.subject?.subject_code).filter(Boolean);
     if (codes.length) return codes.join(' / ');
@@ -69,36 +99,270 @@ function getTitle(row) {
 }
 
 /** Elective slot row + chosen track → matching elective_subject entry, if any. */
-function resolveElectiveSubject(row, trackId) {
+function resolveElectiveSubject(
+  row,
+  trackId,
+  allElectiveRows = null,
+  trackBySlot = null,
+  programs = null,
+) {
   if (!isElectiveSlotRow(row) || trackId == null || trackId === '') return null;
-  const slot = electiveSlot(row);
-  const subs = slot?.electiveSubjects || slot?.elective_subjects;
-  if (!Array.isArray(subs)) return null;
-  return subs.find((es) => String(es.track_id) === String(trackId)) ?? null;
+
+  // Elective 4 subject comes from admin (Lookup → Elective subjects assigned to this slot).
+  // Digi full path (same track on 1–3): use Digi's 4th subject on this slot.
+  if (isGuestElectiveFourRow(row) && Array.isArray(allElectiveRows) && allElectiveRows.length > 0) {
+    const primaryTid = getGuestPrimaryElectiveTrackId(trackBySlot, allElectiveRows, programs);
+    const digiFullPath = primaryTid && String(primaryTid) === String(trackId);
+
+    if (digiFullPath) {
+      const directOnFour =
+        electiveSubjects(row).find((es) => String(es.track_id) === String(trackId)) ?? null;
+      if (directOnFour) return directOnFour;
+
+      const bySlot = [...allElectiveRows]
+        .filter((r) => isElectiveSlotRow(r))
+        .sort((a, b) => electiveSlotSortValue(a) - electiveSlotSortValue(b))
+        .map((r) =>
+          electiveSubjects(r).find((es) => String(es.track_id) === String(trackId)),
+        )
+        .filter(Boolean);
+      if (bySlot.length >= 4) return bySlot[3];
+      if (bySlot.length) return bySlot[bySlot.length - 1];
+    }
+
+    // Separate Elective 4 track: only subjects admin linked to Elective 4 for that track.
+    const adminAssigned =
+      electiveSubjects(row).find((es) => String(es.track_id) === String(trackId)) ?? null;
+    if (adminAssigned) return adminAssigned;
+    return null;
+  }
+
+  const direct =
+    electiveSubjects(row).find((es) => String(es.track_id) === String(trackId)) ?? null;
+  if (direct) return direct;
+
+  // Other slots with no track link: borrow from the earliest elective that has this track.
+  if (!Array.isArray(allElectiveRows) || allElectiveRows.length === 0) return null;
+  const selfKey = guestElectiveSlotKey(row);
+  const ordered = [...allElectiveRows]
+    .filter((r) => isElectiveSlotRow(r) && guestElectiveSlotKey(r) !== selfKey)
+    .sort((a, b) => electiveSlotSortValue(a) - electiveSlotSortValue(b));
+  for (const other of ordered) {
+    const hit = electiveSubjects(other).find((es) => String(es.track_id) === String(trackId));
+    if (hit) return hit;
+  }
+  return null;
 }
 
-function getPenCodePartsForGuest(row, electiveTrackId) {
+function electiveSlotSortValue(row) {
+  const name = String(
+    electiveSlot(row)?.slot_name || row?.elective_slot_name || '',
+  ).toLowerCase();
+  const numbered = name.match(/electives?\s*(\d+)/i);
+  if (numbered) return Number(numbered[1]);
+  return 50;
+}
+
+function isGuestElectiveFourRow(row) {
+  return electiveSlotSortValue(row) === 4;
+}
+
+function isGuestDigiTrackOption(track) {
+  const code = String(track?.track_code || '').toUpperCase();
+  const name = String(track?.track_name || '').toLowerCase();
+  return /DIGI/.test(code) || name.includes('digital art');
+}
+
+/**
+ * Apply a track from the slot the user opened:
+ * - Digi from Electives 1–3: fill slots 1–4 (Digi has four elective subjects).
+ * - Other tracks from Electives 1–3: fill 1–3; clear Elective 4 if it was Digi-auto-filled
+ *   (same track as previous Electives 1–3) so it resets to "Choose track".
+ * - Elective 4 alone: set only Elective 4.
+ */
+function buildGuestElectiveTracksForChoice(track, electiveRows, programs, sourceRow, existingBySlot = {}) {
+  const tid = String(track.track_id);
+  const fromElectiveFour = sourceRow ? isGuestElectiveFourRow(sourceRow) : false;
+  const isDigi = isGuestDigiTrackOption(track);
+  const next = { ...(existingBySlot || {}) };
+  const previousPrimaryTid = getGuestPrimaryElectiveTrackId(
+    existingBySlot,
+    electiveRows,
+    programs,
+  );
+
+  electiveRows.forEach((row) => {
+    if (!isTrackBasedElectiveRow(row, programs)) return;
+    const key = guestElectiveSlotKey(row);
+    if (!key) return;
+    const num = electiveSlotSortValue(row);
+    if (num < 1 || num > 4) return;
+
+    if (fromElectiveFour) {
+      if (num === 4) next[key] = tid;
+      return;
+    }
+
+    if (isDigi) {
+      // Digital Arts has 4 electives — auto-fill Elective 4 as well.
+      next[key] = tid;
+      return;
+    }
+
+    if (num <= 3) {
+      next[key] = tid;
+      return;
+    }
+
+    if (num === 4) {
+      const onFour = String(existingBySlot[key] || '');
+      // Leaving Digi (or any 1–4 auto-fill): clear Elective 4 back to unchosen.
+      if (
+        onFour &&
+        (onFour === tid ||
+          (previousPrimaryTid && onFour === String(previousPrimaryTid)))
+      ) {
+        delete next[key];
+      }
+    }
+  });
+
+  return next;
+}
+
+/** Clear tracks for the same group as the modal source slot (1–3 together, or 4 alone). */
+function clearGuestElectiveTracksForSlot(sourceRow, electiveRows, programs, existingBySlot = {}) {
+  if (!sourceRow) return {};
+  const fromElectiveFour = isGuestElectiveFourRow(sourceRow);
+  const next = { ...(existingBySlot || {}) };
+  const primaryTid = getGuestPrimaryElectiveTrackId(existingBySlot, electiveRows, programs);
+
+  electiveRows.forEach((row) => {
+    if (!isTrackBasedElectiveRow(row, programs)) return;
+    const key = guestElectiveSlotKey(row);
+    if (!key) return;
+    const num = electiveSlotSortValue(row);
+    if (fromElectiveFour) {
+      if (num === 4) delete next[key];
+      return;
+    }
+    if (num >= 1 && num <= 3) {
+      delete next[key];
+    } else if (
+      num === 4 &&
+      primaryTid &&
+      String(existingBySlot[key] || '') === String(primaryTid)
+    ) {
+      // Digi auto-fills Elective 4 — clear it with Electives 1–3.
+      delete next[key];
+    }
+  });
+
+  return next;
+}
+
+/** Track id currently applied to Electives 1–3 (if any). */
+function getGuestPrimaryElectiveTrackId(trackBySlot, electiveRows, programs) {
+  if (!trackBySlot) return '';
+  for (const row of electiveRows || []) {
+    if (!isTrackBasedElectiveRow(row, programs)) continue;
+    const num = electiveSlotSortValue(row);
+    if (num < 1 || num > 3) continue;
+    const tid = getGuestTrackIdForRow(row, trackBySlot);
+    if (tid) return tid;
+  }
+  return '';
+}
+
+function guestElectiveSlotKey(row) {
+  const id = row?.elective_slot_id ?? electiveSlot(row)?.elective_slot_id;
+  return id != null && id !== '' ? String(id) : null;
+}
+
+/** Per-slot track map → track id for this elective row. */
+function getGuestTrackIdForRow(row, trackBySlot) {
+  const key = guestElectiveSlotKey(row);
+  if (!key || !trackBySlot) return '';
+  const tid = trackBySlot[key];
+  return tid != null && tid !== '' ? String(tid) : '';
+}
+
+function getAssignedElectiveSubjectNames(row) {
+  return electiveSubjects(row)
+    .map((es) => es.subject?.subject_name)
+    .filter(Boolean);
+}
+
+function getPenCodePartsForGuest(
+  row,
+  electiveTrackId,
+  programs,
+  allElectiveRows = null,
+  trackBySlot = null,
+) {
   if (!isElectiveSlotRow(row)) return getPenCodeParts(row);
+  if (!isTrackBasedElectiveRow(row, programs)) return getPenCodeParts(row);
   if (!electiveTrackId) return [];
-  const es = resolveElectiveSubject(row, electiveTrackId);
+  const es = resolveElectiveSubject(
+    row,
+    electiveTrackId,
+    allElectiveRows,
+    trackBySlot,
+    programs,
+  );
   const code = es?.subject?.subject_code;
   return code ? [String(code).trim()].filter(Boolean) : [];
 }
 
-function getDisplayTitleForGuest(row, electiveTrackId) {
+function getDisplayTitleForGuest(
+  row,
+  electiveTrackId,
+  programs,
+  allElectiveRows = null,
+  trackBySlot = null,
+) {
   if (!isElectiveSlotRow(row)) return getTitle(row);
-  if (!electiveTrackId) return 'Elective';
-  const es = resolveElectiveSubject(row, electiveTrackId);
+  const slot = electiveSlot(row);
+  if (!isTrackBasedElectiveRow(row, programs)) {
+    const names = getAssignedElectiveSubjectNames(row);
+    if (names.length) return names.join(' / ');
+    return slot?.slot_name || 'Elective';
+  }
+  if (!electiveTrackId) return slot?.slot_name || 'Elective';
+  const es = resolveElectiveSubject(
+    row,
+    electiveTrackId,
+    allElectiveRows,
+    trackBySlot,
+    programs,
+  );
   if (es?.subject?.subject_name) return es.subject.subject_name;
   return '—';
 }
 
-function getUnitsForGuest(row, electiveTrackId) {
+function getUnitsForGuest(
+  row,
+  electiveTrackId,
+  programs,
+  allElectiveRows = null,
+  trackBySlot = null,
+) {
   if (!isElectiveSlotRow(row)) return getUnits(row);
-  if (!electiveTrackId) return '—';
-  const es = resolveElectiveSubject(row, electiveTrackId);
-  if (es?.subject?.number_of_units != null) return es.subject.number_of_units;
-  return '—';
+  if (!isTrackBasedElectiveRow(row, programs)) return getUnits(row);
+  // IT track electives are fixed at 3 units even before a track is chosen.
+  if (electiveTrackId) {
+    const es = resolveElectiveSubject(
+      row,
+      electiveTrackId,
+      allElectiveRows,
+      trackBySlot,
+      programs,
+    );
+    if (es?.subject?.number_of_units != null) return es.subject.number_of_units;
+  }
+  const fromSlot = getUnits(row);
+  if (fromSlot !== '—') return fromSlot;
+  return 3;
 }
 
 function getUnits(row) {
@@ -109,6 +373,278 @@ function getUnits(row) {
     return subs[0].subject.number_of_units;
   }
   return '—';
+}
+
+function parseUnitsNumber(units) {
+  if (units === '—' || units === '' || units == null) return null;
+  const n = typeof units === 'number' ? units : Number(String(units).replace(/,/g, ''));
+  return Number.isFinite(n) ? n : null;
+}
+
+/** Collect curriculum + subject requisite rows for a guest curriculum row. */
+function getGuestRequisiteList(row) {
+  const fromCurriculum = row?.requisite;
+  const fromSubject = row?.subject?.prerequisites;
+  return [
+    ...(Array.isArray(fromCurriculum) ? fromCurriculum : fromCurriculum ? [fromCurriculum] : []),
+    ...(Array.isArray(fromSubject) ? fromSubject : fromSubject ? [fromSubject] : []),
+  ];
+}
+
+/** Prerequisite labels only (P: …). Corequisites are shown as a separate tag. */
+function formatGuestPrerequisite(row) {
+  const list = getGuestRequisiteList(row);
+  if (list.length === 0) return '';
+
+  const prereqRuleLabels = [
+    ...new Set(
+      list
+        .filter((r) => {
+          const type = String(r?.requisite_type || r?.type || 'prerequisite').toLowerCase();
+          return type !== 'corequisite';
+        })
+        .map((r) => String(r?.rule_label || '').trim())
+        .filter(Boolean),
+    ),
+  ];
+  if (prereqRuleLabels.length === 1) return `P: ${prereqRuleLabels[0]}`;
+  if (prereqRuleLabels.length > 1) return prereqRuleLabels.map((label) => `P: ${label}`).join(', ');
+
+  const labels = list
+    .map((r) => {
+      const type = String(r?.requisite_type || r?.type || 'prerequisite').toLowerCase();
+      if (type === 'corequisite') return null;
+      const required = r?.requiredSubject || r?.required_subject;
+      const code = required?.subject_code;
+      if (!code) return null;
+      return `P: ${code}`;
+    })
+    .filter(Boolean);
+
+  return labels.length ? [...new Set(labels)].join(', ') : '';
+}
+
+/** Corequisite subject codes for this row. */
+function getGuestCorequisiteCodes(row) {
+  const codes = [];
+  for (const r of getGuestRequisiteList(row)) {
+    const type = String(r?.requisite_type || r?.type || 'prerequisite').toLowerCase();
+    if (type !== 'corequisite') continue;
+    const required = r?.requiredSubject || r?.required_subject;
+    const code = required?.subject_code;
+    if (code) codes.push(String(code).trim());
+  }
+  return [...new Set(codes)];
+}
+
+/**
+ * Tag copy for corequisites: both this subject and its coreq must be passed.
+ * Uses bidirectional links so either side of the pair shows the note.
+ * @returns {{ codes: string[], text: string } | null}
+ */
+function getGuestCorequisiteTag(row, scopeRows = null) {
+  const forward = getGuestCorequisiteCodes(row);
+  let codes = forward;
+  if (scopeRows?.length) {
+    const cluster = collectGuestCorequisiteCluster(row, scopeRows);
+    if (cluster.length >= 2) {
+      codes = cluster
+        .filter((r) => String(r.curriculum_id) !== String(row.curriculum_id))
+        .map((r) => r?.subject?.subject_code)
+        .filter(Boolean);
+    }
+  }
+  if (codes.length === 0) return null;
+  const codeList = [...new Set(codes.map((c) => String(c).trim()))].join(', ');
+  const text =
+    codes.length === 1
+      ? `Pass both this subject and ${codeList} (coreq)`
+      : `Pass this subject together with ${codeList} (coreqs)`;
+  return { codes: [...new Set(codes.map((c) => String(c).trim()))], text };
+}
+
+function normalizeGuestSubjectCode(code) {
+  return String(code || '')
+    .replace(/\s+/g, '')
+    .toUpperCase();
+}
+
+/** Prerequisite subject codes only (corequisites are concurrent and do not block credit). */
+function getGuestPrerequisiteCodes(row) {
+  const list = getGuestRequisiteList(row);
+  const codes = [];
+  for (const r of list) {
+    const type = String(r?.requisite_type || r?.type || 'prerequisite').toLowerCase();
+    if (type === 'corequisite') continue;
+    // Standing / "all subjects" style rules have no required subject code — skip for click lock.
+    if (r?.rule_label && !(r?.requiredSubject || r?.required_subject)?.subject_code) continue;
+    const required = r?.requiredSubject || r?.required_subject;
+    const code = required?.subject_code;
+    if (code) codes.push(String(code).trim());
+  }
+  return [...new Set(codes)];
+}
+
+function findGuestRowBySubjectCode(rows, code) {
+  const want = normalizeGuestSubjectCode(code);
+  if (!want) return null;
+  return (
+    rows.find((row) => normalizeGuestSubjectCode(row?.subject?.subject_code) === want) || null
+  );
+}
+
+/** Same-term / catalog rows linked by corequisite edges (bidirectional). */
+function collectGuestCorequisiteCluster(seedRow, scopeRows) {
+  if (!seedRow || !scopeRows?.length) return seedRow ? [seedRow] : [];
+  const byCode = new Map();
+  scopeRows.forEach((r) => {
+    const c = normalizeGuestSubjectCode(r?.subject?.subject_code);
+    if (c) byCode.set(c, r);
+  });
+  const cluster = new Set([seedRow]);
+  let frontier = [seedRow];
+  for (let hop = 0; hop < 6 && frontier.length; hop += 1) {
+    const nextF = [];
+    for (const r of frontier) {
+      const rCode = normalizeGuestSubjectCode(r?.subject?.subject_code);
+      const neighbors = [];
+      for (const code of getGuestCorequisiteCodes(r)) {
+        const hit = findGuestRowBySubjectCode(scopeRows, code);
+        if (hit && hit !== r) neighbors.push(hit);
+      }
+      if (rCode) {
+        for (const other of scopeRows) {
+          if (other === r) continue;
+          for (const code of getGuestCorequisiteCodes(other)) {
+            if (normalizeGuestSubjectCode(code) === rCode) neighbors.push(other);
+          }
+        }
+      }
+      for (const nb of neighbors) {
+        if (!cluster.has(nb)) {
+          cluster.add(nb);
+          nextF.push(nb);
+        }
+      }
+    }
+    frontier = nextF;
+  }
+  return [...cluster];
+}
+
+/**
+ * @returns {{ ok: boolean, unmet: string[] }}
+ */
+function guestPrerequisitesMet(scopeRows, targetRow, remarksMap) {
+  const codes = getGuestPrerequisiteCodes(targetRow);
+  if (codes.length === 0) return { ok: true, unmet: [] };
+  const unmet = [];
+  for (const code of codes) {
+    const prereqRow = findGuestRowBySubjectCode(scopeRows, code);
+    // Subject not in this curriculum catalog → skip hard block.
+    if (!prereqRow) continue;
+    if (remarksMap[prereqRow.curriculum_id] !== 'passed') {
+      unmet.push(code);
+    }
+  }
+  return { ok: unmet.length === 0, unmet };
+}
+
+/**
+ * Whether this row can be credited now, including corequisite partners
+ * (partners must already be credited or have their own prerequisites met).
+ * @returns {{ ok: boolean, reason?: 'prereq'|'coreq', unmet: string[], cluster: object[] }}
+ */
+function guestCanCreditWithCorequisites(scopeRows, targetRow, remarksMap) {
+  const cluster = collectGuestCorequisiteCluster(targetRow, scopeRows);
+  const prereqGate = guestPrerequisitesMet(scopeRows, targetRow, remarksMap);
+  if (!prereqGate.ok) {
+    return { ok: false, reason: 'prereq', unmet: prereqGate.unmet, cluster };
+  }
+
+  const unmet = [];
+  for (const partner of cluster) {
+    if (String(partner.curriculum_id) === String(targetRow.curriculum_id)) continue;
+    if (remarksMap[partner.curriculum_id] === 'passed') continue;
+    const partnerPrereq = guestPrerequisitesMet(scopeRows, partner, remarksMap);
+    if (!partnerPrereq.ok) {
+      const code = partner?.subject?.subject_code || 'coreq';
+      unmet.push(
+        partnerPrereq.unmet.length
+          ? `${code} (needs ${partnerPrereq.unmet.join(', ')})`
+          : code,
+      );
+    }
+  }
+  if (unmet.length) {
+    return { ok: false, reason: 'coreq', unmet, cluster };
+  }
+  return { ok: true, unmet: [], cluster };
+}
+
+/** Apply credit to a row and every linked corequisite partner. */
+function creditGuestCluster(scopeRows, seedRow, remarksMap) {
+  const gate = guestCanCreditWithCorequisites(scopeRows, seedRow, remarksMap);
+  if (!gate.ok) return { ok: false, next: remarksMap, gate };
+  const next = { ...remarksMap };
+  for (const row of gate.cluster) {
+    if (guestPrerequisitesMet(scopeRows, row, next).ok) {
+      next[row.curriculum_id] = 'passed';
+    }
+  }
+  return { ok: true, next, gate };
+}
+
+/** Clear credit on a row and its corequisite cluster. */
+function uncreditGuestCluster(scopeRows, seedRow, remarksMap) {
+  const cluster = collectGuestCorequisiteCluster(seedRow, scopeRows);
+  const next = { ...remarksMap };
+  for (const row of cluster) {
+    delete next[row.curriculum_id];
+  }
+  return clearGuestDependentCredits(scopeRows, next);
+}
+
+/** Marked Credited AND prereqs met AND linked coreqs also credited. */
+function isGuestEffectivelyCredited(scopeRows, row, remarksMap) {
+  if (remarksMap[row.curriculum_id] !== 'passed') return false;
+  if (!guestPrerequisitesMet(scopeRows, row, remarksMap).ok) return false;
+  const cluster = collectGuestCorequisiteCluster(row, scopeRows);
+  if (cluster.length < 2) return true;
+  return cluster.every((r) => remarksMap[r.curriculum_id] === 'passed');
+}
+
+/** After un-crediting a subject, also clear any subjects that required it. */
+function clearGuestDependentCredits(scopeRows, remarksMap) {
+  const next = { ...remarksMap };
+  let changed = true;
+  while (changed) {
+    changed = false;
+    for (const row of scopeRows) {
+      if (next[row.curriculum_id] !== 'passed') continue;
+      if (!guestPrerequisitesMet(scopeRows, row, next).ok) {
+        delete next[row.curriculum_id];
+        // Also drop linked coreqs so pairs stay in sync.
+        for (const partner of collectGuestCorequisiteCluster(row, scopeRows)) {
+          if (next[partner.curriculum_id] === 'passed') {
+            delete next[partner.curriculum_id];
+          }
+        }
+        changed = true;
+      } else {
+        const cluster = collectGuestCorequisiteCluster(row, scopeRows);
+        if (cluster.length >= 2 && cluster.some((r) => next[r.curriculum_id] !== 'passed')) {
+          for (const partner of cluster) {
+            if (next[partner.curriculum_id] === 'passed') {
+              delete next[partner.curriculum_id];
+              changed = true;
+            }
+          }
+        }
+      }
+    }
+  }
+  return next;
 }
 
 function lookupYearLabel(yearId, yearLevels) {
@@ -123,16 +659,324 @@ function lookupSemesterLabel(semId, semesters) {
   return s?.semester_name || `Semester (${semId})`;
 }
 
+/** Classify semester as first / second / summer for planner move rules. */
+function getGuestSemesterKind(semId, semesters) {
+  const name = String(lookupSemesterLabel(semId, semesters) || '').toLowerCase();
+  if (/summer|mid\s*-?\s*year|midyear/.test(name)) return 'summer';
+  if (/2nd|second/.test(name)) return 'second';
+  if (/1st|first/.test(name)) return 'first';
+  const id = String(semId ?? '');
+  if (id === '3') return 'summer';
+  if (id === '2') return 'second';
+  if (id === '1') return 'first';
+  return 'other';
+}
+
+/** Within a year: 1st → Summer (mid-year) → 2nd. */
+function guestSemesterKindSortOrder(semId, semesters) {
+  const kind = getGuestSemesterKind(semId, semesters);
+  if (kind === 'first') return 0;
+  if (kind === 'summer') return 1;
+  if (kind === 'second') return 2;
+  return 3 + orderInList(semesters, semId, 'semester_id');
+}
+
+/**
+ * Planner move rules:
+ * - 1st semester subjects → 1st semester or Summer (any year)
+ * - 2nd semester subjects → 2nd semester or Summer (any year)
+ * - Summer subjects → Summer only
+ */
+function guestSubjectCanMoveToSemester(homeSemId, targetSemId, semesters) {
+  const home = getGuestSemesterKind(homeSemId, semesters);
+  const target = getGuestSemesterKind(targetSemId, semesters);
+  if (home === 'first') return target === 'first' || target === 'summer';
+  if (home === 'second') return target === 'second' || target === 'summer';
+  if (home === 'summer') return target === 'summer';
+  return String(homeSemId ?? '') === String(targetSemId ?? '');
+}
+
+/** Comparable planner term order (earlier term = smaller rank). */
+function guestPlannerTermRank(yearId, semId, yearLevels, semesters) {
+  const y = yearStandingIndex(yearLevels, yearId);
+  const s = guestSemesterKindSortOrder(semId, semesters);
+  return y * 1000 + s;
+}
+
+function getGuestPlannerPlacement(row, placements) {
+  const id = String(row?.curriculum_id ?? '');
+  return (
+    placements?.[id] || {
+      yearId: getYearLevelId(row),
+      semId: getSemesterId(row),
+    }
+  );
+}
+
+/**
+ * Block planner moves that put a subject in the same term as (or before) its prerequisites,
+ * or that push a prerequisite after a subject that still needs it.
+ * @returns {{ ok: boolean, conflicts: string[] }}
+ */
+function guestPlannerPrereqMoveGate(
+  row,
+  targetYearId,
+  targetSemId,
+  {
+    scopeRows,
+    remainingRows,
+    placements,
+    remarks,
+    yearLevels,
+    semesters,
+  },
+) {
+  if (!row) return { ok: true, conflicts: [] };
+  const targetRank = guestPlannerTermRank(targetYearId, targetSemId, yearLevels, semesters);
+  const conflicts = [];
+
+  for (const code of getGuestPrerequisiteCodes(row)) {
+    const prereqRow = findGuestRowBySubjectCode(scopeRows, code);
+    if (!prereqRow) continue;
+    if (remarks?.[prereqRow.curriculum_id] === 'passed') continue;
+    const placement = getGuestPlannerPlacement(prereqRow, placements);
+    const prereqRank = guestPlannerTermRank(
+      placement.yearId,
+      placement.semId,
+      yearLevels,
+      semesters,
+    );
+    if (prereqRank >= targetRank) {
+      conflicts.push(`${code} must be scheduled in an earlier term than this subject`);
+    }
+  }
+
+  const myCode = row?.subject?.subject_code;
+  if (myCode) {
+    const myNorm = normalizeGuestSubjectCode(myCode);
+    for (const other of remainingRows || []) {
+      if (String(other.curriculum_id) === String(row.curriculum_id)) continue;
+      if (remarks?.[other.curriculum_id] === 'passed') continue;
+      const needsMe = getGuestPrerequisiteCodes(other).some(
+        (c) => normalizeGuestSubjectCode(c) === myNorm,
+      );
+      if (!needsMe) continue;
+      const otherPlacement = getGuestPlannerPlacement(other, placements);
+      const otherRank = guestPlannerTermRank(
+        otherPlacement.yearId,
+        otherPlacement.semId,
+        yearLevels,
+        semesters,
+      );
+      if (otherRank <= targetRank) {
+        const otherCode = other?.subject?.subject_code || 'another subject';
+        conflicts.push(
+          `${otherCode} requires ${myCode} in an earlier term (move ${otherCode} later, or keep ${myCode} earlier)`,
+        );
+      }
+    }
+  }
+
+  return { ok: conflicts.length === 0, conflicts };
+}
+
+/** Plain-text planner hints: Summer eligibility + why some terms are blocked. */
+function buildGuestPlannerMoveNotes(
+  row,
+  {
+    scopeRows,
+    remarks,
+    semesters,
+  },
+) {
+  if (!row) return [];
+  const notes = [];
+  const homeKind = getGuestSemesterKind(getSemesterId(row), semesters);
+
+  if (homeKind === 'first' || homeKind === 'second') {
+    const hasSummer = (semesters || []).some(
+      (s) => getGuestSemesterKind(s.semester_id, semesters) === 'summer',
+    );
+    if (hasSummer) {
+      notes.push('This subject can also be taken in Summer (see Summer options in Move to).');
+    }
+  } else if (homeKind === 'summer') {
+    notes.push('This subject can only be taken in Summer.');
+  }
+
+  const activePrereqCodes = getGuestPrerequisiteCodes(row).filter((code) => {
+    const prereqRow = findGuestRowBySubjectCode(scopeRows, code);
+    if (!prereqRow) return false;
+    return remarks?.[prereqRow.curriculum_id] !== 'passed';
+  });
+  if (activePrereqCodes.length > 0) {
+    const prereqLabel = formatGuestPrerequisite(row);
+    const concise = prereqLabel.replace(/^P:\s*/i, '').trim();
+    if (concise) {
+      notes.push(`Prerequisite: ${concise}.`);
+    } else if (activePrereqCodes.length === 1) {
+      notes.push(`Prerequisite: ${activePrereqCodes[0]}.`);
+    } else {
+      notes.push(`Prerequisites: ${activePrereqCodes.join(', ')}.`);
+    }
+    if (/standing/i.test(concise)) {
+      notes.push('Move this subject once the standing requirement is satisfied.');
+    } else {
+      notes.push('Move this subject after its prerequisite(s).');
+    }
+  }
+
+  return notes;
+}
+
 function orderInList(list, id, idField) {
   if (id == null || id === '') return 100000;
   const i = list.findIndex((x) => String(x[idField]) === String(id));
   return i === -1 ? Number(id) || 99999 : i;
 }
 
+/** Max enrollable units per regular semester by curriculum year level. */
+const GUEST_MAX_UNITS_BY_YEAR = {
+  1: 23,
+  2: 24,
+  3: 19,
+  4: 12,
+  5: 12,
+};
+
+/** Max enrollable units for Summer / mid-year term. */
+const GUEST_MAX_UNITS_SUMMER = 9;
+
+function getMaxUnitsForYearIndex(yearIndex) {
+  const idx = Math.max(1, Math.min(Number(yearIndex) || 1, 5));
+  return GUEST_MAX_UNITS_BY_YEAR[idx] ?? 19;
+}
+
+/** Per-slot load limit: Summer is always 9; regular terms use year caps. */
+function getMaxUnitsForSlot(yearIndex, semId, semesterLabel = '') {
+  const name = String(semesterLabel || '').toLowerCase();
+  if (
+    /summer|mid\s*-?\s*year|midyear/.test(name) ||
+    String(semId ?? '') === '3'
+  ) {
+    return GUEST_MAX_UNITS_SUMMER;
+  }
+  return getMaxUnitsForYearIndex(yearIndex);
+}
+
+function buildGuestStudyMap(rows, yearLevels, trackBySlot, programs) {
+  const byYear = new Map();
+  rows.forEach((row) => {
+    const yid = getYearLevelId(row);
+    const key = String(yid ?? 'unknown');
+    if (!byYear.has(key)) {
+      byYear.set(key, {
+        yearId: yid,
+        yearLabel: lookupYearLabel(yid, yearLevels),
+        yearOrder: orderInList(yearLevels, yid, 'year_level_id'),
+        totalUnits: 0,
+      });
+    }
+    const trackId = getGuestTrackIdForRow(row, trackBySlot);
+    const n = parseUnitsNumber(getUnitsForGuest(row, trackId, programs, rows, trackBySlot));
+    if (n != null) byYear.get(key).totalUnits += n;
+  });
+
+  let cumulative = 0;
+  return [...byYear.values()]
+    .sort((a, b) => a.yearOrder - b.yearOrder)
+    .map((year) => {
+      cumulative += year.totalUnits;
+      return {
+        ...year,
+        cumulativeThreshold: cumulative,
+      };
+    });
+}
+
+function resolveGuestStanding(studyMap, creditedUnits) {
+  if (!studyMap.length) {
+    return {
+      standingYearIndex: 1,
+      standingLabel: '1st Year',
+      nextThreshold: null,
+      unitsToNextStanding: 0,
+    };
+  }
+
+  let standingYearIndex = 1;
+  let standingLabel = studyMap[0].yearLabel;
+  let nextThreshold = studyMap[0].cumulativeThreshold;
+
+  for (let i = 0; i < studyMap.length; i++) {
+    if (creditedUnits >= studyMap[i].cumulativeThreshold) {
+      if (i + 1 < studyMap.length) {
+        standingYearIndex = i + 2;
+        standingLabel = studyMap[i + 1].yearLabel;
+        nextThreshold = studyMap[i + 1].cumulativeThreshold;
+      } else {
+        standingYearIndex = studyMap.length;
+        standingLabel = studyMap[i].yearLabel;
+        nextThreshold = null;
+      }
+    } else {
+      nextThreshold = studyMap[i].cumulativeThreshold;
+      break;
+    }
+  }
+
+  const unitsToNextStanding =
+    nextThreshold != null ? Math.max(0, nextThreshold - creditedUnits) : 0;
+
+  return { standingYearIndex, standingLabel, nextThreshold, unitsToNextStanding };
+}
+
+function groupGuestSections(rows, yearLevels, semesters) {
+  const map = new Map();
+  rows.forEach((row) => {
+    const yid = getYearLevelId(row);
+    const sid = getSemesterId(row);
+    const key = `${yid ?? '∅'}|${sid ?? '∅'}`;
+    if (!map.has(key)) {
+      map.set(key, { yearId: yid, semId: sid, rows: [] });
+    }
+    map.get(key).rows.push(row);
+  });
+
+  const keys = [...map.keys()].sort((ka, kb) => {
+    const a = map.get(ka);
+    const b = map.get(kb);
+    const yOrder =
+      orderInList(yearLevels, a.yearId, 'year_level_id') -
+      orderInList(yearLevels, b.yearId, 'year_level_id');
+    if (yOrder !== 0) return yOrder;
+    return (
+      orderInList(semesters, a.semId, 'semester_id') -
+      orderInList(semesters, b.semId, 'semester_id')
+    );
+  });
+
+  return keys.map((key) => {
+    const g = map.get(key);
+    return {
+      key,
+      yearId: g.yearId,
+      semId: g.semId,
+      yearOrder: orderInList(yearLevels, g.yearId, 'year_level_id'),
+      rows: g.rows,
+    };
+  });
+}
+
+function yearStandingIndex(yearLevels, yearId) {
+  const order = orderInList(yearLevels, yearId, 'year_level_id');
+  return order === 100000 ? 1 : order + 1;
+}
+
 /**
  * Public curriculum simulation: filter catalog, mark rows completed, export PDF.
  */
-const GuestPanel = () => {
+export default function GuestPanel() {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
   const printRef = useRef(null);
@@ -147,31 +991,54 @@ const GuestPanel = () => {
   const [remarks, setRemarks] = useState({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [schools, setSchools] = useState([]);
-  const [simSchoolId, setSimSchoolId] = useState('');
-  const [codesText, setCodesText] = useState('');
-  const [simLoading, setSimLoading] = useState(false);
-  const [simResults, setSimResults] = useState(null);
-  const [simError, setSimError] = useState('');
+  const [guestName, setGuestName] = useState('');
   const [pdfLoading, setPdfLoading] = useState(false);
-  /** After Confirm, table shows only courses not marked completed (remaining to take). */
-  const [remainingMode, setRemainingMode] = useState(false);
-  /** One track for the whole simulation: all elective rows resolve to that track's subject per slot. */
-  const [guestElectiveTrackId, setGuestElectiveTrackId] = useState('');
+  /** Accordion open states: both containers stay stacked; Confirm/Back auto-collapse/expand. */
+  const [simOpen, setSimOpen] = useState(true);
+  const [plannerOpen, setPlannerOpen] = useState(false);
+  /** Which step the floating Confirm/Back button follows. */
+  const [activeStep, setActiveStep] = useState('simulate');
+  /** Once Confirm is used, planner content is ready and can be opened manually. */
+  const [plannerUnlocked, setPlannerUnlocked] = useState(false);
+  /** curriculum_id → { yearId, semId } placement overrides for the planner. */
+  const [plannerPlacements, setPlannerPlacements] = useState({});
+  const [plannerDragId, setPlannerDragId] = useState(null);
+  /** Semester slot key with inline insert dropdown open, e.g. "1|2". */
+  const [plannerOpenInsertSlotKey, setPlannerOpenInsertSlotKey] = useState(null);
+  /** slotId → trackId so each elective can use a different track (e.g. SysDev 1–3, Digi Arts 4). */
+  const [guestElectiveTracks, setGuestElectiveTracks] = useState({});
   const [electiveTrackModalOpen, setElectiveTrackModalOpen] = useState(false);
+  const [electiveTrackModalSlotId, setElectiveTrackModalSlotId] = useState(null);
 
   useEffect(() => {
-    setRemainingMode(false);
+    setSimOpen(true);
+    setPlannerOpen(false);
+    setActiveStep('simulate');
+    setPlannerUnlocked(false);
+    setPlannerPlacements({});
+    setPlannerDragId(null);
+    setPlannerOpenInsertSlotKey(null);
   }, [programFilter, headerFilter, yearFilter, semesterFilter]);
 
   useEffect(() => {
-    setGuestElectiveTrackId('');
-  }, [programFilter, headerFilter]);
+    setGuestElectiveTracks({});
+    setElectiveTrackModalSlotId(null);
+    // Clear so the headerOptions effect auto-picks the first curriculum for the new program.
+    setHeaderFilter('');
+  }, [programFilter]);
+
+  useEffect(() => {
+    setGuestElectiveTracks({});
+    setElectiveTrackModalSlotId(null);
+  }, [headerFilter]);
 
   useEffect(() => {
     if (!electiveTrackModalOpen) return;
     const onKey = (e) => {
-      if (e.key === 'Escape') setElectiveTrackModalOpen(false);
+      if (e.key === 'Escape') {
+        setElectiveTrackModalOpen(false);
+        setElectiveTrackModalSlotId(null);
+      }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
@@ -180,10 +1047,9 @@ const GuestPanel = () => {
   useEffect(() => {
     const load = async () => {
       try {
-        const [curRes, lookRes, schoolsRes] = await Promise.all([
+        const [curRes, lookRes] = await Promise.all([
           api.get('/curriculum'),
           api.get('/curriculum/lookup/data'),
-          api.get('/schools').catch(() => ({ data: [] })),
         ]);
         setCurriculum(Array.isArray(curRes.data) ? curRes.data : []);
         const p = lookRes.data?.programs || [];
@@ -191,8 +1057,6 @@ const GuestPanel = () => {
         if (p.length >= 1) setProgramFilter(String(p[0].program_id));
         setYearLevels(lookRes.data?.yearLevels || lookRes.data?.year_levels || []);
         setSemesters(lookRes.data?.semesters || []);
-        const sl = schoolsRes.data;
-        setSchools(Array.isArray(sl) ? sl : []);
       } catch (e) {
         const msg = e.response?.data?.message || 'Could not load curriculum.';
         setError(msg);
@@ -218,6 +1082,28 @@ const GuestPanel = () => {
     return Array.from(map.entries()).map(([id, label]) => ({ id: String(id), label }));
   }, [curriculum, programFilter]);
 
+  const programOptions = useMemo(
+    () =>
+      programs.map((program) => ({
+        value: String(program.program_id),
+        label: program.program_code
+          ? `${program.program_name || 'Unnamed Program'} (${program.program_code})`
+          : program.program_name || `Program ${program.program_id}`,
+      })),
+    [programs],
+  );
+
+  useEffect(() => {
+    if (headerOptions.length === 0) {
+      if (headerFilter !== '') setHeaderFilter('');
+      return;
+    }
+    // Always keep a real curriculum selected — never "All curricula".
+    if (!headerFilter || !headerOptions.some((option) => option.id === headerFilter)) {
+      setHeaderFilter(headerOptions[0].id);
+    }
+  }, [headerOptions, headerFilter]);
+
   const filteredRows = useMemo(() => {
     return curriculum.filter((row) => {
       if (programFilter && String(row.program_id) !== String(programFilter)) return false;
@@ -227,6 +1113,56 @@ const GuestPanel = () => {
       return true;
     });
   }, [curriculum, programFilter, headerFilter, yearFilter, semesterFilter]);
+
+  /** Same program + curriculum header (ignore year/semester filters) — used for prerequisite checks. */
+  const creditScopeRows = useMemo(() => {
+    return curriculum.filter((row) => {
+      if (programFilter && String(row.program_id) !== String(programFilter)) return false;
+      if (headerFilter && String(row.curriculum_header_id ?? '') !== headerFilter) return false;
+      return true;
+    });
+  }, [curriculum, programFilter, headerFilter]);
+
+  const activeYearLevels = useMemo(() => {
+    const yearIds = new Set(
+      creditScopeRows
+        .map((row) => getYearLevelId(row))
+        .filter((id) => id != null && id !== '')
+        .map((id) => String(id)),
+    );
+    if (yearIds.size === 0) return yearLevels;
+    return yearLevels.filter((y) => yearIds.has(String(y.year_level_id)));
+  }, [creditScopeRows, yearLevels]);
+
+  useEffect(() => {
+    if (!yearFilter) return;
+    if (!activeYearLevels.some((y) => String(y.year_level_id) === String(yearFilter))) {
+      setYearFilter('');
+    }
+  }, [yearFilter, activeYearLevels]);
+
+  const electiveTrackOptions = useMemo(() => {
+    const map = new Map();
+    creditScopeRows.forEach((row) => {
+      if (!isTrackBasedElectiveRow(row, programs)) return;
+      electiveSubjects(row).forEach((es) => {
+        const tid = es.track_id;
+        if (tid == null || tid === '') return;
+        const key = String(tid);
+        if (map.has(key)) return;
+        const t = es.track;
+        map.set(key, {
+          track_id: tid,
+          track_name: t?.track_name || t?.track_code || `Track ${tid}`,
+          track_code: t?.track_code,
+        });
+      });
+    });
+    return [...map.values()].sort((a, b) => String(a.track_name).localeCompare(String(b.track_name)));
+  }, [creditScopeRows, programs]);
+
+  /** Full curriculum rows for units / planner (Elective 4 always included). */
+  const visibleCreditScopeRows = creditScopeRows;
 
   /** One block per year level + semester (e.g. 1st Year — First Semester). */
   const groupedSections = useMemo(() => {
@@ -269,107 +1205,582 @@ const GuestPanel = () => {
       const sLabel = lookupSemesterLabel(g.semId, semesters);
       return {
         key,
+        yearId: g.yearId,
+        semId: g.semId,
+        yearLabel: yLabel,
+        semesterLabel: sLabel,
         title: `${yLabel} — ${sLabel}`,
         rows,
       };
     });
   }, [filteredRows, yearLevels, semesters]);
 
-  const electiveTrackOptions = useMemo(() => {
-    const map = new Map();
-    filteredRows.forEach((row) => {
-      if (!isElectiveSlotRow(row)) return;
-      const slot = electiveSlot(row);
-      const subs = slot?.electiveSubjects || slot?.elective_subjects;
-      if (!Array.isArray(subs)) return;
-      subs.forEach((es) => {
-        const tid = es.track_id;
-        if (tid == null || tid === '') return;
-        const key = String(tid);
-        if (map.has(key)) return;
-        const t = es.track;
-        map.set(key, {
-          track_id: tid,
-          track_name: t?.track_name || t?.track_code || `Track ${tid}`,
-          track_code: t?.track_code,
+  const modalElectiveRow = useMemo(() => {
+    if (!electiveTrackModalSlotId) return null;
+    return (
+      creditScopeRows.find(
+        (row) => guestElectiveSlotKey(row) === String(electiveTrackModalSlotId),
+      ) ||
+      filteredRows.find(
+        (row) => guestElectiveSlotKey(row) === String(electiveTrackModalSlotId),
+      ) ||
+      null
+    );
+  }, [electiveTrackModalSlotId, creditScopeRows, filteredRows]);
+
+  /** Tracks for the modal. Elective 4 hides the track already used on Electives 1–3. */
+  const modalTrackOptions = useMemo(() => {
+    if (!modalElectiveRow || !isGuestElectiveFourRow(modalElectiveRow)) {
+      return electiveTrackOptions;
+    }
+    const primaryTrackId = getGuestPrimaryElectiveTrackId(
+      guestElectiveTracks,
+      creditScopeRows,
+      programs,
+    );
+    if (!primaryTrackId) return electiveTrackOptions;
+    return electiveTrackOptions.filter((t) => String(t.track_id) !== String(primaryTrackId));
+  }, [
+    modalElectiveRow,
+    electiveTrackOptions,
+    guestElectiveTracks,
+    creditScopeRows,
+    programs,
+  ]);
+
+  const modalSlotLabel = useMemo(() => {
+    if (!modalElectiveRow) return 'this elective';
+    return (
+      electiveSlot(modalElectiveRow)?.slot_name ||
+      modalElectiveRow.elective_slot_name ||
+      'this elective'
+    );
+  }, [modalElectiveRow]);
+
+  const modalSelectedTrackId = electiveTrackModalSlotId
+    ? String(guestElectiveTracks[electiveTrackModalSlotId] || '')
+    : '';
+
+  const hasTrackBasedElectiveRowsInView = useMemo(
+    () => filteredRows.some((row) => isTrackBasedElectiveRow(row, programs)),
+    [filteredRows, programs],
+  );
+
+  /** Units required per year level (study map) for the selected program + curriculum. */
+  const studyMap = useMemo(
+    () => buildGuestStudyMap(visibleCreditScopeRows, yearLevels, guestElectiveTracks, programs),
+    [visibleCreditScopeRows, yearLevels, guestElectiveTracks, programs],
+  );
+
+  const isModalElectiveFour =
+    modalElectiveRow != null && isGuestElectiveFourRow(modalElectiveRow);
+
+  /** Credited / lacking units, standing, and remaining years & semesters. */
+  const simulationStats = useMemo(() => {
+    let creditedUnits = 0;
+    let lackingUnits = 0;
+
+    visibleCreditScopeRows.forEach((row) => {
+      const n = parseUnitsNumber(getUnitsForGuest(row, getGuestTrackIdForRow(row, guestElectiveTracks), programs, creditScopeRows, guestElectiveTracks));
+      const effectivelyCredited = isGuestEffectivelyCredited(creditScopeRows, row, remarks);
+      if (effectivelyCredited) {
+        if (n != null) creditedUnits += n;
+      } else if (n != null) {
+        lackingUnits += n;
+      }
+    });
+
+    const standing = resolveGuestStanding(studyMap, creditedUnits);
+    const maxUnitsPerSemester = getMaxUnitsForYearIndex(standing.standingYearIndex);
+    const totalProgramYears = studyMap.length;
+
+    const programComplete =
+      totalProgramYears > 0 &&
+      creditedUnits >= studyMap[totalProgramYears - 1].cumulativeThreshold;
+
+    const remainingYears = programComplete
+      ? 0
+      : Math.max(0, totalProgramYears - standing.standingYearIndex + 1);
+
+    const scopeSections = groupGuestSections(visibleCreditScopeRows, yearLevels, semesters);
+    let remainingSemesters = 0;
+    scopeSections.forEach((section) => {
+      const sectionStanding = yearStandingIndex(yearLevels, section.yearId);
+      if (sectionStanding < standing.standingYearIndex) return;
+      const hasUncredited = section.rows.some(
+        (row) => !isGuestEffectivelyCredited(creditScopeRows, row, remarks),
+      );
+      if (hasUncredited) remainingSemesters += 1;
+    });
+
+    return {
+      creditedUnits,
+      lackingUnits,
+      remainingYears,
+      remainingSemesters,
+      standingYearIndex: standing.standingYearIndex,
+      standingLabel: standing.standingLabel,
+      unitsToNextStanding: standing.unitsToNextStanding,
+      nextThreshold: standing.nextThreshold,
+      maxUnitsPerSemester,
+      programComplete,
+      studyMap,
+    };
+  }, [
+    visibleCreditScopeRows,
+    creditScopeRows,
+    remarks,
+    guestElectiveTracks,
+    programs,
+    studyMap,
+    yearLevels,
+    semesters,
+  ]);
+
+  /** Always show the full curriculum on the marking page. */
+  const groupedSectionsDisplay = useMemo(() => groupedSections, [groupedSections]);
+
+  const remainingSubjectRows = useMemo(() => {
+    return visibleCreditScopeRows.filter(
+      (row) => !isGuestEffectivelyCredited(creditScopeRows, row, remarks),
+    );
+  }, [visibleCreditScopeRows, creditScopeRows, remarks]);
+
+  const openPlanner = useCallback(() => {
+    const next = {};
+    remainingSubjectRows.forEach((row) => {
+      next[row.curriculum_id] = {
+        yearId: getYearLevelId(row),
+        semId: getSemesterId(row),
+      };
+    });
+    setPlannerPlacements(next);
+    setPlannerDragId(null);
+    setPlannerOpenInsertSlotKey(null);
+    setPlannerUnlocked(true);
+    setSimOpen(false);
+    setPlannerOpen(true);
+    setActiveStep('planner');
+    window.requestAnimationFrame(() => {
+      document.getElementById('guest-panel-planner')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+  }, [remainingSubjectRows]);
+
+  const backToCurriculum = useCallback(() => {
+    setPlannerOpen(false);
+    setSimOpen(true);
+    setActiveStep('simulate');
+    setPlannerDragId(null);
+    setPlannerOpenInsertSlotKey(null);
+    window.requestAnimationFrame(() => {
+      document.getElementById('guest-panel-simulate')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+  }, []);
+
+  const toggleSimOpen = useCallback(() => {
+    setSimOpen((open) => !open);
+  }, []);
+
+  const togglePlannerOpen = useCallback(() => {
+    if (!plannerUnlocked) return;
+    setPlannerOpen((open) => !open);
+  }, [plannerUnlocked]);
+
+  const movePlannerSubject = useCallback((curriculumId, yearId, semId) => {
+    const row = remainingSubjectRows.find(
+      (r) => String(r.curriculum_id) === String(curriculumId),
+    );
+    if (row && !guestSubjectCanMoveToSemester(getSemesterId(row), semId, semesters)) {
+      return;
+    }
+
+    if (row) {
+      const proposedPlacements = {
+        ...plannerPlacements,
+        [String(curriculumId)]: { yearId, semId },
+      };
+      const prereqGate = guestPlannerPrereqMoveGate(row, yearId, semId, {
+        scopeRows: creditScopeRows,
+        remainingRows: remainingSubjectRows,
+        placements: proposedPlacements,
+        remarks,
+        yearLevels,
+        semesters,
+      });
+      if (!prereqGate.ok) {
+        swalToast('warning', prereqGate.conflicts[0] || 'Prerequisite conflict for that term.');
+        return;
+      }
+    }
+
+    const yearIdx = yearStandingIndex(yearLevels, yearId);
+    const semesterLabel =
+      semesters.find((s) => String(s.semester_id) === String(semId))?.semester_name || '';
+    const cap = getMaxUnitsForSlot(yearIdx, semId, semesterLabel);
+    const movingUnits =
+      row != null
+        ? parseUnitsNumber(getUnitsForGuest(row, getGuestTrackIdForRow(row, guestElectiveTracks), programs, creditScopeRows, guestElectiveTracks)) || 0
+        : 0;
+
+    let slotUnits = 0;
+    remainingSubjectRows.forEach((r) => {
+      if (String(r.curriculum_id) === String(curriculumId)) return;
+      const placement = plannerPlacements[String(r.curriculum_id)] || {
+        yearId: getYearLevelId(r),
+        semId: getSemesterId(r),
+      };
+      if (
+        String(placement.yearId ?? '') !== String(yearId ?? '') ||
+        String(placement.semId ?? '') !== String(semId ?? '')
+      ) {
+        return;
+      }
+      const n = parseUnitsNumber(getUnitsForGuest(r, getGuestTrackIdForRow(r, guestElectiveTracks), programs, creditScopeRows, guestElectiveTracks));
+      if (n != null) slotUnits += n;
+    });
+
+    if (slotUnits + movingUnits > cap) {
+      swalToast(
+        'warning',
+        `That term only allows ${cap} units${/summer/i.test(semesterLabel) ? ' (Summer)' : ''}.`,
+      );
+      return;
+    }
+
+    setPlannerPlacements((prev) => ({
+      ...prev,
+      [curriculumId]: { yearId, semId },
+    }));
+  }, [
+    remainingSubjectRows,
+    semesters,
+    yearLevels,
+    guestElectiveTracks,
+    programs,
+    plannerPlacements,
+    creditScopeRows,
+    remarks,
+  ]);
+
+  const plannerSlotOptions = useMemo(() => {
+    const slots = [];
+    activeYearLevels.forEach((y) => {
+      semesters.forEach((s) => {
+        slots.push({
+          key: `${y.year_level_id}|${s.semester_id}`,
+          yearId: y.year_level_id,
+          semId: s.semester_id,
+          yearLabel: y.year_level,
+          semesterLabel: s.semester_name,
+          label: `${y.year_level} — ${s.semester_name}`,
         });
       });
     });
-    return [...map.values()].sort((a, b) => String(a.track_name).localeCompare(String(b.track_name)));
-  }, [filteredRows]);
+    return slots.sort((a, b) => {
+      const yOrder =
+        orderInList(yearLevels, a.yearId, 'year_level_id') -
+        orderInList(yearLevels, b.yearId, 'year_level_id');
+      if (yOrder !== 0) return yOrder;
+      return (
+        guestSemesterKindSortOrder(a.semId, semesters) -
+        guestSemesterKindSortOrder(b.semId, semesters)
+      );
+    });
+  }, [activeYearLevels, yearLevels, semesters]);
 
-  const selectedElectiveTrackLabel = useMemo(() => {
-    if (!guestElectiveTrackId) return '';
-    const o = electiveTrackOptions.find((t) => String(t.track_id) === String(guestElectiveTrackId));
-    return o ? (o.track_code ? `${o.track_name} (${o.track_code})` : o.track_name) : '';
-  }, [electiveTrackOptions, guestElectiveTrackId]);
+  const plannerSubjectOptions = useMemo(() => {
+    return remainingSubjectRows.map((row) => {
+      const id = String(row.curriculum_id);
+      const parts = getPenCodePartsForGuest(row, getGuestTrackIdForRow(row, guestElectiveTracks), programs, creditScopeRows, guestElectiveTracks);
+      const code = parts.length ? parts.join(' / ') : '—';
+      const title = getDisplayTitleForGuest(row, getGuestTrackIdForRow(row, guestElectiveTracks), programs, creditScopeRows, guestElectiveTracks);
+      const homeSemId = getSemesterId(row);
+      const placement = plannerPlacements[id] || {
+        yearId: getYearLevelId(row),
+        semId: homeSemId,
+      };
+      const slotKey = `${placement.yearId ?? ''}|${placement.semId ?? ''}`;
+      const slot = plannerSlotOptions.find((s) => s.key === slotKey);
+      const where = slot ? slot.label : 'Unplaced';
+      return {
+        id,
+        label: `${code} — ${title}`,
+        where,
+        slotKey,
+        homeSemId,
+      };
+    });
+  }, [
+    remainingSubjectRows,
+    guestElectiveTracks,
+    programs,
+    plannerPlacements,
+    plannerSlotOptions,
+  ]);
 
-  const hasElectiveRowsInView = useMemo(
-    () => filteredRows.some((row) => isElectiveSlotRow(row)),
-    [filteredRows],
+  const getPlannerMoveOptionsForRow = useCallback(
+    (row, currentKey) => {
+      const homeSemId = getSemesterId(row);
+      return plannerSlotOptions.filter((slot) => {
+        if (slot.key === currentKey) return true;
+        if (!guestSubjectCanMoveToSemester(homeSemId, slot.semId, semesters)) return false;
+        const proposedPlacements = {
+          ...plannerPlacements,
+          [String(row.curriculum_id)]: { yearId: slot.yearId, semId: slot.semId },
+        };
+        return guestPlannerPrereqMoveGate(row, slot.yearId, slot.semId, {
+          scopeRows: creditScopeRows,
+          remainingRows: remainingSubjectRows,
+          placements: proposedPlacements,
+          remarks,
+          yearLevels,
+          semesters,
+        }).ok;
+      });
+    },
+    [
+      plannerSlotOptions,
+      semesters,
+      plannerPlacements,
+      creditScopeRows,
+      remainingSubjectRows,
+      remarks,
+      yearLevels,
+    ],
   );
 
-  const passedUnitsTotal = useMemo(() => {
-    let sum = 0;
-    filteredRows.forEach((row) => {
-      const id = row.curriculum_id;
-      if (remarks[id] !== 'passed') return;
-      const u = getUnitsForGuest(row, guestElectiveTrackId);
-      if (u === '—' || u === '') return;
-      const n = typeof u === 'number' ? u : Number(String(u).replace(/,/g, ''));
-      if (!Number.isNaN(n)) sum += n;
-    });
-    return sum;
-  }, [filteredRows, remarks, guestElectiveTrackId]);
+  const insertPlannerSubjectIntoSlot = useCallback(
+    (curriculumId, yearId, semId) => {
+      if (!curriculumId) return;
+      const row = remainingSubjectRows.find(
+        (r) => String(r.curriculum_id) === String(curriculumId),
+      );
+      if (row && !guestSubjectCanMoveToSemester(getSemesterId(row), semId, semesters)) {
+        return;
+      }
+      movePlannerSubject(curriculumId, yearId, semId);
+      setPlannerOpenInsertSlotKey(null);
+    },
+    [movePlannerSubject, remainingSubjectRows, semesters],
+  );
 
-  const groupedSectionsDisplay = useMemo(() => {
-    if (!remainingMode) {
-      return groupedSections;
-    }
-    return groupedSections
-      .map((section) => ({
-        ...section,
-        rows: section.rows.filter((row) => remarks[row.curriculum_id] !== 'passed'),
+  const plannerYears = useMemo(() => {
+    const byYear = new Map();
+    plannerSlotOptions.forEach((slot) => {
+      const yearKey = String(slot.yearId);
+      if (!byYear.has(yearKey)) {
+        byYear.set(yearKey, {
+          key: yearKey,
+          yearId: slot.yearId,
+          yearLabel: slot.yearLabel,
+          sections: [],
+        });
+      }
+      byYear.get(yearKey).sections.push({
+        key: slot.key,
+        yearId: slot.yearId,
+        semId: slot.semId,
+        semesterLabel: slot.semesterLabel,
+        rows: [],
+      });
+    });
+
+    remainingSubjectRows.forEach((row) => {
+      const placement = plannerPlacements[row.curriculum_id] || {
+        yearId: getYearLevelId(row),
+        semId: getSemesterId(row),
+      };
+      const yearKey = String(placement.yearId ?? 'unknown');
+      const sectionKey = `${placement.yearId ?? '∅'}|${placement.semId ?? '∅'}`;
+      let yearGroup = byYear.get(yearKey);
+      if (!yearGroup) {
+        yearGroup = {
+          key: yearKey,
+          yearId: placement.yearId,
+          yearLabel: lookupYearLabel(placement.yearId, yearLevels),
+          sections: [],
+        };
+        byYear.set(yearKey, yearGroup);
+      }
+      let section = yearGroup.sections.find((s) => s.key === sectionKey);
+      if (!section) {
+        section = {
+          key: sectionKey,
+          yearId: placement.yearId,
+          semId: placement.semId,
+          semesterLabel: lookupSemesterLabel(placement.semId, semesters),
+          rows: [],
+        };
+        yearGroup.sections.push(section);
+      }
+      section.rows.push(row);
+    });
+
+    return [...byYear.values()]
+      .map((year) => ({
+        ...year,
+        sections: [...year.sections].sort(
+          (a, b) =>
+            guestSemesterKindSortOrder(a.semId, semesters) -
+            guestSemesterKindSortOrder(b.semId, semesters),
+        ),
       }))
-      .filter((section) => section.rows.length > 0);
-  }, [groupedSections, remainingMode, remarks]);
+      .sort(
+        (a, b) =>
+          orderInList(yearLevels, a.yearId, 'year_level_id') -
+          orderInList(yearLevels, b.yearId, 'year_level_id'),
+      );
+  }, [
+    plannerSlotOptions,
+    remainingSubjectRows,
+    plannerPlacements,
+    yearLevels,
+    semesters,
+  ]);
+
+  const plannerStats = useMemo(() => {
+    let remainingUnits = 0;
+    remainingSubjectRows.forEach((row) => {
+      const n = parseUnitsNumber(getUnitsForGuest(row, getGuestTrackIdForRow(row, guestElectiveTracks), programs, creditScopeRows, guestElectiveTracks));
+      if (n != null) remainingUnits += n;
+    });
+
+    let unitsLeft = remainingUnits;
+    let estimatedYears = 0;
+    let estimatedSemesters = 0;
+    const yearCount = Math.max(studyMap.length, activeYearLevels.length, 1);
+    for (let yi = 0; yi < yearCount && unitsLeft > 0; yi++) {
+      const cap = getMaxUnitsForYearIndex(yi + 1);
+      let usedThisYear = false;
+      for (let s = 0; s < 2 && unitsLeft > 0; s++) {
+        unitsLeft -= cap;
+        estimatedSemesters += 1;
+        usedThisYear = true;
+      }
+      if (usedThisYear) estimatedYears += 1;
+    }
+    if (remainingUnits > 0 && estimatedYears === 0) estimatedYears = 1;
+    if (remainingUnits > 0 && estimatedSemesters === 0) estimatedSemesters = 1;
+
+    let plannedSemesters = 0;
+    let overloadedSlots = 0;
+    plannerYears.forEach((year) => {
+      const yearIdx = yearStandingIndex(yearLevels, year.yearId);
+      year.sections.forEach((section) => {
+        if (section.rows.length === 0) return;
+        plannedSemesters += 1;
+        const cap = getMaxUnitsForSlot(yearIdx, section.semId, section.semesterLabel);
+        const units = section.rows.reduce((acc, row) => {
+          const n = parseUnitsNumber(getUnitsForGuest(row, getGuestTrackIdForRow(row, guestElectiveTracks), programs, creditScopeRows, guestElectiveTracks));
+          return n != null ? acc + n : acc;
+        }, 0);
+        if (units > cap) overloadedSlots += 1;
+      });
+    });
+
+    return {
+      remainingUnits,
+      estimatedYears,
+      estimatedSemesters,
+      plannedSemesters,
+      overloadedSlots,
+      standingLabel: simulationStats.standingLabel,
+    };
+  }, [
+    remainingSubjectRows,
+    guestElectiveTracks,
+    programs,
+    simulationStats.standingLabel,
+    plannerYears,
+    studyMap.length,
+    yearLevels,
+  ]);
+
+  const groupedYearsDisplay = useMemo(() => {
+    const yearMap = new Map();
+    groupedSectionsDisplay.forEach((section) => {
+      const yearKey = section.yearId ?? 'unknown';
+      if (!yearMap.has(yearKey)) {
+        yearMap.set(yearKey, {
+          key: String(yearKey),
+          yearId: section.yearId,
+          yearLabel: section.yearLabel,
+          sections: [],
+        });
+      }
+      yearMap.get(yearKey).sections.push(section);
+    });
+
+    return [...yearMap.values()].sort((a, b) => {
+      const yearOrder =
+        orderInList(yearLevels, a.yearId, 'year_level_id') -
+        orderInList(yearLevels, b.yearId, 'year_level_id');
+      if (yearOrder !== 0) return yearOrder;
+      return String(a.yearLabel).localeCompare(String(b.yearLabel));
+    });
+  }, [groupedSectionsDisplay, yearLevels]);
 
   const setRemark = useCallback((curriculumId, value) => {
-    setRemarks((prev) => ({ ...prev, [curriculumId]: value }));
-  }, []);
-
-  const handleSimulate = async (e) => {
-    e.preventDefault();
-    setSimError('');
-    setSimResults(null);
-    const lines = codesText.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
-    if (lines.length === 0) {
-      setSimError('Enter at least one external course code (one per line).');
-      return;
-    }
-    setSimLoading(true);
-    try {
-      const body = {
-        courses: lines.map((subject_code) => ({ subject_code })),
-      };
-      if (simSchoolId) {
-        body.school_id = parseInt(simSchoolId, 10);
+    setRemarks((prev) => {
+      const row = creditScopeRows.find(
+        (r) => String(r.curriculum_id) === String(curriculumId),
+      );
+      if (!row) return prev;
+      if (value) {
+        const result = creditGuestCluster(creditScopeRows, row, prev);
+        return result.ok ? result.next : prev;
       }
-      const res = await api.post('/guest/credit-simulation', body);
-      setSimResults(res.data?.results || []);
-    } catch (err) {
-      const msg = err.response?.data?.message || err.message || 'Simulation failed';
-      setSimError(msg);
-      await swalError('Simulation failed', msg);
-    } finally {
-      setSimLoading(false);
-    }
-  };
+      return uncreditGuestCluster(creditScopeRows, row, prev);
+    });
+  }, [creditScopeRows]);
+
+  const setSectionRemarks = useCallback((rows, value) => {
+    setRemarks((prev) => {
+      let next = { ...prev };
+      if (!value) {
+        rows.forEach((row) => {
+          next = uncreditGuestCluster(creditScopeRows, row, next);
+        });
+        return next;
+      }
+
+      // Credit rows (and their coreq clusters) whose prerequisites are satisfied.
+      let changed = true;
+      while (changed) {
+        changed = false;
+        rows.forEach((row) => {
+          if (next[row.curriculum_id] === 'passed') return;
+          const result = creditGuestCluster(creditScopeRows, row, next);
+          if (result.ok) {
+            next = result.next;
+            changed = true;
+          }
+        });
+      }
+      return next;
+    });
+  }, [creditScopeRows]);
 
   const handleDownloadPdf = async () => {
     if (!printRef.current) return;
     setPdfLoading(true);
+
+    const scrollEl = printRef.current.querySelector('.guest-sim-curriculum-scroll');
+    const panelEl = printRef.current.querySelector('.guest-sim-curriculum-panel');
+    const restore = [];
+
+    const stashStyle = (el, prop) => {
+      if (!el) return;
+      restore.push([el, prop, el.style[prop]]);
+      el.style[prop] = '';
+    };
+
     try {
+      stashStyle(scrollEl, 'maxHeight');
+      stashStyle(scrollEl, 'overflow');
+      stashStyle(panelEl, 'height');
+      stashStyle(panelEl, 'overflow');
+
       const canvas = await html2canvas(printRef.current, {
         scale: 2,
         useCORS: true,
@@ -394,10 +1805,18 @@ const GuestPanel = () => {
         heightLeft -= pdfHeight;
       }
 
-      pdf.save('curriculum-simulation.pdf');
+      const nameForFile = String(guestName || '').trim();
+      pdf.save(
+        nameForFile
+          ? `curriculum-simulation-${nameForFile.replace(/[^\w\-]+/g, '_')}.pdf`
+          : 'curriculum-simulation.pdf',
+      );
     } catch (e) {
       await swalError('Could not create PDF', e?.message || 'Unknown error');
     } finally {
+      restore.forEach(([el, prop, value]) => {
+        el.style[prop] = value;
+      });
       setPdfLoading(false);
     }
   };
@@ -409,7 +1828,9 @@ const GuestPanel = () => {
 
   const selectedHeaderLabel =
     headerOptions.find((h) => h.id === headerFilter)?.label ||
-    (headerFilter ? `A.Y. ${headerFilter}` : 'All');
+    (headerFilter ? `Curriculum #${headerFilter}` : 'Select curriculum');
+
+  const guestDisplayName = guestName.trim();
 
   return (
     <div className="guest-sim-page">
@@ -467,8 +1888,23 @@ const GuestPanel = () => {
           {error && <div className="guest-error">{error}</div>}
 
           <div ref={printRef} className="guest-sim-print-wrap">
+            <div className="guest-sim-sticky-header">
             <div className="guest-sim-filters">
               <div className="guest-sim-filter-grid" role="group" aria-label="Filter curriculum">
+                <label className="guest-sim-field guest-sim-field--name">
+                  <span className="guest-sim-field-label">
+                    <span className="guest-sim-icon guest-sim-icon-screen" /> Name
+                  </span>
+                  <input
+                    type="text"
+                    className="guest-sim-input"
+                    value={guestName}
+                    onChange={(e) => setGuestName(e.target.value)}
+                    placeholder="Enter your name"
+                    autoComplete="name"
+                    aria-label="Guest name"
+                  />
+                </label>
                 <label className="guest-sim-field">
                   <span className="guest-sim-field-label">
                     <span className="guest-sim-icon guest-sim-icon-calendar" /> Curriculum
@@ -477,8 +1913,11 @@ const GuestPanel = () => {
                     value={headerFilter}
                     onChange={(e) => setHeaderFilter(e.target.value)}
                     className="guest-sim-input"
+                    disabled={headerOptions.length === 0}
                   >
-                    <option value="">All curricula</option>
+                    {headerOptions.length === 0 ? (
+                      <option value="">No curricula available</option>
+                    ) : null}
                     {headerOptions.map((h) => (
                       <option key={h.id} value={h.id}>
                         {h.label}
@@ -490,18 +1929,17 @@ const GuestPanel = () => {
                   <span className="guest-sim-field-label">
                     <span className="guest-sim-icon guest-sim-icon-screen" /> Program
                   </span>
-                  <select
+                  <SearchableSelect
+                    id="guest-program-filter"
                     value={programFilter}
-                    onChange={(e) => setProgramFilter(e.target.value)}
-                    className="guest-sim-input"
-                  >
-                    <option value="">All programs</option>
-                    {programs.map((p) => (
-                      <option key={p.program_id} value={p.program_id}>
-                        {p.program_code || p.program_name}
-                      </option>
-                    ))}
-                  </select>
+                    onChange={setProgramFilter}
+                    options={programOptions}
+                    emptyLabel="Select program"
+                    placeholder="Search program name or code..."
+                    className="guest-sim-searchable"
+                    required
+                    aria-label="Program"
+                  />
                 </label>
                 <label className="guest-sim-field">
                   <span className="guest-sim-field-label">
@@ -513,7 +1951,7 @@ const GuestPanel = () => {
                     className="guest-sim-input"
                   >
                     <option value="">All years</option>
-                    {yearLevels.map((y) => (
+                    {activeYearLevels.map((y) => (
                       <option key={y.year_level_id} value={String(y.year_level_id)}>
                         {y.year_level}
                       </option>
@@ -552,149 +1990,752 @@ const GuestPanel = () => {
             </div>
 
             <div className="guest-sim-summary guest-sim-summary-bar">
-              <p className="guest-sim-summary-text">
-                {remainingMode ? (
-                  <>
-                    Showing subjects you still need to take (not marked completed).{' '}
-                    <span className="guest-sim-summary-label">Completed units (full list)</span>
-                  </>
-                ) : (
-                  <>
-                    Mark courses you have already completed—here or at another school—then tap{' '}
-                    <strong>Confirm</strong> below to see what is left.{' '}
-                    <span className="guest-sim-summary-label">Completed units (this view)</span>
-                  </>
-                )}
-              </p>
-              <span className="guest-sim-summary-pill" aria-live="polite">
-                {passedUnitsTotal.toFixed(1)}
-              </span>
+              {guestDisplayName ? (
+                <p className="guest-sim-guest-name">
+                  Name: <strong>{guestDisplayName}</strong>
+                </p>
+              ) : null}
+              <div className="guest-sim-stats" aria-live="polite">
+                <div className="guest-sim-stat">
+                  <span className="guest-sim-stat-label">Credited units</span>
+                  <span className="guest-sim-stat-value">
+                    {simulationStats.creditedUnits.toFixed(1)}
+                  </span>
+                </div>
+                <div className="guest-sim-stat">
+                  <span className="guest-sim-stat-label">Lacking units</span>
+                  <span className="guest-sim-stat-value">
+                    {simulationStats.lackingUnits.toFixed(1)}
+                  </span>
+                </div>
+                <div className="guest-sim-stat">
+                  <span className="guest-sim-stat-label">Remaining years</span>
+                  <span className="guest-sim-stat-value">{simulationStats.remainingYears}</span>
+                </div>
+                <div className="guest-sim-stat">
+                  <span className="guest-sim-stat-label">Remaining semesters</span>
+                  <span className="guest-sim-stat-value">{simulationStats.remainingSemesters}</span>
+                </div>
+              </div>
             </div>
-            {hasElectiveRowsInView && (
+            </div>
+
+            {hasTrackBasedElectiveRowsInView && (
               <p className="guest-sim-elective-hint">
-                Elective rows: tap <strong>Elective</strong> to choose a track; every elective slot updates to that
-                track&apos;s subjects.
-                {selectedElectiveTrackLabel ? (
-                  <>
-                    {' '}
-                    <span className="guest-sim-elective-hint-track">Current track: {selectedElectiveTrackLabel}</span>
-                  </>
-                ) : null}
+                Electives 1–3 share one track. <strong>Digital Arts</strong> also auto-fills Elective 4. For other
+                tracks, Elective 4 is separate — the subject shown there is set by admin in Lookup → Elective
+                subjects (IT Electives 4 slot).
               </p>
             )}
 
-            <div className="guest-sim-table-card">
-              <div className="guest-sim-table-head">
-                <span className="guest-sim-table-head-title">
-                  {remainingMode ? 'Remaining subjects' : 'Curriculum simulation'}
+            <div id="guest-sim-stage" className="guest-sim-stage">
+            <div
+              id="guest-panel-simulate"
+              className={`guest-sim-accordion${simOpen ? ' is-open' : ' is-collapsed'}`}
+            >
+              <button
+                type="button"
+                className="guest-sim-accordion-toggle"
+                aria-expanded={simOpen}
+                aria-controls="guest-panel-simulate-body"
+                onClick={toggleSimOpen}
+              >
+                <span className="guest-sim-accordion-toggle-title">Curriculum simulation</span>
+                <span className="guest-sim-accordion-toggle-sub">{selectedHeaderLabel}</span>
+                <span className="guest-sim-accordion-chevron" aria-hidden>
+                  {simOpen ? '▾' : '▸'}
                 </span>
-                <span className="guest-sim-table-head-sep">—</span>
-                <span className="guest-sim-table-head-sub">
-                  {remainingMode ? 'Not marked completed' : selectedHeaderLabel}
-                </span>
-              </div>
-              <div className="guest-sim-sections-body">
-                {groupedSections.length === 0 ? (
+              </button>
+              <div
+                id="guest-panel-simulate-body"
+                className="guest-sim-accordion-body"
+                hidden={!simOpen}
+              >
+            <div className="guest-sim-curriculum-panel guest-sim-curriculum-panel--nested">
+              <div className="guest-sim-curriculum-scroll">
+              <div className="guest-sim-sections-body guest-sim-curriculum-layout">
+                {groupedSectionsDisplay.length === 0 ? (
                   <div className="guest-sim-empty">No courses match the selected filters.</div>
-                ) : groupedSectionsDisplay.length === 0 ? (
-                  <div className="guest-sim-empty">
-                    {remainingMode
-                      ? 'Every course in this view is marked completed — nothing left to take here.'
-                      : 'No courses match the selected filters.'}
-                  </div>
                 ) : (
-                  groupedSectionsDisplay.map((section, secIdx) => (
+                  groupedYearsDisplay.map((yearGroup, yearIdx) => (
                     <section
-                      key={section.key}
-                      className="guest-sim-section-card"
-                      aria-labelledby={`guest-section-h-${secIdx}`}
+                      key={yearGroup.key}
+                      className="guest-sim-year-card"
+                      aria-labelledby={`guest-year-h-${yearIdx}`}
                     >
-                      <h3 className="guest-sim-section-heading" id={`guest-section-h-${secIdx}`}>
-                        {section.title}
-                      </h3>
-                      <div className="guest-sim-mini-scroll">
-                        <table className="guest-sim-mini-table">
-                          <colgroup>
-                            <col className="guest-col-pen" />
-                            <col className="guest-col-title" />
-                            <col className="guest-col-units" />
-                            <col className="guest-col-remarks" />
-                          </colgroup>
-                          <thead>
-                            <tr>
-                              <th scope="col">Pen Code</th>
-                              <th scope="col">Descriptive Title</th>
-                              <th scope="col">Units</th>
-                              <th scope="col">Remarks</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {section.rows.map((row) => {
-                              const id = row.curriculum_id;
-                              const parts = getPenCodePartsForGuest(row, guestElectiveTrackId);
-                              const titleLabel = getDisplayTitleForGuest(row, guestElectiveTrackId);
-                              const val = remarks[id] || '';
-                              return (
-                                <tr key={id}>
-                                  <td className="guest-td-pen">
-                                    <div className="guest-code-pills">
-                                      {parts.length === 0 ? (
-                                        <span className="guest-code-pill guest-code-pill--empty">—</span>
-                                      ) : (
-                                        parts.map((code, pi) => (
-                                          <span key={`${id}-code-${pi}`} className="guest-code-pill">
-                                            {code}
+                      <div className="guest-sim-year-heading" id={`guest-year-h-${yearIdx}`}>
+                        <span>{String(yearGroup.yearLabel || 'Unknown year').toUpperCase()}</span>
+                      </div>
+                      <div className="guest-sim-semester-grid">
+                        {yearGroup.sections.map((section, secIdx) => (
+                          <section
+                            key={section.key}
+                            className="guest-sim-section-card guest-sim-semester-card"
+                            aria-labelledby={`guest-section-h-${yearIdx}-${secIdx}`}
+                          >
+                            <div className="guest-sim-section-heading">
+                              <h3 id={`guest-section-h-${yearIdx}-${secIdx}`}>{section.semesterLabel}</h3>
+                              <button
+                                  type="button"
+                                  className="guest-section-check-toggle"
+                                  onClick={() => {
+                                    const eligible = section.rows.filter(
+                                      (row) =>
+                                        remarks[row.curriculum_id] === 'passed' ||
+                                        guestCanCreditWithCorequisites(
+                                          creditScopeRows,
+                                          row,
+                                          remarks,
+                                        ).ok,
+                                    );
+                                    const allChecked =
+                                      eligible.length > 0 &&
+                                      eligible.every((row) => remarks[row.curriculum_id] === 'passed');
+                                    setSectionRemarks(section.rows, allChecked ? '' : 'passed');
+                                  }}
+                                >
+                                  {(() => {
+                                    const eligible = section.rows.filter(
+                                      (row) =>
+                                        remarks[row.curriculum_id] === 'passed' ||
+                                        guestCanCreditWithCorequisites(
+                                          creditScopeRows,
+                                          row,
+                                          remarks,
+                                        ).ok,
+                                    );
+                                    const allChecked =
+                                      eligible.length > 0 &&
+                                      eligible.every((row) => remarks[row.curriculum_id] === 'passed');
+                                    return allChecked ? 'Uncheck all' : 'Check all';
+                                  })()}
+                                </button>
+                            </div>
+                            <div className="guest-sim-mini-scroll">
+                              <table className="guest-sim-mini-table">
+                                <colgroup>
+                                  <col className="guest-col-pen" />
+                                  <col className="guest-col-title" />
+                                  <col className="guest-col-units" />
+                                  <col className="guest-col-remarks" />
+                                </colgroup>
+                                <thead>
+                                  <tr>
+                                    <th scope="col">Pen Code</th>
+                                    <th scope="col">Descriptive Title</th>
+                                    <th scope="col">Units</th>
+                                    <th scope="col">Remarks</th>
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {section.rows.map((row) => {
+                                    const id = row.curriculum_id;
+                                    const isTrackBasedElective = isTrackBasedElectiveRow(row, programs);
+                                    const rowTrackId = getGuestTrackIdForRow(row, guestElectiveTracks);
+                                    const parts = getPenCodePartsForGuest(row, rowTrackId, programs, creditScopeRows, guestElectiveTracks);
+                                    const titleLabel = getDisplayTitleForGuest(row, rowTrackId, programs, creditScopeRows, guestElectiveTracks);
+                                    const prereqLabel = formatGuestPrerequisite(row);
+                                    const coreqTag = getGuestCorequisiteTag(row, creditScopeRows);
+                                    const val = remarks[id] || '';
+                                    const creditGate = guestCanCreditWithCorequisites(
+                                      creditScopeRows,
+                                      row,
+                                      remarks,
+                                    );
+                                    const creditBlocked = val !== 'passed' && !creditGate.ok;
+                                    const blockedTitle = creditBlocked
+                                      ? creditGate.reason === 'coreq'
+                                        ? `Credit corequisite together: ${creditGate.unmet.join(', ')}`
+                                        : `Credit prerequisite first: ${creditGate.unmet.join(', ')}`
+                                      : coreqTag
+                                        ? `Crediting this also credits: ${coreqTag.codes.join(', ')}`
+                                        : undefined;
+                                    return (
+                                      <tr key={id} className={creditBlocked ? 'guest-row--prereq-blocked' : undefined}>
+                                        <td className="guest-td-pen">
+                                          <div className="guest-code-pills">
+                                            {parts.length === 0 ? (
+                                              <span className="guest-code-pill guest-code-pill--empty">—</span>
+                                            ) : (
+                                              parts.map((code, pi) => (
+                                                <span key={`${id}-code-${pi}`} className="guest-code-pill">
+                                                  {code}
+                                                </span>
+                                              ))
+                                            )}
+                                          </div>
+                                        </td>
+                                        <td className="guest-td-title">
+                                          <div className="guest-title-stack">
+                                            {isTrackBasedElective ? (
+                                              <button
+                                                type="button"
+                                                className="guest-elective-title-btn"
+                                                onClick={() => {
+                                                  setElectiveTrackModalSlotId(guestElectiveSlotKey(row));
+                                                  setElectiveTrackModalOpen(true);
+                                                }}
+                                                title={
+                                                  isGuestElectiveFourRow(row)
+                                                    ? rowTrackId
+                                                      ? 'Change track for Elective 4 only'
+                                                      : 'Choose track for Elective 4 only'
+                                                    : rowTrackId
+                                                      ? 'Change track for Electives 1–3 (Digi also fills Elective 4)'
+                                                      : 'Choose track for Electives 1–3 (Digi also fills Elective 4)'
+                                                }
+                                              >
+                                                {titleLabel}
+                                                {!rowTrackId ? (
+                                                  <span className="guest-elective-title-btn__hint"> · Choose track</span>
+                                                ) : null}
+                                              </button>
+                                            ) : (
+                                              <span className="guest-title-main">{titleLabel}</span>
+                                            )}
+                                            {prereqLabel ? (
+                                              <span
+                                                className={`guest-prereq-line${creditBlocked ? ' guest-prereq-line--blocked' : ''}`}
+                                                title={blockedTitle || 'Prerequisite rules'}
+                                              >
+                                                {prereqLabel}
+                                              </span>
+                                            ) : null}
+                                            {coreqTag ? (
+                                              <span
+                                                className="guest-coreq-line"
+                                                title={`Corequisite: mark ${coreqTag.codes.join(' and ')} credited in the same term as this subject`}
+                                              >
+                                                Co: {coreqTag.codes.join(', ')} — pass both this subject and its coreq
+                                              </span>
+                                            ) : null}
+                                          </div>
+                                        </td>
+                                        <td className="guest-td-units">
+                                          <span className="guest-units-pill">
+                                            {getUnitsForGuest(row, rowTrackId, programs, creditScopeRows, guestElectiveTracks)}
                                           </span>
-                                        ))
-                                      )}
-                                    </div>
-                                  </td>
-                                  <td className="guest-td-title">
-                                    {isElectiveSlotRow(row) ? (
-                                      <button
-                                        type="button"
-                                        className="guest-elective-title-btn"
-                                        onClick={() => setElectiveTrackModalOpen(true)}
-                                        title={
-                                          guestElectiveTrackId
-                                            ? 'Change elective track (updates all elective rows)'
-                                            : 'Choose elective track'
-                                        }
-                                      >
-                                        {titleLabel}
-                                        {!guestElectiveTrackId ? (
-                                          <span className="guest-elective-title-btn__hint"> · Choose track</span>
-                                        ) : null}
-                                      </button>
-                                    ) : (
-                                      titleLabel
-                                    )}
-                                  </td>
-                                  <td className="guest-td-units">
-                                    <span className="guest-units-pill">{getUnitsForGuest(row, guestElectiveTrackId)}</span>
-                                  </td>
-                                  <td className="guest-td-remarks">
-                                    <select
-                                      className={`guest-remarks-select ${val === 'passed' ? 'guest-remarks-passed' : ''}`}
-                                      value={val}
-                                      onChange={(e) => setRemark(id, e.target.value)}
-                                      disabled={remainingMode}
-                                      aria-label={`Remarks for ${titleLabel}`}
-                                    >
-                                      <option value="">---</option>
-                                      <option value="passed">Completed</option>
-                                    </select>
-                                  </td>
-                                </tr>
-                              );
-                            })}
-                          </tbody>
-                        </table>
+                                        </td>
+                                        <td className="guest-td-remarks">
+                                          <div className="guest-remarks-stack">
+                                            <label
+                                              className={`guest-remarks-check ${val === 'passed' ? 'guest-remarks-check--checked' : ''}${creditBlocked ? ' guest-remarks-check--blocked' : ''}`}
+                                              title={blockedTitle}
+                                            >
+                                              <input
+                                                type="checkbox"
+                                                checked={val === 'passed'}
+                                                disabled={creditBlocked}
+                                                onChange={(e) =>
+                                                  setRemark(id, e.target.checked ? 'passed' : '')
+                                                }
+                                                aria-label={
+                                                  creditBlocked
+                                                    ? creditGate.reason === 'coreq'
+                                                      ? `${titleLabel} locked until corequisite can be credited: ${creditGate.unmet.join(', ')}`
+                                                      : `${titleLabel} locked until prerequisite credited`
+                                                    : coreqTag
+                                                      ? `Mark ${titleLabel} and coreq ${coreqTag.codes.join(', ')} as credited`
+                                                      : `Mark ${titleLabel} as credited`
+                                                }
+                                              />
+                                              <span>Credited</span>
+                                            </label>
+                                          </div>
+                                        </td>
+                                      </tr>
+                                    );
+                                  })}
+                                </tbody>
+                                <tfoot>
+                                  <tr>
+                                    <td colSpan={4} className="guest-term-footer">
+                                      {(() => {
+                                        const semTotal = section.rows.reduce((acc, row) => {
+                                          const n = parseUnitsNumber(
+                                            getUnitsForGuest(row, getGuestTrackIdForRow(row, guestElectiveTracks), programs, creditScopeRows, guestElectiveTracks),
+                                          );
+                                          return n != null ? acc + n : acc;
+                                        }, 0);
+                                        const semCredited = section.rows.reduce((acc, row) => {
+                                          if (
+                                            !isGuestEffectivelyCredited(
+                                              creditScopeRows,
+                                              row,
+                                              remarks,
+                                            )
+                                          ) {
+                                            return acc;
+                                          }
+                                          const n = parseUnitsNumber(
+                                            getUnitsForGuest(row, getGuestTrackIdForRow(row, guestElectiveTracks), programs, creditScopeRows, guestElectiveTracks),
+                                          );
+                                          return n != null ? acc + n : acc;
+                                        }, 0);
+                                        const sectionYearIdx = yearStandingIndex(
+                                          yearLevels,
+                                          section.yearId,
+                                        );
+                                        const cap = getMaxUnitsForSlot(
+                                          sectionYearIdx,
+                                          section.semId,
+                                          section.semesterLabel,
+                                        );
+                                        const overCap = semTotal > cap;
+                                        return (
+                                          <>
+                                            Total units:{' '}
+                                            <span
+                                              className={`guest-units-pill guest-units-pill--footer${overCap ? ' guest-units-pill--over-cap' : ''}`}
+                                            >
+                                              {semTotal}
+                                            </span>
+                                            {' · '}
+                                            Allowed (
+                                            {/summer/i.test(String(section.semesterLabel || ''))
+                                              ? 'Summer'
+                                              : section.yearLabel}
+                                            ): {cap}
+                                            {semCredited > 0 ? ` · Credited: ${semCredited}` : ''}
+                                            {overCap ? (
+                                              <span className="guest-term-cap-warn">
+                                                {' '}
+                                                — only {cap} units count toward load for this term
+                                              </span>
+                                            ) : null}
+                                          </>
+                                        );
+                                      })()}
+                                    </td>
+                                  </tr>
+                                </tfoot>
+                              </table>
+                            </div>
+                          </section>
+                        ))}
                       </div>
                     </section>
                   ))
                 )}
               </div>
+              </div>
+            </div>
+              </div>
+            </div>
+
+            <div
+              id="guest-panel-planner"
+              className={`guest-sim-accordion guest-sim-accordion--planner${plannerOpen ? ' is-open' : ' is-collapsed'}${!plannerUnlocked ? ' is-locked' : ''}`}
+            >
+              <button
+                type="button"
+                className="guest-sim-accordion-toggle"
+                aria-expanded={plannerOpen}
+                aria-controls="guest-panel-planner-body"
+                onClick={togglePlannerOpen}
+                disabled={!plannerUnlocked}
+                title={
+                  plannerUnlocked
+                    ? 'Show or hide subjects to take'
+                    : 'Click Confirm first to open this container'
+                }
+              >
+                <span className="guest-sim-accordion-toggle-title">Subjects to take</span>
+                <span className="guest-sim-accordion-toggle-sub">
+                  {plannerUnlocked
+                    ? `${plannerStats.remainingUnits.toFixed(1)} remaining units · est. ${plannerStats.estimatedYears} yr`
+                    : 'Confirm to unlock remaining subjects'}
+                </span>
+                <span className="guest-sim-accordion-chevron" aria-hidden>
+                  {plannerOpen ? '▾' : '▸'}
+                </span>
+              </button>
+              <div
+                id="guest-panel-planner-body"
+                className="guest-sim-accordion-body"
+                hidden={!plannerOpen}
+              >
+            <section id="guest-planner" className="guest-planner guest-planner--nested" aria-labelledby="guest-planner-title">
+              <div className="guest-planner-sticky-meta">
+                <div className="guest-planner-head">
+                  <div className="guest-planner-intro">
+                    <h2 id="guest-planner-title" className="guest-planner-title">
+                      Remaining subjects
+                    </h2>
+                    <p className="guest-planner-desc">
+                      Credited subjects are hidden. Drag subjects between semesters or use Insert inside each slot.
+                    </p>
+                  </div>
+                  <div className="guest-planner-estimates guest-sim-stats" aria-live="polite">
+                    <div className="guest-planner-estimate guest-sim-stat">
+                      <span className="guest-planner-estimate-label guest-sim-stat-label">Remaining units</span>
+                      <span className="guest-planner-estimate-value guest-sim-stat-value">
+                        {plannerStats.remainingUnits.toFixed(1)}
+                      </span>
+                    </div>
+                    <div className="guest-planner-estimate guest-sim-stat">
+                      <span className="guest-planner-estimate-label guest-sim-stat-label">Estimated years</span>
+                      <span className="guest-planner-estimate-value guest-sim-stat-value">
+                        {plannerStats.estimatedYears}
+                      </span>
+                    </div>
+                    <div className="guest-planner-estimate guest-sim-stat">
+                      <span className="guest-planner-estimate-label guest-sim-stat-label">Estimated semesters</span>
+                      <span className="guest-planner-estimate-value guest-sim-stat-value">
+                        {plannerStats.estimatedSemesters}
+                      </span>
+                    </div>
+                    <div className="guest-planner-estimate guest-sim-stat">
+                      <span className="guest-planner-estimate-label guest-sim-stat-label">Load limits</span>
+                      <span className="guest-planner-estimate-value guest-sim-stat-value guest-planner-estimate-value--limits">
+                        23 / 24 / 19 / 12 · Summer 9
+                      </span>
+                    </div>
+                  </div>
+                </div>
+                <p className="guest-planner-note">
+                  Standing: <strong>{plannerStats.standingLabel}</strong>
+                  {' · '}
+                  Unit limit by year: 1st = 23, 2nd = 24, 3rd = 19, 4th = 12 (per semester). Summer = 9.
+                  {plannerStats.overloadedSlots > 0
+                    ? ` ${plannerStats.overloadedSlots} semester slot(s) are over the allowed load.`
+                    : ''}
+                </p>
+              </div>
+
+              {remainingSubjectRows.length === 0 ? (
+                <div className="guest-sim-empty">All subjects in this curriculum are credited.</div>
+              ) : (
+                <div className="guest-planner-years">
+                  {plannerYears.map((yearGroup) => (
+                    <section key={yearGroup.key} className="guest-sim-year-card">
+                      <div className="guest-sim-year-heading">
+                        <span>{String(yearGroup.yearLabel || 'Unknown year').toUpperCase()}</span>
+                      </div>
+                      <div className="guest-planner-term-layout">
+                        {yearGroup.sections.map((section) => {
+                          const termKind = getGuestSemesterKind(section.semId, semesters);
+                          const yearIdx = yearStandingIndex(yearLevels, yearGroup.yearId);
+                          const semCap = getMaxUnitsForSlot(
+                            yearIdx,
+                            section.semId,
+                            section.semesterLabel,
+                          );
+                          const semUnits = section.rows.reduce((acc, row) => {
+                            const n = parseUnitsNumber(
+                              getUnitsForGuest(row, getGuestTrackIdForRow(row, guestElectiveTracks), programs, creditScopeRows, guestElectiveTracks),
+                            );
+                            return n != null ? acc + n : acc;
+                          }, 0);
+                          const overCap = semUnits > semCap;
+                          const dropActive = plannerDragId != null;
+                          const insertOpen = plannerOpenInsertSlotKey === section.key;
+                          const slotInsertOptions = plannerSubjectOptions
+                            .filter((opt) => {
+                              if (opt.slotKey === section.key) return false;
+                              if (
+                                !guestSubjectCanMoveToSemester(
+                                  opt.homeSemId,
+                                  section.semId,
+                                  semesters,
+                                )
+                              ) {
+                                return false;
+                              }
+                              const row = remainingSubjectRows.find(
+                                (r) => String(r.curriculum_id) === String(opt.id),
+                              );
+                              if (!row) return false;
+                              const proposedPlacements = {
+                                ...plannerPlacements,
+                                [String(opt.id)]: {
+                                  yearId: section.yearId,
+                                  semId: section.semId,
+                                },
+                              };
+                              return guestPlannerPrereqMoveGate(row, section.yearId, section.semId, {
+                                scopeRows: creditScopeRows,
+                                remainingRows: remainingSubjectRows,
+                                placements: proposedPlacements,
+                                remarks,
+                                yearLevels,
+                                semesters,
+                              }).ok;
+                            })
+                            .map((opt) => ({
+                              value: opt.id,
+                              label: `${opt.label} (from ${opt.where})`,
+                            }));
+                          return (
+                            <section
+                              key={section.key}
+                              className={`guest-planner-slot guest-planner-slot--kind-${termKind}${dropActive ? ' guest-planner-slot--droppable' : ''}${section.rows.length === 0 ? ' guest-planner-slot--empty' : ''}`}
+                              onDragOver={(e) => {
+                                if (!plannerDragId) return;
+                                const dragRow = remainingSubjectRows.find(
+                                  (r) => String(r.curriculum_id) === String(plannerDragId),
+                                );
+                                if (
+                                  dragRow &&
+                                  !guestSubjectCanMoveToSemester(
+                                    getSemesterId(dragRow),
+                                    section.semId,
+                                    semesters,
+                                  )
+                                ) {
+                                  e.dataTransfer.dropEffect = 'none';
+                                  return;
+                                }
+                                if (dragRow) {
+                                  const proposedPlacements = {
+                                    ...plannerPlacements,
+                                    [String(plannerDragId)]: {
+                                      yearId: section.yearId,
+                                      semId: section.semId,
+                                    },
+                                  };
+                                  const prereqOk = guestPlannerPrereqMoveGate(
+                                    dragRow,
+                                    section.yearId,
+                                    section.semId,
+                                    {
+                                      scopeRows: creditScopeRows,
+                                      remainingRows: remainingSubjectRows,
+                                      placements: proposedPlacements,
+                                      remarks,
+                                      yearLevels,
+                                      semesters,
+                                    },
+                                  ).ok;
+                                  if (!prereqOk) {
+                                    e.dataTransfer.dropEffect = 'none';
+                                    return;
+                                  }
+                                }
+                                e.preventDefault();
+                                e.dataTransfer.dropEffect = 'move';
+                              }}
+                              onDrop={(e) => {
+                                e.preventDefault();
+                                const id =
+                                  e.dataTransfer.getData('text/plain') || plannerDragId;
+                                if (!id) return;
+                                const dragRow = remainingSubjectRows.find(
+                                  (r) => String(r.curriculum_id) === String(id),
+                                );
+                                if (
+                                  dragRow &&
+                                  !guestSubjectCanMoveToSemester(
+                                    getSemesterId(dragRow),
+                                    section.semId,
+                                    semesters,
+                                  )
+                                ) {
+                                  setPlannerDragId(null);
+                                  return;
+                                }
+                                movePlannerSubject(id, section.yearId, section.semId);
+                                setPlannerDragId(null);
+                              }}
+                            >
+                              <div className="guest-sim-section-heading">
+                                <h3>{section.semesterLabel}</h3>
+                                <span
+                                  className={`guest-planner-slot-units${overCap ? ' guest-planner-slot-units--over' : ''}`}
+                                >
+                                  {semUnits} / {semCap} u
+                                </span>
+                              </div>
+                              {section.rows.length > 0 ? (
+                                <ul className="guest-planner-list">
+                                  {section.rows.map((row) => {
+                                    const id = String(row.curriculum_id);
+                                    const parts = getPenCodePartsForGuest(
+                                      row,
+                                      getGuestTrackIdForRow(row, guestElectiveTracks),
+                                      programs,
+                                      creditScopeRows,
+                                      guestElectiveTracks,
+                                    );
+                                    const titleLabel = getDisplayTitleForGuest(
+                                      row,
+                                      getGuestTrackIdForRow(row, guestElectiveTracks),
+                                      programs,
+                                      creditScopeRows,
+                                      guestElectiveTracks,
+                                    );
+                                    const units = getUnitsForGuest(
+                                      row,
+                                      getGuestTrackIdForRow(row, guestElectiveTracks),
+                                      programs,
+                                      creditScopeRows,
+                                      guestElectiveTracks,
+                                    );
+                                    const placement = plannerPlacements[id] || {
+                                      yearId: section.yearId,
+                                      semId: section.semId,
+                                    };
+                                    const currentKey = `${placement.yearId ?? ''}|${placement.semId ?? ''}`;
+                                    const moveOptions = getPlannerMoveOptionsForRow(row, currentKey);
+                                    const moveNotes = buildGuestPlannerMoveNotes(row, {
+                                      plannerSlotOptions,
+                                      placements: plannerPlacements,
+                                      scopeRows: creditScopeRows,
+                                      remarks,
+                                      yearLevels,
+                                      semesters,
+                                    });
+                                    return (
+                                      <li
+                                        key={id}
+                                        className={`guest-planner-item${plannerDragId === id ? ' guest-planner-item--dragging' : ''}`}
+                                        draggable
+                                        onDragStart={(e) => {
+                                          setPlannerDragId(id);
+                                          e.dataTransfer.setData('text/plain', id);
+                                          e.dataTransfer.effectAllowed = 'move';
+                                        }}
+                                        onDragEnd={() => setPlannerDragId(null)}
+                                      >
+                                        <div className="guest-planner-item-main">
+                                          <div className="guest-code-pills">
+                                            {parts.length === 0 ? (
+                                              <span className="guest-code-pill guest-code-pill--empty">
+                                                —
+                                              </span>
+                                            ) : (
+                                              parts.map((code, pi) => (
+                                                <span
+                                                  key={`${id}-p-${pi}`}
+                                                  className="guest-code-pill"
+                                                >
+                                                  {code}
+                                                </span>
+                                              ))
+                                            )}
+                                          </div>
+                                          <span className="guest-planner-item-title">{titleLabel}</span>
+                                          <span className="guest-units-pill">{units}</span>
+                                        </div>
+                                        <label className="guest-planner-move">
+                                          <span className="guest-planner-move-label">Move to</span>
+                                          <select
+                                            className="guest-sim-input guest-planner-move-select"
+                                            value={
+                                              moveOptions.some((slot) => slot.key === currentKey)
+                                                ? currentKey
+                                                : moveOptions[0]?.key || currentKey
+                                            }
+                                            onChange={(e) => {
+                                              const [yearId, semId] = e.target.value.split('|');
+                                              movePlannerSubject(
+                                                id,
+                                                yearId === '' ? null : yearId,
+                                                semId === '' ? null : semId,
+                                              );
+                                            }}
+                                          >
+                                            {moveOptions.map((slot) => (
+                                              <option key={slot.key} value={slot.key}>
+                                                {slot.label}
+                                              </option>
+                                            ))}
+                                          </select>
+                                        </label>
+                                        {moveNotes.length > 0 ? (
+                                          <div className="guest-planner-move-notes">
+                                            {moveNotes.map((note, ni) => (
+                                              <p key={`${id}-note-${ni}`} className="guest-planner-move-note">
+                                                {note}
+                                              </p>
+                                            ))}
+                                          </div>
+                                        ) : null}
+                                      </li>
+                                    );
+                                  })}
+                                </ul>
+                              ) : null}
+                              <div
+                                className={`guest-planner-slot-insert-area${section.rows.length === 0 ? ' guest-planner-slot-insert-area--empty' : ''}`}
+                              >
+                                {section.rows.length === 0 && !insertOpen ? (
+                                  <div className="guest-planner-empty-actions">
+                                    <button
+                                      type="button"
+                                      className="guest-planner-slot-insert-btn guest-planner-slot-insert-btn--inline"
+                                      onClick={() =>
+                                        setPlannerOpenInsertSlotKey((open) =>
+                                          open === section.key ? null : section.key,
+                                        )
+                                      }
+                                    >
+                                      + Insert subject
+                                    </button>
+                                    <p className="guest-planner-empty-slot">Drop subjects here</p>
+                                  </div>
+                                ) : null}
+                                {insertOpen ? (
+                                  <div className="guest-planner-slot-insert-panel">
+                                    <label className="guest-planner-slot-insert-field">
+                                      <span className="guest-planner-slot-insert-label">
+                                        Subject to insert
+                                      </span>
+                                      <SearchableSelect
+                                        id={`guest-planner-insert-${String(section.key).replace(/[^\w-]+/g, '-')}`}
+                                        value=""
+                                        onChange={(next) =>
+                                          insertPlannerSubjectIntoSlot(
+                                            next,
+                                            section.yearId,
+                                            section.semId,
+                                          )
+                                        }
+                                        options={slotInsertOptions}
+                                        emptyLabel={
+                                          slotInsertOptions.length === 0
+                                            ? 'No subjects to add'
+                                            : 'Choose subject...'
+                                        }
+                                        placeholder="Search subject code/title..."
+                                        className="guest-planner-slot-insert-search"
+                                        aria-label={`Choose subject for ${section.semesterLabel}`}
+                                        disabled={slotInsertOptions.length === 0}
+                                      />
+                                    </label>
+                                    <button
+                                      type="button"
+                                      className="guest-planner-slot-insert-cancel"
+                                      onClick={() => setPlannerOpenInsertSlotKey(null)}
+                                    >
+                                      Cancel
+                                    </button>
+                                  </div>
+                                ) : section.rows.length > 0 ? (
+                                  <button
+                                    type="button"
+                                    className="guest-planner-slot-insert-btn"
+                                    onClick={() =>
+                                      setPlannerOpenInsertSlotKey((open) =>
+                                        open === section.key ? null : section.key,
+                                      )
+                                    }
+                                  >
+                                    + Insert subject
+                                  </button>
+                                ) : null}
+                              </div>
+                            </section>
+                          );
+                        })}
+                      </div>
+                    </section>
+                  ))}
+                </div>
+              )}
+            </section>
+              </div>
+            </div>
             </div>
           </div>
 
@@ -709,33 +2750,54 @@ const GuestPanel = () => {
                 type="button"
                 className="guest-elective-modal-backdrop"
                 aria-label="Close"
-                onClick={() => setElectiveTrackModalOpen(false)}
+                onClick={() => {
+                  setElectiveTrackModalOpen(false);
+                  setElectiveTrackModalSlotId(null);
+                }}
               />
               <div className="guest-elective-modal">
                 <h2 id="guest-elective-modal-title" className="guest-elective-modal-title">
                   Elective track
                 </h2>
                 <p className="guest-elective-modal-desc">
-                  Pick one track. Every elective slot in this filtered view will show the subject mapped to that track
-                  (when one exists for that slot).
+                  {isModalElectiveFour ? (
+                    <>
+                      Choosing a track here updates <strong>Elective 4 only</strong>. The subject for that track is
+                      configured by admin under Lookup → Elective subjects (linked to the IT Electives 4 slot).
+                    </>
+                  ) : (
+                    <>
+                      Choosing a track here updates <strong>Electives 1–3</strong>.{' '}
+                      <strong>Digital Arts</strong> also fills Elective 4 automatically.
+                    </>
+                  )}
                 </p>
-                {electiveTrackOptions.length === 0 ? (
+                {modalTrackOptions.length === 0 ? (
                   <p className="guest-elective-modal-empty">
-                    No tracks were found on elective subjects for this view. If this looks wrong, the curriculum may
+                    No tracks were found on elective subjects for this slot. If this looks wrong, the curriculum may
                     need elective–track links in the admin.
                   </p>
                 ) : (
                   <ul className="guest-elective-modal-list">
-                    {electiveTrackOptions.map((t) => {
-                      const active = String(t.track_id) === String(guestElectiveTrackId);
+                    {modalTrackOptions.map((t) => {
+                      const active = String(t.track_id) === String(modalSelectedTrackId);
                       return (
                         <li key={String(t.track_id)}>
                           <button
                             type="button"
                             className={`guest-elective-modal-option${active ? ' guest-elective-modal-option--active' : ''}`}
                             onClick={() => {
-                              setGuestElectiveTrackId(String(t.track_id));
+                              setGuestElectiveTracks(
+                                buildGuestElectiveTracksForChoice(
+                                  t,
+                                  creditScopeRows,
+                                  programs,
+                                  modalElectiveRow,
+                                  guestElectiveTracks,
+                                ),
+                              );
                               setElectiveTrackModalOpen(false);
+                              setElectiveTrackModalSlotId(null);
                             }}
                           >
                             <span className="guest-elective-modal-option-name">{t.track_name}</span>
@@ -749,22 +2811,33 @@ const GuestPanel = () => {
                   </ul>
                 )}
                 <div className="guest-elective-modal-footer">
-                  {guestElectiveTrackId ? (
+                  {modalSelectedTrackId ? (
                     <button
                       type="button"
                       className="guest-elective-modal-clear"
                       onClick={() => {
-                        setGuestElectiveTrackId('');
+                        setGuestElectiveTracks(
+                          clearGuestElectiveTracksForSlot(
+                            modalElectiveRow,
+                            creditScopeRows,
+                            programs,
+                            guestElectiveTracks,
+                          ),
+                        );
                         setElectiveTrackModalOpen(false);
+                        setElectiveTrackModalSlotId(null);
                       }}
                     >
-                      Clear track
+                      {isModalElectiveFour ? 'Clear Elective 4' : 'Clear Electives 1–3'}
                     </button>
                   ) : null}
                   <button
                     type="button"
                     className="guest-elective-modal-close"
-                    onClick={() => setElectiveTrackModalOpen(false)}
+                    onClick={() => {
+                      setElectiveTrackModalOpen(false);
+                      setElectiveTrackModalSlotId(null);
+                    }}
                   >
                     Close
                   </button>
@@ -774,101 +2847,27 @@ const GuestPanel = () => {
           )}
 
           <div className="guest-sim-float-dock" role="toolbar" aria-label="Curriculum simulation">
-            {remainingMode ? (
+            {activeStep === 'planner' ? (
               <button
                 type="button"
                 className="guest-sim-float-btn guest-sim-float-btn--secondary"
-                onClick={() => setRemainingMode(false)}
+                onClick={backToCurriculum}
               >
-                Show full curriculum
+                Back
               </button>
             ) : (
               <button
                 type="button"
                 className="guest-sim-float-btn guest-sim-float-btn--primary"
-                onClick={() => setRemainingMode(true)}
+                onClick={openPlanner}
               >
                 Confirm
               </button>
             )}
           </div>
-
-          <details className="guest-transfer-details">
-            <summary>External course code lookup (transfer credit match)</summary>
-            <p className="guest-sim-desc">
-              Enter course codes from a previous school (one per line). If they exist with an active equivalence, you
-              will see possible local matches. This does not create a record.
-            </p>
-            <form className="guest-sim-form" onSubmit={handleSimulate}>
-              <div className="guest-sim-row">
-                <label htmlFor="guest-sim-school">School (optional)</label>
-                <select
-                  id="guest-sim-school"
-                  value={simSchoolId}
-                  onChange={(e) => setSimSchoolId(e.target.value)}
-                >
-                  <option value="">Any school</option>
-                  {schools.map((s) => (
-                    <option key={s.school_id} value={s.school_id}>
-                      {s.school_name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div className="guest-sim-row">
-                <label htmlFor="guest-sim-codes">External course codes</label>
-                <textarea
-                  id="guest-sim-codes"
-                  rows={4}
-                  placeholder={'e.g. MATH101\nENG102'}
-                  value={codesText}
-                  onChange={(e) => setCodesText(e.target.value)}
-                />
-              </div>
-              <button type="submit" className="guest-sim-submit" disabled={simLoading}>
-                {simLoading ? 'Checking…' : 'Check matches'}
-              </button>
-            </form>
-            {simError && <div className="guest-error guest-sim-err">{simError}</div>}
-            {simResults && simResults.length > 0 && (
-              <div className="guest-sim-results">
-                {simResults.map((r, idx) => (
-                  <div key={idx} className="guest-sim-block">
-                    <div className="guest-sim-code">
-                      <strong>Code:</strong> {r.input_code}{' '}
-                      <span className={`guest-sim-badge guest-sim-${r.match}`}>{r.match}</span>
-                    </div>
-                    {r.message && <p className="guest-sim-msg">{r.message}</p>}
-                    {r.equivalences?.length > 0 && (
-                      <table className="guest-sim-table-inner">
-                        <thead>
-                          <tr>
-                            <th>Local code</th>
-                            <th>Local subject</th>
-                            <th>Units</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {r.equivalences.map((eq, i) => (
-                            <tr key={i}>
-                              <td>{eq.local_subject_code || '—'}</td>
-                              <td>{eq.local_subject_name || '—'}</td>
-                              <td>{eq.credited_units ?? '—'}</td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    )}
-                  </div>
-                ))}
-              </div>
-            )}
-          </details>
         </>
       )}
       </div>
     </div>
   );
-};
-
-export default GuestPanel;
+}

@@ -84,14 +84,17 @@ class AuthSecurity
             ]);
         }
 
-        $days = (int) $settings->password_expiry_days;
-        if ($days > 0 && $user->password_changed_at) {
-            if ($user->password_changed_at->copy()->addDays($days)->isPast()) {
-                throw ValidationException::withMessages([
-                    'email' => ['Your password has expired. Contact an administrator to reset it.'],
-                ]);
-            }
-        }
+        // TODO(DEPLOY): Re-enable password expiry before production launch.
+        // Search the repo for "TODO(DEPLOY): Re-enable password expiry" when going live.
+        // Uncomment the block below and decide policy: all users vs non-admin only (!$user->isAdmin()).
+        // $days = (int) $settings->password_expiry_days;
+        // if ($days > 0 && ! $user->isAdmin() && $user->password_changed_at) {
+        //     if ($user->password_changed_at->copy()->addDays($days)->isPast()) {
+        //         throw ValidationException::withMessages([
+        //             'email' => ['Your password has expired. Contact an administrator to reset it.'],
+        //         ]);
+        //     }
+        // }
 
         self::clearLoginState($user);
     }

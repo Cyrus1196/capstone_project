@@ -107,9 +107,6 @@ const StudentProfile = () => {
     }
   };
 
-  const selectedYear = yearLevels.find(
-    (yearLevel) => Number(yearLevel.year_level_id) === Number(formData.year_level_id)
-  );
   /** Same `track_id` as dean/program head sets — show whenever catalog has tracks (not only 3rd year). */
   const showTrackField = tracks.length > 0;
   const trackSelectValue =

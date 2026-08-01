@@ -45,7 +45,8 @@ export const AuthProvider = ({ children }) => {
   const checkUser = useCallback(async () => {
     try {
       if (jwtAuth.isAuthenticated()) {
-        const response = await api.get('/user');
+        // Initial session boot uses AuthContext `loading`, not the global overlay.
+        const response = await api.get('/user', { skipLoading: true });
         setUser(response.data.user);
         applySecurityFromResponse(response.data.security, response.data.user);
       } else {
@@ -60,12 +61,39 @@ export const AuthProvider = ({ children }) => {
     }
   }, [applySecurityFromResponse]);
 
+  /** Soft re-fetch for tab focus / permission sync — never blocks the UI. */
+  const refreshUser = useCallback(async () => {
+    if (!jwtAuth.isAuthenticated()) {
+      return;
+    }
+    try {
+      const response = await api.get('/user', { silent: true, skipLoading: true });
+      const nextUser = response.data?.user ?? null;
+      applySecurityFromResponse(response.data?.security, nextUser);
+      setUser((prev) => {
+        if (!nextUser) return null;
+        if (
+          prev &&
+          prev.user_id === nextUser.user_id &&
+          prev.role === nextUser.role &&
+          JSON.stringify(prev.permissions || []) === JSON.stringify(nextUser.permissions || []) &&
+          !!prev.is_admin === !!nextUser.is_admin
+        ) {
+          return prev;
+        }
+        return nextUser;
+      });
+    } catch {
+      // Keep existing session; idle logout / 401 handler will clear if needed.
+    }
+  }, [applySecurityFromResponse]);
+
   const refreshSessionPolicy = useCallback(async () => {
     if (!jwtAuth.isAuthenticated()) {
       return;
     }
     try {
-      const response = await api.get('/user', { silent: true });
+      const response = await api.get('/user', { silent: true, skipLoading: true });
       applySecurityFromResponse(response.data?.security, response.data?.user);
     } catch {
       // ignore
@@ -78,7 +106,7 @@ export const AuthProvider = ({ children }) => {
 
   const logout = useCallback(async () => {
     try {
-      await api.post('/logout');
+      await api.post('/logout', {}, { skipLoading: true });
     } catch {
       // still clear client session
     } finally {
@@ -164,15 +192,15 @@ export const AuthProvider = ({ children }) => {
     login,
     logout,
     /** Re-fetch /user (e.g. after admin updates your role permissions). */
-    refreshUser: checkUser,
+    refreshUser,
     refreshSessionPolicy,
     isAuthenticated: !!user,
     isAdmin: user?.is_admin || false,
     isDean: user?.role === 'Dean' || false,
     isProgramHead: user?.role === 'Program Head' || false,
     isSecretary: user?.role === 'Secretary' || false,
-    /** Evaluator and Adviser share the evaluator portal (evaluation workflows). */
-    isFaculty: user?.role === 'Evaluator' || user?.role === 'Adviser' || false,
+    /** Adviser portal (legacy Evaluator role merged into Adviser). */
+    isFaculty: user?.role === 'Adviser' || user?.role === 'Evaluator' || false,
     hasPermission,
     hasAnyPermission,
     hasAnyAssignedPermission,

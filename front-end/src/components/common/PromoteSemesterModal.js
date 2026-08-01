@@ -26,6 +26,8 @@ function electiveChoiceLabel(c) {
  *     title: string,
  *     units: string|number,
  *     prerequisite: string,
+ *     eligible?: boolean,
+ *     unmetPrerequisites?: Array<string>,
  *     electivePending?: boolean,
  *     electiveChoices?: Array<Record<string, unknown>>,
  *   }>,
@@ -160,7 +162,10 @@ const PromoteSemesterModal = ({
                   </tr>
                 ) : (
                   rows.map((r, idx) => (
-                    <tr key={`${r.penCode}-${idx}`}>
+                    <tr
+                      key={`${r.penCode}-${idx}`}
+                      className={r.eligible === false ? 'promote-modal__row--blocked' : undefined}
+                    >
                       <td>
                         {r.electivePending && (r.electiveChoices?.length ?? 0) > 0 ? (
                           <div
@@ -239,7 +244,13 @@ const PromoteSemesterModal = ({
                       <td>
                         <span className="promote-modal__pill">{r.units ?? '—'}</span>
                       </td>
-                      <td>{r.prerequisite || 'NONE'}</td>
+                      <td>
+                        {r.eligible === false ? (
+                          <span className="promote-modal__blocked-badge">Not eligible</span>
+                        ) : (
+                          r.prerequisite || 'NONE'
+                        )}
+                      </td>
                     </tr>
                   ))
                 )}

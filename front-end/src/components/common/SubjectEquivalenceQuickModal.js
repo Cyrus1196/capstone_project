@@ -5,10 +5,12 @@ import { swalConfirm, swalError, swalToast } from '../../utils/swal';
 import './SubjectEquivalenceQuickModal.css';
 
 /**
- * Quick “other school subject → local subject” mapping without leaving evaluation.
- * Props: open, onClose, fixedLocal (optional), onSaved (optional), rosterStudentId (optional — from curriculum view, sent as for_student_id).
+ * Quick “other school subject → local subject” helper without leaving evaluation.
+ * With rosterStudentId + fixedLocal, this records a student-specific approved transfer credit.
+ * Without that context, it only saves a reusable subject-equivalence suggestion.
+ *
+ * Props: open, onClose, fixedLocal (optional), onSaved (optional), rosterStudentId (optional).
  * fixedLocal may include transfer_credit_other_subject_id to pre-select the external course when reopening a Credited row.
- * Catalog reuse is per prior-school course + local subject pair only (same case, same equivalence).
  */
 function SubjectEquivalenceQuickModal({
   open,
@@ -106,12 +108,14 @@ function SubjectEquivalenceQuickModal({
 
   const effectiveLocalId =
     fixedLocal?.id != null ? String(fixedLocal.id) : localSubjectId;
-
-  const canRemoveStudentTransferLink =
+  const isStudentCreditMode =
     rosterStudentNumeric != null &&
     fixedLocal?.id != null &&
+    Number.parseInt(effectiveLocalId, 10) > 0;
+
+  const canRemoveStudentTransferLink =
+    isStudentCreditMode &&
     linkedTransferOtherId != null &&
-    effectiveLocalId &&
     Number.parseInt(effectiveLocalId, 10) > 0;
 
   const handleRemoveMapping = async () => {
@@ -120,15 +124,15 @@ function SubjectEquivalenceQuickModal({
       title: 'Remove credit mapping?',
       text: 'This student will no longer receive curriculum credit for this PEN subject from the selected prior-school course. The global equivalence catalog is not deleted.',
       icon: 'warning',
-      confirmButtonText: 'Remove link',
+      confirmButtonText: 'Clear credit',
       cancelButtonText: 'Cancel',
     });
     if (!ok) return;
 
     setSubmitting(true);
     try {
-      const { data } = await api.post('/subject-equivalences/clear-student-mapping', {
-        for_student_id: rosterStudentNumeric,
+      const { data } = await api.post('/credit-evaluations/clear-transfer-credit', {
+        student_id: rosterStudentNumeric,
         subject_id: Number.parseInt(effectiveLocalId, 10),
         other_subject_id: linkedTransferOtherId,
       });
@@ -173,68 +177,30 @@ function SubjectEquivalenceQuickModal({
 
     setSubmitting(true);
     try {
-      const payload = {
-        other_school_subject: otherId,
-        subject_id: subjId,
-        credited_units: credited,
-        credit_basis: String(creditBasis || '').trim() || null,
-        status: 'active',
-        remarks: String(remarks || '').trim() || null,
-      };
-      if (rosterStudentNumeric != null) {
-        payload.for_student_id = rosterStudentNumeric;
-      }
-      if (
-        rosterStudentNumeric != null &&
-        linkedTransferOtherId != null &&
-        linkedTransferOtherId !== otherId
-      ) {
-        payload.from_other_subject_id = linkedTransferOtherId;
-      }
-      const { data: resBody } = await api.post('/subject-equivalences', payload);
-      const n = Number(resBody?.updated_pending_credit_lines ?? 0);
-      const batches = Number(resBody?.linked_transfer_intake_batches ?? 0);
-      const synth = Number(resBody?.synthesized_student_credit_line ?? 0);
-      if (synth > 0 && n > 0 && batches > 0) {
-        swalToast(
-          'success',
-          `Equivalence saved. ${n} intake line(s) mapped; ${batches} batch(es) linked; a student transfer line was added so this row can show Credited.`
-        );
-      } else if (synth > 0 && n > 0) {
-        swalToast(
-          'success',
-          `Equivalence saved. ${n} intake line(s) mapped and a transfer line was added for this student so the curriculum can show Credited.`
-        );
-      } else if (synth > 0 && batches > 0) {
-        swalToast(
-          'success',
-          `Equivalence saved. ${batches} batch(es) linked and a transfer line was added for this student so the curriculum can show Credited.`
-        );
-      } else if (synth > 0) {
-        swalToast(
-          'success',
-          'Subject equivalence saved. A transfer line was recorded for this student for that prior-school course so this PEN row can show Credited.'
-        );
-      } else if (n > 0 && batches > 0) {
-        swalToast(
-          'success',
-          `Equivalence saved. ${n} intake line(s) mapped to this subject; ${batches} transfer batch(es) linked to this student for curriculum credit.`
-        );
-      } else if (n > 0) {
-        swalToast(
-          'success',
-          `Equivalence saved. ${n} transfer intake line(s) that had no local subject yet were linked to this catalog course.`
-        );
-      } else if (batches > 0) {
-        swalToast(
-          'success',
-          `Equivalence saved. ${batches} transfer batch(es) linked to this student so credited subjects appear on the curriculum grid.`
-        );
+      if (isStudentCreditMode) {
+        await api.post('/credit-evaluations/apply-transfer-credit', {
+          student_id: rosterStudentNumeric,
+          other_subject_id: otherId,
+          subject_id: subjId,
+          previous_other_subject_id:
+            linkedTransferOtherId != null && linkedTransferOtherId !== otherId
+              ? linkedTransferOtherId
+              : null,
+          credited_units: credited,
+          credit_basis: String(creditBasis || '').trim() || null,
+          remarks: String(remarks || '').trim() || null,
+        });
+        swalToast('success', 'Transfer credit approved for this student.');
       } else {
-        swalToast(
-          'success',
-          'Subject equivalence saved. New transfer entries that use this external course can match this local subject automatically.'
-        );
+        await api.post('/subject-equivalences', {
+          other_school_subject: otherId,
+          subject_id: subjId,
+          credited_units: credited,
+          credit_basis: String(creditBasis || '').trim() || null,
+          status: 'active',
+          remarks: String(remarks || '').trim() || null,
+        });
+        swalToast('success', 'Subject equivalence suggestion saved.');
       }
       onSaved?.();
       onClose();
@@ -244,7 +210,7 @@ function SubjectEquivalenceQuickModal({
         err.response?.data?.error ||
         err.message ||
         'Save failed';
-      await swalError('Could not save equivalence', msg);
+      await swalError(isStudentCreditMode ? 'Could not apply transfer credit' : 'Could not save equivalence', msg);
     } finally {
       setSubmitting(false);
     }
@@ -253,8 +219,10 @@ function SubjectEquivalenceQuickModal({
   if (!open) return null;
 
   const title =
-    fixedLocal?.id != null
-      ? 'Map a prior-school course to this curriculum subject'
+    isStudentCreditMode
+      ? 'Apply transfer credit to this student'
+      : fixedLocal?.id != null
+        ? 'Save equivalence suggestion for this subject'
       : 'Add subject equivalence';
 
   return (
@@ -381,7 +349,7 @@ function SubjectEquivalenceQuickModal({
                     onClick={handleRemoveMapping}
                     disabled={loading || submitting}
                   >
-                    Remove mapping
+                    Clear credit
                   </button>
                 ) : null}
               </div>
@@ -399,7 +367,7 @@ function SubjectEquivalenceQuickModal({
                   className="seq-equiv-dialog__btn-save"
                   disabled={loading || submitting}
                 >
-                  {submitting ? 'Saving…' : 'Save equivalence'}
+                  {submitting ? 'Saving…' : isStudentCreditMode ? 'Apply credit' : 'Save equivalence'}
                 </button>
               </div>
             </div>

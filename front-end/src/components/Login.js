@@ -5,6 +5,23 @@ import { swalError, swalInfo } from '../utils/swal';
 import './Login.css';
 
 const publicUrl = process.env.PUBLIC_URL || '';
+const PORTAL_ACTIVE_TAB_STORAGE_KEYS = [
+  'facultyPortalActiveTab',
+  'deanPortalActiveTab',
+  'adminPortalActiveTab',
+  'adminLookupSubPanel',
+  'studentPortalActiveTab',
+  'portalSidebarCollapsed_program_head_activeTab',
+  'portalSidebarCollapsed_secretary_activeTab',
+];
+
+function clearStoredPortalTabs() {
+  try {
+    PORTAL_ACTIVE_TAB_STORAGE_KEYS.forEach((key) => window.localStorage.removeItem(key));
+  } catch {
+    // Ignore storage errors; login routing should still work.
+  }
+}
 
 const Login = () => {
   const [email, setEmail] = useState('');
@@ -15,7 +32,16 @@ const Login = () => {
   const [captchaB, setCaptchaB] = useState(0);
   const [captchaInput, setCaptchaInput] = useState('');
   const [captchaStatus, setCaptchaStatus] = useState('idle');
-  const { login } = useAuth();
+  const {
+    login,
+    user,
+    loading: authLoading,
+    isAdmin,
+    isDean,
+    isFaculty,
+    isProgramHead,
+    isSecretary,
+  } = useAuth();
   const navigate = useNavigate();
 
   const refreshCaptcha = useCallback(() => {
@@ -47,6 +73,24 @@ const Login = () => {
     refreshCaptcha();
   }, [refreshCaptcha]);
 
+  useEffect(() => {
+    if (authLoading || !user) return;
+
+    if (isAdmin || user.role === 'Admin') {
+      navigate('/admin', { replace: true });
+    } else if (isDean) {
+      navigate('/dean', { replace: true });
+    } else if (isProgramHead) {
+      navigate('/program-head', { replace: true });
+    } else if (isSecretary) {
+      navigate('/secretary', { replace: true });
+    } else if (isFaculty) {
+      navigate('/evaluator', { replace: true });
+    } else {
+      navigate('/student', { replace: true });
+    }
+  }, [authLoading, user, isAdmin, isDean, isFaculty, isProgramHead, isSecretary, navigate]);
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     const expected = captchaExpected;
@@ -63,6 +107,7 @@ const Login = () => {
     const result = await login(email, password);
 
     if (result.success) {
+      clearStoredPortalTabs();
       const userRole = result.data?.user?.role;
       const userIsAdmin = result.data?.user?.is_admin || false;
 

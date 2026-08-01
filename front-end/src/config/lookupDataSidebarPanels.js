@@ -1,7 +1,7 @@
 /**
  * Lookup Data Management panels — order matches former horizontal tabs (sidebar / external nav).
  * permissionSlug matches backend LookupResourcePermissions::SLUGS (lookup.{slug}.view|manage).
- * Curriculum headers is edited in the same UI but linked from the Curriculum sidebar group (Admin/Dean).
+ * Curriculum headers is included here so admins can create/select curriculum headers from Lookup Data.
  */
 export const CURRICULUM_HEADER_LOOKUP_PANEL = {
   panelKey: 'curriculumHeaders',
@@ -19,13 +19,14 @@ export const LOOKUP_DATA_SIDEBAR_PANELS = [
   { panelKey: 'roles', permissionSlug: 'roles', label: 'Roles' },
   { panelKey: 'requisites', permissionSlug: 'requisites', label: 'Prerequisites' },
   { panelKey: 'academicYears', permissionSlug: 'academic_years', label: 'Academic year' },
+  CURRICULUM_HEADER_LOOKUP_PANEL,
   { panelKey: 'tracks', permissionSlug: 'tracks', label: 'Tracks' },
   { panelKey: 'electiveSubjects', permissionSlug: 'elective_subjects', label: 'Elective subjects' },
   { panelKey: 'offeredSubjects', permissionSlug: 'offered_subjects', label: 'Offered subjects' },
 ];
 
-/** All lookup-style resources (including curriculum headers) for RBAC / slug resolution. */
-export const allLookupResourcePanels = () => [...LOOKUP_DATA_SIDEBAR_PANELS, CURRICULUM_HEADER_LOOKUP_PANEL];
+/** All lookup-style resources for RBAC / slug resolution. */
+export const allLookupResourcePanels = () => LOOKUP_DATA_SIDEBAR_PANELS;
 
 /** All granular lookup.* permission names (for LOOKUP_TAB_PERMISSIONS, etc.). */
 export const lookupGranularPermissionNames = () =>

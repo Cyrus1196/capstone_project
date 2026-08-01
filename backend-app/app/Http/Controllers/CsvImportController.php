@@ -4,13 +4,19 @@ namespace App\Http\Controllers;
 
 use App\Models\Evaluation;
 use App\Models\Prerequisite;
+use App\Models\Program;
 use App\Models\Role;
 use App\Models\SecuritySetting;
+use App\Models\Semester;
+use App\Models\AcademicYear;
 use App\Models\StudentProfile;
 use App\Models\Subject;
 use App\Models\TblUser;
+use App\Models\YearLevel;
+use App\Services\GradeScaleHelper;
 use App\Services\SisGradeDeliberationImportParser;
 use App\Services\StudentCurriculumEvaluationBuilder;
+use App\Services\SubjectImportResolver;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -108,13 +114,69 @@ class CsvImportController extends Controller
             'validation_rules' => [],
             'column_groups' => [
                 [
-                    'title' => 'File format',
-                    'description' => 'Export from Excel as Tab-delimited text (.txt) or CSV. First row may be headers (SESSION, STUDENT ID, CODE, …) or plain data rows in SIS column order. Extra instructor/team-teaching columns between SECTION and MODALITY are supported.',
-                    'columns' => [],
+                    'title' => 'Grade Deliberation export (SESSION … REMARKS)',
+                    'description' => 'Standard SIS Grade Deliberation CSV/tab export. Extra instructor columns between SECTION and MODALITY are supported.',
+                    'columns' => [
+                        'SESSION',
+                        'COLLEGE',
+                        'COURSE',
+                        'STUDENT ID',
+                        'NAME',
+                        'YEAR LEVEL',
+                        'SEMESTER',
+                        'CODE',
+                        'SUBJECT NAME',
+                        'SUBJECT TYPE',
+                        'UNITS',
+                        'SECTION',
+                        'TEACHER 1',
+                        'SECTION 2',
+                        'TEACHER 2',
+                        'MODALITY',
+                        'ENLISTMENT MODE',
+                        'ADMISSION TYPE',
+                        'GENDER',
+                        'P1',
+                        'P2',
+                        'P3',
+                        'GRADE',
+                        'REMARKS',
+                    ],
+                ],
+                [
+                    'title' => 'Alternate SIS grade sheet (IDNO … REMARKS_FINAL)',
+                    'description' => 'Excel grade sheet with IDNO / SY / SUBJECT CODE headers is also accepted. Grade is read from GRADE, FINAL GRADE, or GRADE_FINAL; remarks from REMARKS or REMARKS_FINAL. SY + SEMESTER columns are combined for academic year/term mapping (e.g. SY 2023-2024 + 1st Semester).',
+                    'columns' => [
+                        'IDNO',
+                        'NAME',
+                        'COURSE',
+                        'MAJOR',
+                        'YEAR',
+                        'SEMESTER',
+                        'SY',
+                        'SECTION',
+                        'SUBJECT CODE',
+                        'UNITS',
+                        'GRADE',
+                        'REMARKS',
+                        'FACULTY',
+                        'SUBJECT DESCRIPTION',
+                        'RE-GRADE',
+                        'FINAL GRADE',
+                        'COMPLETION GRADE',
+                        'GRADE_P',
+                        'GRADE_M',
+                        'GRADE_F',
+                        'GRADE_FINAL',
+                        'REMARKS_P',
+                        'REMARKS_M',
+                        'REMARKS_F',
+                        'REMARKS_FINAL',
+                    ],
                 ],
                 [
                     'title' => 'SESSION column',
-                    'description' => 'Example: SY 25-26 SEM II. The importer matches Academic Year names containing both years (e.g. 2025 and 2026) and picks semester from SEM I / SEM II. If mapping fails, send academic_year_id and semester_id with the upload (optional form fields).',
+                    'description' => 'Example: SY 25-26 SEM 1 or SY 25-26 SEM II. SESSION must match Lookup Academic Year in the database (SY 25-26 → 2025-2026). If the year is missing it is created as 2025-2026. SEM 1 / SEM I / SEM II sets semester. Optional form overrides: academic_year_id + semester_id.',
                     'columns' => [],
                 ],
                 [
@@ -335,13 +397,52 @@ class CsvImportController extends Controller
             'academic_year_id' => ['required', 'integer', 'exists:tbl_academic_year,academic_year_id'],
             'semester_id' => ['required', 'integer', 'exists:tbl_semester,semester_id'],
             'section_id' => 'nullable|integer|exists:tbl_section,section_id',
-            'grade' => 'nullable|string|max:10',
-            'evaluation_status' => 'nullable|string|in:passed,failed,ongoing,dropped,incomplete,inc',
+            'grade' => 'nullable|string|max:20',
+            'evaluation_status' => 'nullable|string|in:passed,failed,ongoing,dropped,incomplete,inc,complete',
             'enrolled_date' => 'nullable|date',
             'evaluation_date' => 'nullable|date',
             'modality_id' => 'nullable|integer|exists:tbl_modality,modality_id',
             'inc_compliance_deadline' => 'nullable|date',
         ];
+    }
+
+    /**
+     * Grade Deliberation rows can introduce student profiles because the report includes
+     * STUDENT ID, NAME, COURSE, and YEAR columns.
+     *
+     * @return array<string, mixed>
+     */
+    private function gradeDeliberationImportValidationRules(): array
+    {
+        $rules = $this->gradesImportValidationRules([], true);
+        $rules['student_id_number'] = ['required', 'string', 'max:50'];
+
+        return $rules;
+    }
+
+    /**
+     * @param  array<string, mixed>  $row
+     * @return list<string>
+     */
+    private function gradeDeliberationStudentMetadataErrors(array $row): array
+    {
+        $sid = trim((string) ($row['student_id_number'] ?? ''));
+        if ($sid === '' || StudentProfile::query()->where('student_id_number', $sid)->exists()) {
+            return [];
+        }
+
+        $errors = [];
+        if (trim((string) ($row['_sis_student_name'] ?? '')) === '') {
+            $errors[] = 'New student row is missing NAME.';
+        }
+        if (! $this->resolveSisProgramId($row)) {
+            $errors[] = 'Could not match COURSE to an existing program.';
+        }
+        if (! $this->resolveSisYearLevelId($row)) {
+            $errors[] = 'Could not match YEAR LEVEL / SEMESTER to an existing year level.';
+        }
+
+        return $errors;
     }
 
     /**
@@ -560,6 +661,127 @@ class CsvImportController extends Controller
      *
      * @param  array<string, mixed>  $row  Normalized row
      */
+    private function resolvePassingGradeForImport(StudentProfile $profile, Subject $subject): float
+    {
+        return app(GradeScaleHelper::class)->resolvePassingGradeForSubject(
+            $profile->Current_Program ?? null,
+            (int) $subject->subject_id
+        );
+    }
+
+    /**
+     * @param  array<string, mixed>  $row
+     * @return array<string, mixed>
+     */
+    private function normalizeImportedGradeRow(array $row, StudentProfile $profile, Subject $subject): array
+    {
+        $helper = app(GradeScaleHelper::class);
+        $passingGrade = $this->resolvePassingGradeForImport($profile, $subject);
+        $normalized = $helper->normalizeForImport(
+            isset($row['grade']) ? (string) $row['grade'] : null,
+            isset($row['evaluation_status']) ? (string) $row['evaluation_status'] : null,
+            $passingGrade
+        );
+
+        if (($normalized['evaluation_status'] ?? null) === 'complete') {
+            $row['grade'] = null;
+        } elseif (array_key_exists('grade', $row) || $normalized['grade'] !== null) {
+            $row['grade'] = $normalized['grade'];
+        }
+        if ($normalized['evaluation_status'] !== null) {
+            $row['evaluation_status'] = $normalized['evaluation_status'];
+        }
+
+        return $row;
+    }
+
+    /**
+     * Map SIS subject codes to the curriculum canonical code when duplicates differ by spacing.
+     *
+     * @param  array<string, mixed>  $row
+     * @return array<string, mixed>
+     */
+    private function resolveGradeImportRowSubjectCode(array $row): array
+    {
+        $importedCode = trim((string) ($row['subject_code'] ?? ''));
+        if ($importedCode === '') {
+            return $row;
+        }
+
+        $profile = StudentProfile::query()
+            ->where('student_id_number', trim((string) ($row['student_id_number'] ?? '')))
+            ->orderBy('student_id')
+            ->first();
+
+        $programId = $this->resolveSisProgramId($row);
+        if (! $programId && $profile?->Current_Program) {
+            $programId = (int) $profile->Current_Program;
+        }
+
+        $subject = app(SubjectImportResolver::class)->resolve($programId, $importedCode);
+        if (! $subject || strtoupper($subject->subject_code) === strtoupper($importedCode)) {
+            return $row;
+        }
+
+        $row['_sis_import_subject_code'] = $importedCode;
+        $row['subject_code'] = $subject->subject_code;
+
+        return $row;
+    }
+
+    /**
+     * @param  array<string, mixed>  $row
+     */
+    private function resolveProgramIdForGradeImport(array $row, StudentProfile $profile): ?int
+    {
+        $fromRow = $this->resolveSisProgramId($row);
+        if ($fromRow) {
+            return $fromRow;
+        }
+
+        return $profile->Current_Program ? (int) $profile->Current_Program : null;
+    }
+
+    private function resolveSubjectForGradeImport(array $row, StudentProfile $profile): Subject
+    {
+        $resolver = app(SubjectImportResolver::class);
+        $programId = $this->resolveProgramIdForGradeImport($row, $profile);
+        $importedCode = (string) ($row['subject_code'] ?? '');
+        $subject = $resolver->resolve($programId, $importedCode);
+        if (! $subject) {
+            throw new \RuntimeException('Subject not found: ' . $importedCode);
+        }
+
+        return $subject;
+    }
+
+    /**
+     * @param  list<int>  $aliasSubjectIds
+     */
+    private function removeAliasGradeEvaluations(
+        StudentProfile $profile,
+        int $academicYearId,
+        int $semesterId,
+        ?int $sectionId,
+        array $aliasSubjectIds
+    ): void {
+        if ($aliasSubjectIds === []) {
+            return;
+        }
+
+        $query = Evaluation::query()
+            ->where('student_id', $profile->student_id)
+            ->whereIn('subject_id', $aliasSubjectIds)
+            ->where('academic_year_id', $academicYearId)
+            ->where('semester_id', $semesterId);
+        if ($sectionId !== null) {
+            $query->where('section_id', $sectionId);
+        } else {
+            $query->whereNull('section_id');
+        }
+        $query->delete();
+    }
+
     private function importGradesEvaluationRow(Request $request, array $row): void
     {
         $profile = StudentProfile::query()
@@ -567,13 +789,19 @@ class CsvImportController extends Controller
             ->orderBy('student_id')
             ->firstOrFail();
 
-        $subject = Subject::query()->where('subject_code', $row['subject_code'])->firstOrFail();
+        $importedSubjectCode = (string) ($row['subject_code'] ?? '');
+        $subject = $this->resolveSubjectForGradeImport($row, $profile);
+        $row['subject_code'] = $subject->subject_code;
+        $row = $this->normalizeImportedGradeRow($row, $profile, $subject);
 
         $academicYearId = (int) $row['academic_year_id'];
         $semesterId = (int) $row['semester_id'];
         $sectionId = isset($row['section_id']) && $row['section_id'] !== null && $row['section_id'] !== ''
             ? (int) $row['section_id']
             : null;
+
+        $aliasSubjectIds = app(SubjectImportResolver::class)->aliasSubjectIds($subject, $importedSubjectCode);
+        $this->removeAliasGradeEvaluations($profile, $academicYearId, $semesterId, $sectionId, $aliasSubjectIds);
 
         $query = Evaluation::query()
             ->where('student_id', $profile->student_id)
@@ -635,6 +863,9 @@ class CsvImportController extends Controller
             'subject_id' => $subject->subject_id,
             'academic_year_id' => $academicYearId,
             'semester_id' => $semesterId,
+            'graded_under_program_id' => $profile->current_program !== null && $profile->current_program !== ''
+                ? (int) $profile->current_program
+                : null,
         ], $payload));
         app(StudentCurriculumEvaluationBuilder::class)->syncStudentProfileFromCurriculumProgress($profile);
     }
@@ -748,6 +979,10 @@ class CsvImportController extends Controller
                 ], 400);
             }
 
+            $previewHeaders = $validated['import_type'] === 'sis_grade_deliberation'
+                ? $this->sisGradeDeliberationPreviewHeaders($data)
+                : $headers;
+
             $totalRows = count($data);
             $previewSlice = array_slice($data, 0, self::CSV_PREVIEW_MAX_ROWS);
 
@@ -761,7 +996,8 @@ class CsvImportController extends Controller
                 $rowNumber = $index + 1;
                 $rowRules = match ($validated['import_type']) {
                     'students' => $this->studentAccountImportValidationRules($row),
-                    'grades', 'sis_grade_deliberation' => $this->gradesImportValidationRules(),
+                    'grades' => $this->gradesImportValidationRules(),
+                    'sis_grade_deliberation' => $this->gradeDeliberationImportValidationRules(),
                     'sis_mixed' => $this->sisMixedRowValidationRules($row, $pendingSisStudentIds),
                     default => $this->validationRulesForImportType($validated['import_type']),
                 };
@@ -771,9 +1007,21 @@ class CsvImportController extends Controller
                     $rowValidation['valid'] = false;
                     $rowValidation['errors'][] = 'Could not infer term from SESSION. Add academic_year_id and semester_id to the import request, or align tbl_academic_year names with the export (e.g. include 2025 and 2026).';
                 }
+                if ($validated['import_type'] === 'sis_grade_deliberation') {
+                    $metadataErrors = $this->gradeDeliberationStudentMetadataErrors($row);
+                    if ($metadataErrors !== []) {
+                        $rowValidation['valid'] = false;
+                        array_push($rowValidation['errors'], ...$metadataErrors);
+                    }
+                }
+                if ($rowValidation['valid'] && in_array($validated['import_type'], ['grades', 'sis_grade_deliberation'], true)) {
+                    $row = $this->resolveGradeImportRowSubjectCode($row);
+                }
                 $preview[] = [
                     'row_number' => $rowNumber,
-                    'data' => $row,
+                    'data' => $validated['import_type'] === 'sis_grade_deliberation'
+                        ? $this->sisGradeDeliberationPreviewRowData($row)
+                        : $row,
                     'valid' => $rowValidation['valid'],
                     'errors' => $rowValidation['errors'],
                 ];
@@ -789,7 +1037,7 @@ class CsvImportController extends Controller
                 'total_rows' => $totalRows,
                 'preview_rows_shown' => count($preview),
                 'preview_truncated' => $totalRows > self::CSV_PREVIEW_MAX_ROWS,
-                'headers' => $headers,
+                'headers' => $previewHeaders,
                 'required_columns' => $requiredColumns,
                 'optional_columns' => $importType['optional_columns'],
                 'preview' => $preview,
@@ -868,7 +1116,8 @@ class CsvImportController extends Controller
 
                 $rowRules = match ($validated['import_type']) {
                     'students' => $this->studentAccountImportValidationRules($row),
-                    'grades', 'sis_grade_deliberation' => $this->gradesImportValidationRules(),
+                    'grades' => $this->gradesImportValidationRules(),
+                    'sis_grade_deliberation' => $this->gradeDeliberationImportValidationRules(),
                     'sis_mixed' => $this->sisMixedRowValidationRules($row, $pendingSisStudentIds),
                     default => $this->validationRulesForImportType($validated['import_type']),
                 };
@@ -879,6 +1128,16 @@ class CsvImportController extends Controller
                     && (($row['academic_year_id'] ?? null) === null || ($row['semester_id'] ?? null) === null)) {
                     $validation['valid'] = false;
                     $validation['errors'][] = 'Could not infer term from SESSION. Add academic_year_id and semester_id to the import request.';
+                }
+                if ($validated['import_type'] === 'sis_grade_deliberation') {
+                    $metadataErrors = $this->gradeDeliberationStudentMetadataErrors($row);
+                    if ($metadataErrors !== []) {
+                        $validation['valid'] = false;
+                        array_push($validation['errors'], ...$metadataErrors);
+                    }
+                }
+                if ($validation['valid'] && in_array($validated['import_type'], ['grades', 'sis_grade_deliberation'], true)) {
+                    $row = $this->resolveGradeImportRowSubjectCode($row);
                 }
                 if (! $validation['valid']) {
                     $results['failed']++;
@@ -894,9 +1153,13 @@ class CsvImportController extends Controller
                         DB::transaction(function () use ($row) {
                             $this->importStudentAccountFromSisRow($row);
                         });
-                    } elseif ($validated['import_type'] === 'grades' || $validated['import_type'] === 'sis_grade_deliberation') {
+                    } elseif ($validated['import_type'] === 'grades') {
                         DB::transaction(function () use ($request, $row) {
                             $this->importGradesEvaluationRow($request, $this->stripSisImportMetadata($row));
+                        });
+                    } elseif ($validated['import_type'] === 'sis_grade_deliberation') {
+                        DB::transaction(function () use ($request, $row) {
+                            $this->importGradeDeliberationRow($request, $row);
                         });
                     } elseif ($validated['import_type'] === 'prerequisite_links') {
                         DB::transaction(function () use ($row) {
@@ -1023,7 +1286,9 @@ class CsvImportController extends Controller
                         'SUBJECT TYPE',
                         'UNITS',
                         'SECTION',
-                        'TEACHER',
+                        'TEACHER 1',
+                        'SECTION 2',
+                        'TEACHER 2',
                         'MODALITY',
                         'ENLISTMENT MODE',
                         'ADMISSION TYPE',
@@ -1031,46 +1296,153 @@ class CsvImportController extends Controller
                         'P1',
                         'P2',
                         'P3',
-                        'FE',
                         'GRADE',
                         'REMARKS',
                     ];
                     $sampleData = [
                         [
-                            'SY 25-26 SEM II',
+                            'SY 25-26 SEM I',
                             'College of Information Technology Education',
                             'Bachelor of Science in Information Technology',
-                            "'02-1718-03273",
-                            'ZATA, BOSS LORENZO ASUNCION',
-                            'Y3S2',
+                            "'25-0001",
+                            'DELA CRUZ, ANA SANTOS',
                             'YEAR 1',
-                            'ITE 401',
-                            'PLATFORM TECHNOLOGIES',
-                            'Lecture and Laboratory',
+                            'Y1S1',
+                            'ITE 101',
+                            'Introduction to Computing',
+                            'Lecture',
                             '3',
-                            'COC-FAB-IT3-06',
-                            'FACULTY NAME',
+                            'COC-FAB-IT1-01',
+                            'JUAN FACULTY',
+                            'COC-FAB-IT1-01',
+                            'MARIA FACULTY',
+                            'FLEX',
+                            'Regular',
+                            'Regular',
+                            'Female',
+                            '85',
+                            '88',
+                            '90',
+                            '1.75',
+                            'Passed',
+                        ],
+                        [
+                            'SY 25-26 SEM I',
+                            'College of Information Technology Education',
+                            'Bachelor of Science in Information Technology',
+                            "'25-0002",
+                            'REYES, MIGUEL CRUZ',
+                            'YEAR 1',
+                            'Y1S1',
+                            'ITE 101',
+                            'Introduction to Computing',
+                            'Lecture',
+                            '3',
+                            'COC-FAB-IT1-01',
+                            'JUAN FACULTY',
+                            'COC-FAB-IT1-01',
+                            'MARIA FACULTY',
                             'FLEX',
                             'Regular',
                             'Regular',
                             'Male',
-                            '85',
-                            '90.65',
-                            '89.84',
+                            '82',
+                            '86',
+                            '88',
+                            '2.00',
+                            'Passed',
+                        ],
+                        [
+                            'SY 25-26 SEM I',
+                            'College of Information Technology Education',
+                            'Bachelor of Science in Information Technology',
+                            "'24-0003",
+                            'SANTOS, LARA MENDOZA',
+                            'YEAR 2',
+                            'Y2S1',
+                            'ITE 201',
+                            'Data Structures and Algorithms',
+                            'Lecture and Laboratory',
+                            '3',
+                            'COC-FAB-IT2-01',
+                            'PEDRO FACULTY',
+                            'COC-FAB-IT2-01',
+                            'ANA FACULTY',
+                            'FLEX',
+                            'Regular',
+                            'Regular',
+                            'Female',
+                            '89',
+                            '91',
                             '90',
-                            '2.25',
+                            '1.50',
+                            'Passed',
+                        ],
+                        [
+                            'SY 25-26 SEM I',
+                            'College of Information Technology Education',
+                            'Bachelor of Science in Information Technology',
+                            "'23-0004",
+                            'GARCIA, CARLO RAMOS',
+                            'Y3S1',
+                            'YEAR 3',
+                            'ITE 301',
+                            'Systems Integration and Architecture',
+                            'Lecture and Laboratory',
+                            '3',
+                            'COC-FAB-IT3-01',
+                            'LUZ FACULTY',
+                            'COC-FAB-IT3-01',
+                            'CARLO FACULTY',
+                            'FLEX',
+                            'Regular',
+                            'Regular',
+                            'Male',
+                            '84',
+                            '87',
+                            '86',
+                            '2.00',
+                            'Passed',
+                        ],
+                        [
+                            'SY 25-26 SEM I',
+                            'College of Information Technology Education',
+                            'Bachelor of Science in Information Technology',
+                            "'23-0005",
+                            'VILLANUEVA, SOPHIA REYES',
+                            'Y3S1',
+                            'YEAR 3',
+                            'ITE 301',
+                            'Systems Integration and Architecture',
+                            'Lecture and Laboratory',
+                            '3',
+                            'COC-FAB-IT3-01',
+                            'LUZ FACULTY',
+                            'COC-FAB-IT3-01',
+                            'CARLO FACULTY',
+                            'FLEX',
+                            'Regular',
+                            'Regular',
+                            'Female',
+                            '92',
+                            '93',
+                            '94',
+                            '1.25',
                             'Passed',
                         ],
                     ];
-                    // Tab-delimited template (one header + sample); extra instructor columns may appear before MODALITY in real SIS files.
-                    $csvContent = implode("\t", $headers) . "\n";
+                    $handle = fopen('php://temp', 'r+');
+                    fputcsv($handle, $headers);
                     foreach ($sampleData as $row) {
-                        $csvContent .= implode("\t", $row) . "\n";
+                        fputcsv($handle, $row);
                     }
+                    rewind($handle);
+                    $csvContent = stream_get_contents($handle);
+                    fclose($handle);
 
                     return response($csvContent)
-                        ->header('Content-Type', 'text/tab-separated-values; charset=UTF-8')
-                        ->header('Content-Disposition', 'attachment; filename="sis_grade_deliberation_template.tsv"');
+                        ->header('Content-Type', 'text/csv; charset=UTF-8')
+                        ->header('Content-Disposition', 'attachment; filename="sis_grade_deliberation_template.csv"');
                 case 'sis_mixed':
                     $headers = array_merge(
                         $this->importTypes['sis_mixed']['required_columns'],
@@ -1154,9 +1526,320 @@ class CsvImportController extends Controller
      */
     private function stripSisImportMetadata(array $row): array
     {
-        unset($row['_sis_row'], $row['_sis_session']);
+        unset(
+            $row['_sis_row'],
+            $row['_sis_session'],
+            $row['_sis_student_name'],
+            $row['_sis_course'],
+            $row['_sis_year_level_text'],
+            $row['_sis_year_sem_code'],
+            $row['_sis_source_row']
+        );
 
         return $row;
+    }
+
+    /**
+     * @param  list<array<string, mixed>>  $rows
+     * @return list<string>
+     */
+    private function sisGradeDeliberationPreviewHeaders(array $rows): array
+    {
+        $headers = null;
+        foreach ($rows as $row) {
+            $source = $row['_sis_source_row'] ?? null;
+            if (is_array($source) && $source !== []) {
+                $headers = array_keys($source);
+                break;
+            }
+        }
+        if ($headers === null) {
+            $headers = app(SisGradeDeliberationImportParser::class)->standardDeliberationHeaders();
+        }
+
+        // Show how SESSION maps into Lookup Academic Year / Semester.
+        foreach (['→ Academic Year (DB)', '→ Semester (DB)'] as $extra) {
+            if (! in_array($extra, $headers, true)) {
+                $headers[] = $extra;
+            }
+        }
+
+        return $headers;
+    }
+
+    /**
+     * @param  array<string, mixed>  $row
+     * @return array<string, mixed>
+     */
+    private function sisGradeDeliberationPreviewRowData(array $row): array
+    {
+        $source = $row['_sis_source_row'] ?? null;
+        $data = is_array($source) && $source !== [] ? $source : $row;
+
+        $ayId = $row['academic_year_id'] ?? null;
+        $semId = $row['semester_id'] ?? null;
+        $ayName = null;
+        $semName = null;
+        if ($ayId !== null && $ayId !== '') {
+            $ayName = AcademicYear::query()
+                ->where('academic_year_id', (int) $ayId)
+                ->value('academic_year_name');
+        }
+        if ($semId !== null && $semId !== '') {
+            $semName = Semester::query()
+                ->where('semester_id', (int) $semId)
+                ->value('semester_name');
+        }
+
+        $data['→ Academic Year (DB)'] = $ayName
+            ? sprintf('%s (id %s)', $ayName, $ayId)
+            : '— not matched —';
+        $data['→ Semester (DB)'] = $semName
+            ? sprintf('%s (id %s)', $semName, $semId)
+            : '— not matched —';
+
+        return $data;
+    }
+
+    /**
+     * @param  array<string, mixed>  $row
+     */
+    private function importGradeDeliberationRow(Request $request, array $row): void
+    {
+        $this->upsertStudentFromGradeDeliberationRow($row);
+        $this->importGradesEvaluationRow($request, $this->stripSisImportMetadata($row));
+    }
+
+    /**
+     * @param  array<string, mixed>  $row
+     */
+    private function upsertStudentFromGradeDeliberationRow(array $row): void
+    {
+        $sid = trim((string) ($row['student_id_number'] ?? ''));
+        if ($sid === '') {
+            return;
+        }
+
+        $programId = $this->resolveSisProgramId($row);
+        $yearLevelId = $this->resolveSisYearLevelId($row);
+        $semesterId = $this->resolveSisSemesterId($row);
+        $academicYearId = isset($row['academic_year_id']) && $row['academic_year_id'] !== '' && $row['academic_year_id'] !== null
+            ? (int) $row['academic_year_id']
+            : null;
+        [$lastName, $firstName, $middleName] = $this->splitSisStudentName((string) ($row['_sis_student_name'] ?? ''));
+
+        $entryType = $this->normalizeSisAdmissionEntryType($row['_sis_admission_type'] ?? null);
+
+        $profile = StudentProfile::query()->where('student_id_number', $sid)->orderBy('student_id')->first();
+        if ($profile) {
+            $updates = [
+                'student_number' => $sid,
+                'student_id_number' => $sid,
+                'academic_status' => $profile->academic_status ?: 'Regular',
+            ];
+            if ($firstName !== '') {
+                $updates['first_name'] = $firstName;
+            }
+            if ($middleName !== '') {
+                $updates['middle_name'] = $middleName;
+            }
+            if ($lastName !== '') {
+                $updates['last_name'] = $lastName;
+            }
+            if ($programId) {
+                $updates['Current_Program'] = $programId;
+            }
+            if ($yearLevelId) {
+                $updates['year_level_id'] = $yearLevelId;
+            }
+            if ($semesterId) {
+                $updates['semester_id'] = $semesterId;
+            }
+            if ($academicYearId) {
+                $updates['academic_year_id'] = $academicYearId;
+            }
+            if ($entryType !== null) {
+                $updates['student_entry_type'] = $entryType;
+            }
+            $profile->fill($updates);
+            $profile->save();
+
+            return;
+        }
+
+        $studentRoleId = Role::query()->where('role_name', 'Student')->value('role_id');
+        if (! $studentRoleId) {
+            throw new \RuntimeException('Student role not found.');
+        }
+
+        $email = $this->generatedStudentEmailFromSisId($sid);
+        $user = TblUser::with('role')->where('email', $email)->first();
+        if (! $user) {
+            $user = TblUser::create([
+                'email' => $email,
+                'password' => 'ChangeMe123!',
+                'role_id' => (int) $studentRoleId,
+                'status' => 'active',
+                'password_changed_at' => now(),
+            ]);
+        } elseif (! $user->hasRole('Student')) {
+            throw new \RuntimeException("Generated student email {$email} is already used by a non-student account.");
+        }
+
+        StudentProfile::create([
+            'user_id' => $user->user_id,
+            'student_number' => $sid,
+            'student_id_number' => $sid,
+            'first_name' => $firstName !== '' ? $firstName : $sid,
+            'middle_name' => $middleName !== '' ? $middleName : null,
+            'last_name' => $lastName !== '' ? $lastName : 'Student',
+            'academic_status' => 'Regular',
+            'student_entry_type' => $entryType,
+            'Current_Program' => $programId,
+            'year_level_id' => $yearLevelId,
+            'semester_id' => $semesterId,
+            'academic_year_id' => $academicYearId,
+        ]);
+    }
+
+    /**
+     * Map SIS ADMISSION TYPE to student_entry_type (Shiftee / Returnee / Transferee).
+     * "Regular" / blank means normal entry → null.
+     */
+    private function normalizeSisAdmissionEntryType(mixed $raw): ?string
+    {
+        $value = strtolower(trim((string) ($raw ?? '')));
+        if ($value === '') {
+            return null;
+        }
+
+        return match (true) {
+            str_contains($value, 'shift') => 'Shiftee',
+            str_contains($value, 'transfer') => 'Transferee',
+            str_contains($value, 'return') => 'Returnee',
+            default => null,
+        };
+    }
+
+    /**
+     * @param  array<string, mixed>  $row
+     */
+    private function resolveSisProgramId(array $row): ?int
+    {
+        $course = trim((string) ($row['_sis_course'] ?? ''));
+        if ($course === '') {
+            return null;
+        }
+
+        $program = Program::query()
+            ->where('program_name', $course)
+            ->orWhere('program_code', $course)
+            ->first();
+        if (! $program && str_contains(strtolower($course), 'information technology')) {
+            $program = Program::query()->where('program_code', 'BSIT')->first();
+        }
+        if (! $program) {
+            $program = Program::query()
+                ->where('program_name', 'like', '%' . $course . '%')
+                ->orWhere('program_code', 'like', '%' . $course . '%')
+                ->first();
+        }
+
+        return $program ? (int) $program->program_id : null;
+    }
+
+    /**
+     * @param  array<string, mixed>  $row
+     */
+    private function resolveSisYearLevelId(array $row): ?int
+    {
+        $text = trim((string) (($row['_sis_year_level_text'] ?? '') . ' ' . ($row['_sis_year_sem_code'] ?? '')));
+        if ($text === '') {
+            return null;
+        }
+
+        $yearNumber = null;
+        if (preg_match('/year\s*(\d+)/i', $text, $m) || preg_match('/\by\s*(\d+)/i', $text, $m)) {
+            $yearNumber = (int) $m[1];
+        }
+        if (! $yearNumber) {
+            return null;
+        }
+
+        $year = YearLevel::query()->where('year_level_id', $yearNumber)->first();
+        if (! $year) {
+            $year = YearLevel::query()->where('year_level', 'like', '%' . $yearNumber . '%')->first();
+        }
+
+        return $year ? (int) $year->year_level_id : null;
+    }
+
+    /**
+     * Resolve curriculum semester from SIS term code (Y1S1) or SESSION (SEM I / II / III).
+     */
+    private function resolveSisSemesterId(array $row): ?int
+    {
+        $code = strtoupper(trim((string) ($row['_sis_year_sem_code'] ?? '')));
+        $order = null;
+        if (preg_match('/^Y\d+S(\d+)$/i', $code, $m)) {
+            $order = (int) $m[1];
+        }
+
+        if ($order === null) {
+            $session = strtoupper(trim((string) ($row['_sis_session'] ?? '')));
+            if (preg_match('/\bSEM(?:ESTER)?\s*(?:III|3|THIRD)\b/', $session) || preg_match('/\bSUMMER\b/', $session)) {
+                $order = 3;
+            } elseif (preg_match('/\bSEM(?:ESTER)?\s*(?:II|2|SECOND)\b/', $session)) {
+                $order = 2;
+            } elseif (preg_match('/\bSEM(?:ESTER)?\s*(?:I|1|FIRST)\b/', $session)) {
+                $order = 1;
+            }
+        }
+
+        if ($order === null) {
+            return null;
+        }
+
+        $ids = Semester::query()->orderBy('semester_id')->pluck('semester_id')->all();
+        if ($ids === []) {
+            return null;
+        }
+        $idx = min(max($order, 1), count($ids)) - 1;
+
+        return (int) $ids[$idx];
+    }
+
+    /**
+     * @return array{0: string, 1: string, 2: ?string}
+     */
+    private function splitSisStudentName(string $name): array
+    {
+        $name = trim(preg_replace('/\s+/', ' ', $name) ?? $name);
+        if ($name === '') {
+            return ['', '', null];
+        }
+
+        if (str_contains($name, ',')) {
+            [$last, $rest] = array_map('trim', explode(',', $name, 2));
+
+            return [$last, $rest, null];
+        }
+
+        $parts = explode(' ', $name);
+        $last = array_pop($parts) ?: '';
+        $first = trim(implode(' ', $parts));
+
+        return [$last, $first, null];
+    }
+
+    private function generatedStudentEmailFromSisId(string $studentId): string
+    {
+        $local = strtolower(trim(preg_replace('/[^a-zA-Z0-9]+/', '.', $studentId) ?? $studentId, '.'));
+        if ($local === '') {
+            $local = 'student';
+        }
+
+        return 'student.' . $local . '@student.local';
     }
 
     private function normalizeCsvRow(array $row): array

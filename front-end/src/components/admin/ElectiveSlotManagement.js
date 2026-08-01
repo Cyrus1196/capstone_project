@@ -2,9 +2,15 @@ import React, { useState, useEffect, useMemo } from 'react';
 import api from '../../api/axios';
 import { swalConfirm, swalToast, swalError } from '../../utils/swal';
 import SearchableSelect from '../common/SearchableSelect';
+import ClientPaginationBar from '../common/ClientPaginationBar';
 import './ElectiveSlotManagement.css';
 
-const ElectiveSlotManagement = () => {
+const ElectiveSlotManagement = ({ lockedProgramId = null } = {}) => {
+  const scopedProgramId =
+    lockedProgramId != null && String(lockedProgramId).trim() !== ''
+      ? String(lockedProgramId)
+      : '';
+
   const [slots, setSlots] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -14,6 +20,9 @@ const ElectiveSlotManagement = () => {
   const [selectedSlot, setSelectedSlot] = useState(null);
   const [formData, setFormData] = useState({});
   const [formSubjects, setFormSubjects] = useState([]);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [listPage, setListPage] = useState(1);
+  const [listPageSize, setListPageSize] = useState(10);
   const [lookupData, setLookupData] = useState({
     programs: [],
     semesters: [],
@@ -25,11 +34,13 @@ const ElectiveSlotManagement = () => {
 
   const programSelectOptions = useMemo(
     () =>
-      (lookupData.programs || []).map((p) => ({
-        value: String(p.program_id),
-        label: `${p.program_code} - ${p.program_name}`,
-      })),
-    [lookupData.programs],
+      (lookupData.programs || [])
+        .filter((p) => !scopedProgramId || String(p.program_id) === scopedProgramId)
+        .map((p) => ({
+          value: String(p.program_id),
+          label: `${p.program_code} - ${p.program_name}`,
+        })),
+    [lookupData.programs, scopedProgramId],
   );
 
   const trackSelectOptions = useMemo(
@@ -54,10 +65,65 @@ const ElectiveSlotManagement = () => {
       }));
   }, [lookupData.subjects, selectedSlot]);
 
+  const programScopedSlots = useMemo(() => {
+    if (!scopedProgramId) return slots;
+    return slots.filter(
+      (slot) =>
+        String(slot.program_id ?? slot.program?.program_id ?? '') === scopedProgramId,
+    );
+  }, [slots, scopedProgramId]);
+
+  const filteredSlots = useMemo(() => {
+    const q = searchTerm.trim().toLowerCase();
+    if (!q) return programScopedSlots;
+
+    return programScopedSlots.filter((slot) => {
+      const electiveSubjects = slot.electiveSubjects || [];
+      const subjectText = electiveSubjects
+        .map((es) =>
+          [
+            es.subject?.subject_code,
+            es.subject?.subject_name,
+            es.track?.track_name,
+            es.track?.track_code,
+          ]
+            .filter(Boolean)
+            .join(' '),
+        )
+        .join(' ');
+
+      const searchable = [
+        slot.slot_name,
+        slot.status,
+        slot.program?.program_code,
+        slot.program?.program_name,
+        slot.yearLevel?.year_level,
+        slot.semester?.semester_name,
+        subjectText,
+      ]
+        .filter(Boolean)
+        .join(' ')
+        .toLowerCase();
+
+      return searchable.includes(q);
+    });
+  }, [programScopedSlots, searchTerm]);
+
+  const totalPages = Math.max(1, Math.ceil(filteredSlots.length / listPageSize));
+  const effectivePage = Math.min(Math.max(1, listPage), totalPages);
+  const paginatedSlots = useMemo(() => {
+    const start = (effectivePage - 1) * listPageSize;
+    return filteredSlots.slice(start, start + listPageSize);
+  }, [filteredSlots, effectivePage, listPageSize]);
+
   useEffect(() => {
     fetchSlots();
     fetchLookupData();
   }, []);
+
+  useEffect(() => {
+    setListPage(1);
+  }, [searchTerm, listPageSize, programScopedSlots.length]);
 
   const fetchLookupData = async () => {
     try {
@@ -114,7 +180,7 @@ const ElectiveSlotManagement = () => {
   const handleAdd = () => {
     setEditingItem(null);
     setFormData({
-      program_id: '',
+      program_id: scopedProgramId || '',
       semester_id: '',
       year_level_id: '',
       slot_name: '',
@@ -168,7 +234,7 @@ const ElectiveSlotManagement = () => {
       let slotId;
       
       if (editingItem) {
-        const response = await api.put(`/elective-slots/${editingItem.elective_slot_id}`, formData);
+        await api.put(`/elective-slots/${editingItem.elective_slot_id}`, formData);
         slotId = editingItem.elective_slot_id;
       } else {
         const response = await api.post('/elective-slots', formData);
@@ -318,6 +384,32 @@ const ElectiveSlotManagement = () => {
 
       {error && <div className="error-message">{error}</div>}
 
+      <div className="elective-slot-toolbar">
+        <div className="elective-slot-search">
+          <i className="fa-solid fa-magnifying-glass elective-slot-search__icon" aria-hidden />
+          <input
+            className="elective-slot-search__input"
+            type="text"
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+            placeholder="Search elective slots by name, program, semester, or subject..."
+            aria-label="Search elective slots"
+          />
+        </div>
+        <span className="elective-slot-toolbar__count">
+          {filteredSlots.length} of {programScopedSlots.length} slot(s)
+        </span>
+        {searchTerm ? (
+          <button
+            type="button"
+            className="elective-slot-search__clear"
+            onClick={() => setSearchTerm('')}
+          >
+            Clear
+          </button>
+        ) : null}
+      </div>
+
       <div className="table-container">
         <table className="data-table">
           <thead>
@@ -332,12 +424,16 @@ const ElectiveSlotManagement = () => {
             </tr>
           </thead>
           <tbody>
-            {slots.length === 0 ? (
+            {programScopedSlots.length === 0 ? (
               <tr>
                 <td colSpan="7" className="no-data">No elective slots found</td>
               </tr>
+            ) : filteredSlots.length === 0 ? (
+              <tr>
+                <td colSpan="7" className="no-data">No elective slots match your search</td>
+              </tr>
             ) : (
-              slots.map((slot) => (
+              paginatedSlots.map((slot) => (
                 <tr key={slot.elective_slot_id}>
                   <td>{slot.slot_name}</td>
                   <td>{slot.program?.program_code || slot.program?.program_name || '-'}</td>
@@ -373,6 +469,21 @@ const ElectiveSlotManagement = () => {
         </table>
       </div>
 
+      {filteredSlots.length > 0 && (
+        <ClientPaginationBar
+          page={effectivePage}
+          pageSize={listPageSize}
+          totalItems={filteredSlots.length}
+          totalPages={totalPages}
+          onPageChange={setListPage}
+          onPageSizeChange={(n) => {
+            setListPageSize(n);
+            setListPage(1);
+          }}
+          pageSizeOptions={[10, 25, 50, 100]}
+        />
+      )}
+
       {showModal && (
         <div className="modal-overlay" onClick={() => {
           setShowModal(false);
@@ -405,11 +516,15 @@ const ElectiveSlotManagement = () => {
                 <SearchableSelect
                   id="esm-slot-program"
                   value={formData.program_id === '' || formData.program_id == null ? '' : String(formData.program_id)}
-                  onChange={(v) => setFormData({ ...formData, program_id: v })}
+                  onChange={(v) => {
+                    if (scopedProgramId) return;
+                    setFormData({ ...formData, program_id: v });
+                  }}
                   options={programSelectOptions}
                   emptyLabel="Select Program"
                   placeholder="Search program…"
                   required
+                  disabled={Boolean(scopedProgramId)}
                   aria-label="Program"
                 />
               </div>

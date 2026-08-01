@@ -259,6 +259,188 @@ class CreditEvaluationController extends Controller
     }
 
     /**
+     * Apply one prior-school course to one local curriculum subject for a specific student.
+     * This is the student-specific credit decision; subject equivalence remains only a reusable suggestion.
+     */
+    public function applyTransferCredit(Request $request)
+    {
+        try {
+            $user = $request->user();
+            if (! $user || ! $this->canCreateCreditEvaluations($user)) {
+                return response()->json(['message' => 'Unauthorized'], 403);
+            }
+
+            $validated = $request->validate([
+                'student_id' => 'required|integer|exists:tbl_student_profile,student_id',
+                'other_subject_id' => 'required|integer|exists:tbl_other_school_subjects,other_subject_id',
+                'subject_id' => 'required|integer|exists:tbl_subjects,subject_id',
+                'previous_other_subject_id' => 'nullable|integer|exists:tbl_other_school_subjects,other_subject_id',
+                'credited_units' => 'nullable|integer|min:0',
+                'credit_basis' => 'nullable|string|max:50',
+                'remarks' => 'nullable|string',
+            ]);
+
+            $studentId = (int) $validated['student_id'];
+            $otherId = (int) $validated['other_subject_id'];
+            $subjectId = (int) $validated['subject_id'];
+            $previousOtherId = isset($validated['previous_other_subject_id'])
+                ? (int) $validated['previous_other_subject_id']
+                : 0;
+            $creditedUnits = array_key_exists('credited_units', $validated)
+                ? $validated['credited_units']
+                : null;
+            $creditBasis = isset($validated['credit_basis']) ? trim((string) $validated['credit_basis']) : null;
+            $remarks = isset($validated['remarks']) ? trim((string) $validated['remarks']) : null;
+
+            $conflictingExternalMapping = DB::table('tbl_credit_evaluation_details as d')
+                ->join('tbl_credit_evaluation as e', 'd.credit_eval_id', '=', 'e.credit_eval_id')
+                ->where('e.is_active', true)
+                ->whereRaw('LOWER(TRIM(e.status)) = ?', ['approved'])
+                ->where(function ($q) use ($studentId) {
+                    $q->where('e.student_id', $studentId)
+                        ->orWhere('d.student_id', $studentId);
+                })
+                ->where('d.other_subject_id', $otherId)
+                ->whereNotNull('d.subject_id')
+                ->where('d.subject_id', '!=', $subjectId)
+                ->exists();
+            if ($conflictingExternalMapping) {
+                return response()->json([
+                    'message' => 'This transfer course is already approved for a different local subject for this student. Clear that mapping first.',
+                ], 422);
+            }
+
+            $conflictingLocalMapping = DB::table('tbl_credit_evaluation_details as d')
+                ->join('tbl_credit_evaluation as e', 'd.credit_eval_id', '=', 'e.credit_eval_id')
+                ->where('e.is_active', true)
+                ->whereRaw('LOWER(TRIM(e.status)) = ?', ['approved'])
+                ->where(function ($q) use ($studentId) {
+                    $q->where('e.student_id', $studentId)
+                        ->orWhere('d.student_id', $studentId);
+                })
+                ->where('d.subject_id', $subjectId)
+                ->where('d.other_subject_id', '!=', $otherId);
+            if ($previousOtherId > 0) {
+                $conflictingLocalMapping->where('d.other_subject_id', '!=', $previousOtherId);
+            }
+            $conflictingLocalMapping = $conflictingLocalMapping->exists();
+            if ($conflictingLocalMapping) {
+                return response()->json([
+                    'message' => 'This local subject is already credited by another transfer course for this student. Clear that mapping first.',
+                ], 422);
+            }
+
+            DB::beginTransaction();
+
+            if ($previousOtherId > 0 && $previousOtherId !== $otherId) {
+                DB::table('tbl_credit_evaluation_details as d')
+                    ->join('tbl_credit_evaluation as e', 'd.credit_eval_id', '=', 'e.credit_eval_id')
+                    ->where('e.is_active', true)
+                    ->whereRaw('LOWER(TRIM(e.status)) = ?', ['approved'])
+                    ->where(function ($q) use ($studentId) {
+                        $q->where('e.student_id', $studentId)
+                            ->orWhere('d.student_id', $studentId);
+                    })
+                    ->where('d.subject_id', $subjectId)
+                    ->where('d.other_subject_id', $previousOtherId)
+                    ->update([
+                        'd.subject_id' => null,
+                        'd.credit_basis' => null,
+                    ]);
+            }
+
+            $detail = $this->findStudentTransferDetail($studentId, $otherId, $subjectId);
+            if ($detail === null) {
+                $detail = $this->findStudentUnmappedTransferDetail($studentId, $otherId);
+            }
+
+            if ($detail === null) {
+                $evaluation = $this->findOrCreateStudentTransferEvaluation($studentId, $otherId, (int) $user->user_id);
+                $detail = new CreditEvaluationDetail([
+                    'credit_eval_id' => $evaluation->credit_eval_id,
+                    'student_id' => $studentId,
+                    'other_subject_id' => $otherId,
+                ]);
+            }
+
+            $oss = OtherSchoolSubject::query()->find($otherId);
+            $resolvedUnits = $creditedUnits;
+            if (($resolvedUnits === null || $resolvedUnits === '') && $oss && $oss->units !== null && $oss->units !== '') {
+                $resolvedUnits = (int) $oss->units;
+            }
+
+            $detail->student_id = $studentId;
+            $detail->other_subject_id = $otherId;
+            $detail->subject_id = $subjectId;
+            $detail->credited_units = ($resolvedUnits !== null && $resolvedUnits !== '') ? (int) $resolvedUnits : null;
+            $detail->credit_basis = ($creditBasis !== null && $creditBasis !== '') ? $creditBasis : 'Approved transfer mapping';
+            $detail->remarks = ($remarks !== null && $remarks !== '') ? $remarks : $detail->remarks;
+            $detail->save();
+
+            DB::commit();
+
+            $detail->load(['subject', 'otherSchoolSubject', 'creditEvaluation']);
+
+            return response()->json([
+                'message' => 'Transfer credit approved for this curriculum subject.',
+                'credit_detail' => $detail,
+            ]);
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            throw $e;
+        } catch (\Exception $e) {
+            DB::rollBack();
+            return response()->json(['error' => 'Failed to apply transfer credit', 'message' => $e->getMessage()], 500);
+        }
+    }
+
+    public function clearTransferCredit(Request $request)
+    {
+        try {
+            $user = $request->user();
+            if (! $user || ! $this->canCreateCreditEvaluations($user)) {
+                return response()->json(['message' => 'Unauthorized'], 403);
+            }
+
+            $validated = $request->validate([
+                'student_id' => 'required|integer|exists:tbl_student_profile,student_id',
+                'subject_id' => 'required|integer|exists:tbl_subjects,subject_id',
+                'other_subject_id' => 'nullable|integer|exists:tbl_other_school_subjects,other_subject_id',
+            ]);
+
+            $query = DB::table('tbl_credit_evaluation_details as d')
+                ->join('tbl_credit_evaluation as e', 'd.credit_eval_id', '=', 'e.credit_eval_id')
+                ->where('e.is_active', true)
+                ->whereRaw('LOWER(TRIM(e.status)) = ?', ['approved'])
+                ->where(function ($q) use ($validated) {
+                    $studentId = (int) $validated['student_id'];
+                    $q->where('e.student_id', $studentId)
+                        ->orWhere('d.student_id', $studentId);
+                })
+                ->where('d.subject_id', (int) $validated['subject_id']);
+
+            if (! empty($validated['other_subject_id'])) {
+                $query->where('d.other_subject_id', (int) $validated['other_subject_id']);
+            }
+
+            $cleared = $query->update([
+                'd.subject_id' => null,
+                'd.credit_basis' => null,
+            ]);
+
+            return response()->json([
+                'message' => $cleared > 0
+                    ? 'Transfer credit cleared for this curriculum subject.'
+                    : 'No approved transfer credit was found for this curriculum subject.',
+                'cleared_rows' => $cleared,
+            ]);
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            throw $e;
+        } catch (\Exception $e) {
+            return response()->json(['error' => 'Failed to clear transfer credit', 'message' => $e->getMessage()], 500);
+        }
+    }
+
+    /**
      * Admin: activate/deactivate a credit evaluation (soft toggle; row is kept).
      */
     public function setActive(Request $request, $id)
@@ -462,6 +644,78 @@ class CreditEvaluationController extends Controller
             'rows' => $rows,
             'oss_parent_school_id' => $resolvedOssParentSchoolId,
         ];
+    }
+
+    protected function findStudentTransferDetail(int $studentId, int $otherId, int $subjectId): ?CreditEvaluationDetail
+    {
+        return CreditEvaluationDetail::query()
+            ->where(function ($q) use ($studentId) {
+                $q->where('student_id', $studentId)
+                    ->orWhereHas('creditEvaluation', fn ($e) => $e->where('student_id', $studentId));
+            })
+            ->where('other_subject_id', $otherId)
+            ->where('subject_id', $subjectId)
+            ->whereHas('creditEvaluation', function ($q) {
+                $q->where('is_active', true)
+                    ->whereRaw('LOWER(TRIM(status)) = ?', ['approved']);
+            })
+            ->orderByDesc('credit_detail_id')
+            ->first();
+    }
+
+    protected function findStudentUnmappedTransferDetail(int $studentId, int $otherId): ?CreditEvaluationDetail
+    {
+        return CreditEvaluationDetail::query()
+            ->where(function ($q) use ($studentId) {
+                $q->where('student_id', $studentId)
+                    ->orWhereHas('creditEvaluation', fn ($e) => $e->where('student_id', $studentId));
+            })
+            ->where('other_subject_id', $otherId)
+            ->whereNull('subject_id')
+            ->whereHas('creditEvaluation', function ($q) {
+                $q->where('is_active', true)
+                    ->whereRaw('LOWER(TRIM(status)) = ?', ['approved']);
+            })
+            ->orderByDesc('credit_detail_id')
+            ->first();
+    }
+
+    protected function findOrCreateStudentTransferEvaluation(int $studentId, int $otherId, int $evaluatedByUserId): CreditEvaluation
+    {
+        $oss = OtherSchoolSubject::query()->with('school')->find($otherId);
+        $schoolId = $oss && $oss->school_id !== null && $oss->school_id !== '' ? (int) $oss->school_id : null;
+        $priorName = $oss?->school?->school_name;
+        $priorName = trim((string) ($priorName ?: 'Curriculum transfer mapping'));
+
+        $query = CreditEvaluation::query()
+            ->where('student_id', $studentId)
+            ->where('is_active', true)
+            ->whereRaw('LOWER(TRIM(status)) = ?', ['approved'])
+            ->whereRaw('LOWER(TRIM(credit_type)) = ?', ['transfer']);
+
+        if ($schoolId !== null) {
+            $query->where('school_id', $schoolId);
+        }
+
+        $evaluation = $query->orderByDesc('credit_eval_id')->first();
+        if ($evaluation) {
+            return $evaluation;
+        }
+
+        return CreditEvaluation::create([
+            'student_id' => $studentId,
+            'school_id' => $schoolId,
+            'prior_school_name' => $priorName,
+            'credit_type' => 'Transfer',
+            'evaluated_by' => $evaluatedByUserId,
+            'evaluation_date' => now()->toDateString(),
+            'status' => 'approved',
+            'remarks' => 'Student-specific transfer credit mapping.',
+            'is_active' => true,
+            'transfer_first_name' => null,
+            'transfer_middle_name' => null,
+            'transfer_last_name' => null,
+        ]);
     }
 }
 

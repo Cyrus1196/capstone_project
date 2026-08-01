@@ -81,6 +81,8 @@ Route::middleware('auth:api')->group(function () {
 
     Route::post('/logout', [AuthController::class, 'logout']);
     Route::get('/user', [AuthController::class, 'user']);
+    Route::put('/profile/account', [UserController::class, 'updateOwnProfile']);
+    Route::get('/profile/options', [UserController::class, 'profileOptions']);
 
     Route::get('/settings/security', [SecuritySettingsController::class, 'show']);
     Route::put('/settings/security', [SecuritySettingsController::class, 'update']);
@@ -171,6 +173,7 @@ Route::middleware('auth:api')->group(function () {
 
         // Requisites (Prerequisites/Corequisites)
         Route::get('/requisites', [LookupDataController::class, 'getRequisites']);
+        Route::post('/requisites/sync', [LookupDataController::class, 'syncRequisites']);
         Route::post('/requisites', [LookupDataController::class, 'createRequisite']);
         Route::put('/requisites/{id}', [LookupDataController::class, 'updateRequisite']);
         Route::delete('/requisites/{id}', [LookupDataController::class, 'deleteRequisite']);
@@ -184,6 +187,7 @@ Route::middleware('auth:api')->group(function () {
         // Offered Subjects
         Route::get('/offered-subjects', [LookupDataController::class, 'getOfferedSubjects']);
         Route::post('/offered-subjects', [LookupDataController::class, 'createOfferedSubject']);
+        Route::patch('/offered-subjects/{id}/status', [LookupDataController::class, 'setOfferedSubjectStatus']);
         Route::put('/offered-subjects/{id}', [LookupDataController::class, 'updateOfferedSubject']);
         Route::delete('/offered-subjects/{id}', [LookupDataController::class, 'deleteOfferedSubject']);
 
@@ -198,6 +202,8 @@ Route::middleware('auth:api')->group(function () {
     Route::prefix('credit-evaluations')->group(function () {
         Route::get('/', [CreditEvaluationController::class, 'index']);
         Route::post('/', [CreditEvaluationController::class, 'store']);
+        Route::post('/apply-transfer-credit', [CreditEvaluationController::class, 'applyTransferCredit']);
+        Route::post('/clear-transfer-credit', [CreditEvaluationController::class, 'clearTransferCredit']);
         Route::patch('/{id}/active', [CreditEvaluationController::class, 'setActive']);
         Route::get('/{id}', [CreditEvaluationController::class, 'show']);
         Route::put('/{id}', [CreditEvaluationController::class, 'update']);
@@ -245,6 +251,7 @@ Route::middleware('auth:api')->group(function () {
     // Audit Logs (admin only)
     Route::prefix('audit-logs')->group(function () {
         Route::get('/', [AuditLogController::class, 'index']);
+        Route::get('/sessions', [AuditLogController::class, 'sessions']);
     });
 
     // Elective Slots Management (admin only)
@@ -272,6 +279,7 @@ Route::middleware('auth:api')->group(function () {
     // Dean routes (authenticated deans)
     Route::prefix('deans')->group(function () {
         Route::get('/profile', [DeanController::class, 'getProfile']);
+        Route::put('/profile', [DeanController::class, 'updateProfile']);
     });
 
     // Faculty routes (authenticated faculty)
@@ -288,11 +296,15 @@ Route::middleware('auth:api')->group(function () {
     Route::prefix('evaluation')->group(function () {
         Route::get('/students', [StudentEvaluationController::class, 'listStudents']);
         Route::get('/student/{studentIdNumber}', [StudentEvaluationController::class, 'getByStudentIdNumber']);
+        Route::get('/student/{studentIdNumber}/program-preview', [StudentEvaluationController::class, 'previewStudentProgram']);
         
         // Comprehensive evaluation management with role-based access control
         Route::middleware('evaluation.access')->group(function () {
             Route::post('/student/promote-next-semester', [StudentEvaluationController::class, 'promoteNextSemester']);
+            Route::post('/student/standing', [StudentEvaluationController::class, 'updateStudentStanding']);
+            Route::post('/student/standing-load', [StudentEvaluationController::class, 'updateStudentStandingLoad']);
             Route::post('/student/track', [StudentEvaluationController::class, 'setStudentTrack']);
+            Route::post('/student/change-program', [StudentEvaluationController::class, 'changeStudentProgram']);
             Route::post('/academic-record/complete', [StudentEvaluationController::class, 'markAcademicRecordComplete']);
             Route::get('/academic-record/completions', [StudentEvaluationController::class, 'listAcademicRecordCompletions']);
             Route::delete('/academic-record/complete/{recordId}', [StudentEvaluationController::class, 'deleteAcademicRecordCompletion']);

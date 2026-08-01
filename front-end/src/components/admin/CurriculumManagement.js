@@ -1,7 +1,8 @@
-import React, { useState, useEffect, useMemo } from 'react';
-import api from '../../api/axios';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
+import api, { jwtAuth } from '../../api/axios';
 import { useAuth } from '../../context/AuthContext';
 import { swalConfirm, swalError, swalToast } from '../../utils/swal';
+import { formatEffectiveSchoolYear } from '../../utils/curriculumYear';
 import SearchableSelect from '../common/SearchableSelect';
 import './CurriculumManagement.css';
 
@@ -23,12 +24,15 @@ function normalizeYearLevelId(val) {
   return String(val);
 }
 
-/** Description column for elective curriculum rows: "Elective 1", "Elective 2", … from slot_name */
+/** Description column for elective curriculum rows: readable label from slot_name. */
 function electiveSlotDescriptionLabel(slotName, electiveSlotId) {
   const s = (slotName || '').trim();
+  const withoutProgramPrefix = s.replace(/^[A-Z0-9]+\s+/, '').trim();
+  if (withoutProgramPrefix) return withoutProgramPrefix;
+
   const m = s.match(/electives?\s*(\d+)/i);
   if (m) return `Elective ${m[1]}`;
-  if (electiveSlotId != null && electiveSlotId !== '') return `Elective ${electiveSlotId}`;
+
   return s || 'Elective';
 }
 
@@ -49,14 +53,141 @@ function ordinalYearLabel(yearNum) {
   return `${n}${suf} Year`;
 }
 
+function ordinalSemesterLabel(semesterNum) {
+  const n = Number(semesterNum);
+  if (n === 1) return '1st Semester';
+  if (n === 2) return '2nd Semester';
+  if (n === 3) return 'Summer';
+  return semesterNum != null && semesterNum !== '' ? `Semester ${semesterNum}` : 'Semester';
+}
+
 /** ITE→core; GEN / PED / NST / SSP / MAT→minor (UI label GE). Other codes leave type empty. */
 const SUBJECT_CODE_GE_PREFIXES = ['GEN', 'PED', 'NST', 'SSP', 'MAT'];
+const IT_ELECTIVE_SUBJECT_CODES = new Set([
+  'BAM285',
+  'BAM286',
+  'ITE382',
+  'ITE383',
+  'ITE384',
+  'ITE385',
+  'ITE387',
+  'ITE235',
+  'ITE386',
+  'ITE391',
+  'ITE392',
+  'ITE240',
+  'ITE388',
+]);
+const IT_ELECTIVE_SUBJECT_CODES_BY_TRACK = {
+  sysdev: new Set(['ITE382', 'ITE387', 'ITE235', 'ITE386']),
+  business: new Set(['BAM285', 'BAM286']),
+  cyber: new Set(['ITE383', 'ITE384', 'ITE385']),
+  digital: new Set(['ITE391', 'ITE392', 'ITE240', 'ITE388']),
+};
+
+const BULK_PREREQUISITE_RULE_OPTIONS = [
+  { value: 'all professional subjects', label: 'All professional subjects' },
+  { value: 'all core subjects', label: 'All core subjects' },
+  { value: 'all major subjects', label: 'All major subjects' },
+  { value: 'all professional education subjects', label: 'All professional education subjects' },
+  { value: 'all professional and major subjects', label: 'All professional and major subjects' },
+  { value: 'all professional and major specialization subjects', label: 'All professional and major specialization subjects' },
+  { value: 'all board subjects', label: 'All board subjects' },
+  { value: '100% professional units', label: '100% professional units' },
+  { value: 'all subjects', label: 'All subjects' },
+  {
+    value: 'all general education, professional education, and specialization subjects',
+    label: 'All general education, professional education, and specialization subjects',
+  },
+  { value: '2nd year standing', label: '2nd year standing' },
+  { value: '3rd year standing', label: '3rd year standing' },
+  { value: '4th year standing', label: '4th year standing' },
+  {
+    value: 'all subjects from 1st year to 4th year 1st semester',
+    label: 'All subjects from 1st year to 4th year 1st semester',
+  },
+  { value: 'all subjects from 1st year to 3rd year', label: 'All subjects from 1st year to 3rd year' },
+  { value: 'all subjects from 1st year to 2nd year', label: 'All subjects from 1st year to 2nd year' },
+];
+
+function normalizeSubjectCode(subjectCode) {
+  return String(subjectCode || '').replace(/\s+/g, '').toUpperCase();
+}
+
+function itElectiveTrackKey(track) {
+  if (!track) return '';
+  const text = `${track.track_code || ''} ${track.track_name || ''}`.toLowerCase();
+  if (text.includes('sys') || text.includes('system')) return 'sysdev';
+  if (text.includes('bam') || text.includes('business')) return 'business';
+  if (text.includes('cyber')) return 'cyber';
+  if (text.includes('digi') || text.includes('digital') || text.includes('arts')) return 'digital';
+  return '';
+}
+
+function isInformationTechnologyProgram(program) {
+  if (!program) return false;
+  const code = String(program.program_code || '').toLowerCase();
+  const name = String(program.program_name || '').toLowerCase();
+  return code === 'it' || code.includes('bsit') || name.includes('information technology');
+}
 
 function defaultSubjectTypeFromSubjectCode(subjectCode) {
   const c = (subjectCode || '').trim().toUpperCase();
   if (c.startsWith('ITE')) return 'core';
   if (SUBJECT_CODE_GE_PREFIXES.some((p) => c.startsWith(p))) return 'minor';
   return '';
+}
+
+function normalizeSubjectCodeKey(code) {
+  return String(code || '').trim().toLowerCase();
+}
+
+function emptySubjectRow() {
+  return {
+    subject_id: '',
+    subject_code: '',
+    subject_name: '',
+    elective_slot_id: '',
+    is_elective_slot: false,
+    passing_grade: '',
+    custom_grade: '',
+    subject_type: '',
+    requisite_id: '',
+    number_of_units: '',
+    number_of_hrs: '',
+  };
+}
+
+function subjectRowFromCurriculum(curriculum) {
+  if (!curriculum) return emptySubjectRow();
+  return {
+    subject_id: curriculum.subject_id?.toString() || '',
+    subject_code:
+      curriculum.subject?.subject_code ||
+      curriculum.subject_code ||
+      '',
+    subject_name:
+      curriculum.subject?.subject_name ||
+      curriculum.subject_name ||
+      '',
+    elective_slot_id: curriculum.elective_slot_id?.toString() || '',
+    is_elective_slot: !!curriculum.elective_slot_id,
+    passing_grade: curriculum.passing_grade?.toString() || '',
+    custom_grade: '',
+    subject_type: curriculum.subject_type || '',
+    requisite_id:
+      (curriculum.requisite_id ??
+        curriculum.prerequisite_id ??
+        curriculum.requisites_id)?.toString() || '',
+    number_of_units:
+      curriculum.subject?.number_of_units ??
+      curriculum.number_of_units ??
+      '',
+    number_of_hrs:
+      curriculum.subject?.number_of_hrs ??
+      curriculum.number_of_hrs ??
+      '',
+  };
 }
 
 /** Requisite row id for `<select>` value (aligned with getRequisiteOptionsForBulkRow). */
@@ -98,9 +229,17 @@ function yearLevelPillLabel(yearLevelId, fallbackName) {
   return s || 'Year';
 }
 
-const CurriculumManagement = () => {
-  const { hasAnyPermission } = useAuth();
+const CurriculumManagement = ({ lockedProgramId = null } = {}) => {
+  const { hasAnyPermission, user } = useAuth();
   const canMutateCurriculum = hasAnyPermission(CURRICULUM_MUTATE_PERMISSIONS);
+  const curriculumFetchInFlightRef = useRef(false);
+  const lookupFetchInFlightRef = useRef(false);
+
+  /** When set (e.g. Dean’s assigned program), filter + add forms stay on that program only. */
+  const scopedProgramId =
+    lockedProgramId != null && String(lockedProgramId).trim() !== ''
+      ? String(lockedProgramId)
+      : '';
 
   const [curricula, setCurricula] = useState([]);
   const [lookupData, setLookupData] = useState({
@@ -112,6 +251,7 @@ const CurriculumManagement = () => {
     corequisites: [],
     curriculumHeaders: [],
     electiveSlots: [],
+    tracks: [],
   });
   
   // Ensure lookupData is always an object with arrays
@@ -129,15 +269,19 @@ const CurriculumManagement = () => {
     curriculumHeaders: Array.isArray(lookupData.curriculumHeaders) ? lookupData.curriculumHeaders : [],
     requisites: Array.isArray(lookupData.requisites) ? lookupData.requisites : [],
     electiveSlots: Array.isArray(lookupData.electiveSlots) ? lookupData.electiveSlots : [],
+    electiveSubjects: Array.isArray(lookupData.electiveSubjects) ? lookupData.electiveSubjects : [],
+    tracks: Array.isArray(lookupData.tracks) ? lookupData.tracks : [],
   };
 
   const programSearchOptions = useMemo(
     () =>
-      safeLookupData.programs.map((p) => ({
-        value: String(p.program_id),
-        label: `${p.program_name} (${p.program_code})`,
-      })),
-    [safeLookupData.programs],
+      safeLookupData.programs
+        .filter((p) => !scopedProgramId || String(p.program_id) === scopedProgramId)
+        .map((p) => ({
+          value: String(p.program_id),
+          label: `${p.program_name} (${p.program_code})`,
+        })),
+    [safeLookupData.programs, scopedProgramId],
   );
 
   const subjectSearchOptions = useMemo(
@@ -147,6 +291,15 @@ const CurriculumManagement = () => {
         label: `${s.subject_code} - ${s.subject_name}`,
       })),
     [safeLookupData.subjects],
+  );
+
+  const trackSearchOptions = useMemo(
+    () =>
+      safeLookupData.tracks.map((t) => ({
+        value: String(t.track_id),
+        label: `${t.track_code || 'Track'} - ${t.track_name || ''}`.trim(),
+      })),
+    [safeLookupData.tracks],
   );
 
   // caches for per-subject requisites (keyed by subject id string)
@@ -204,32 +357,154 @@ const CurriculumManagement = () => {
     semester_id: '',
   });
   
-  // Array of subjects to add
-  const [subjectRows, setSubjectRows] = useState([
-    {
-      subject_id: '',
-      elective_slot_id: '',
-      is_elective_slot: false,
-      passing_grade: '',
-      custom_grade: '',
-      subject_type: '',
-      requisite_id: '',
-    }
-  ]);
+  // Array of subjects to add/edit
+  const [subjectRows, setSubjectRows] = useState([emptySubjectRow()]);
+  const [suggestOpen, setSuggestOpen] = useState(null); // { index, field: 'code' | 'title' } | null
+  /** 'edit' = update selected curriculum row; 'insert' = add new subject into group/term */
+  const [editPanelMode, setEditPanelMode] = useState('edit');
+  const [editGroupContext, setEditGroupContext] = useState(null);
+  const [editPanelDirty, setEditPanelDirty] = useState(false);
   
   const [error, setError] = useState('');
-  const [filterProgram, setFilterProgram] = useState('');
+  const [filterProgram, setFilterProgram] = useState(scopedProgramId || '');
+  const [filterCurriculumYear, setFilterCurriculumYear] = useState('');
+
+  useEffect(() => {
+    if (!scopedProgramId) return;
+    setFilterProgram(scopedProgramId);
+  }, [scopedProgramId]);
+
+  // Keep Edit Group subject picker in sync after insert/edit refreshes curricula
+  useEffect(() => {
+    if (!editGroupContext?.programId || !editGroupContext?.yearLevelId) return;
+    if (!Array.isArray(curricula) || curricula.length === 0) return;
+    const refreshed = curricula.filter(
+      (c) =>
+        String(c.program_id) === String(editGroupContext.programId) &&
+        normalizeYearLevelId(c.year_level) === String(editGroupContext.yearLevelId),
+    );
+    setEditGroupContext((prev) =>
+      prev ? { ...prev, curricula: refreshed } : prev,
+    );
+  }, [curricula]); // eslint-disable-line react-hooks/exhaustive-deps
+  const curriculumYearOptions = useMemo(() => {
+    const years = new Set();
+    safeLookupData.curriculumHeaders
+      .filter((header) => {
+        if (!filterProgram) return true;
+        return String(header?.program_id ?? header?.program?.program_id ?? '') === String(filterProgram);
+      })
+      .forEach((header) => {
+        const year = header?.Effective_Year ?? header?.effective_year;
+        if (year !== null && year !== undefined && String(year).trim() !== '') {
+          years.add(String(year));
+        }
+      });
+
+    return Array.from(years)
+      .sort((a, b) => Number(b) - Number(a))
+      .map((year) => ({
+        value: year,
+        label: formatEffectiveSchoolYear(year) || `Effective SY ${year}`,
+      }));
+  }, [safeLookupData.curriculumHeaders, filterProgram]);
   /** Which year-level group is shown (1-based index into grouped curricula for the current filter) */
   const [yearLevelPage, setYearLevelPage] = useState(1);
   const [showEditPanel, setShowEditPanel] = useState(false);
   const [showCorequisiteModal, setShowCorequisiteModal] = useState(false);
   const [selectedCurriculum, setSelectedCurriculum] = useState(null);
+  const [editBulkPrerequisiteText, setEditBulkPrerequisiteText] = useState('');
+  const [editBulkPrerequisiteRange, setEditBulkPrerequisiteRange] = useState({
+    from_year_level: '',
+    to_year_level: '',
+  });
+  const [showElectiveSubjectModal, setShowElectiveSubjectModal] = useState(false);
+  const [selectedElectiveSlot, setSelectedElectiveSlot] = useState(null);
+  const [electiveSubjectForm, setElectiveSubjectForm] = useState({
+    subject_id: '',
+    track_id: '',
+  });
+  const [electiveSubjectSaving, setElectiveSubjectSaving] = useState(false);
+
+  const selectedElectiveSlotProgram = useMemo(
+    () =>
+      selectedElectiveSlot?.program ||
+      safeLookupData.programs.find(
+        (program) => String(program.program_id) === String(selectedElectiveSlot?.program_id || ''),
+      ) ||
+      null,
+    [selectedElectiveSlot, safeLookupData.programs],
+  );
+
+  const selectedElectiveSlotIsIt = isInformationTechnologyProgram(selectedElectiveSlotProgram);
+
+  const electiveSlotSubjectOptions = useMemo(() => {
+    const assignedSubjectIds = new Set(
+      (selectedElectiveSlot?.electiveSubjects || [])
+        .map((item) => item.subject_id ?? item.subject?.subject_id)
+        .filter(Boolean)
+        .map((subjectId) => String(subjectId)),
+    );
+
+    const slotProgramId = selectedElectiveSlotProgram?.program_id ?? selectedElectiveSlot?.program_id ?? '';
+    const programElectiveSubjectIds = new Set();
+    safeLookupData.electiveSubjects.forEach((row) => {
+      const rowProgramId = row?.program_id ?? row?.program?.program_id;
+      if (slotProgramId && String(rowProgramId || '') === String(slotProgramId)) {
+        const subjectId = row?.subject_id ?? row?.subject?.subject_id;
+        if (subjectId) programElectiveSubjectIds.add(String(subjectId));
+      }
+    });
+    safeLookupData.electiveSlots.forEach((slot) => {
+      const rowProgramId = slot?.program_id ?? slot?.program?.program_id;
+      if (slotProgramId && String(rowProgramId || '') === String(slotProgramId)) {
+        (slot.electiveSubjects || slot.elective_subjects || []).forEach((row) => {
+          const subjectId = row?.subject_id ?? row?.subject?.subject_id;
+          if (subjectId) programElectiveSubjectIds.add(String(subjectId));
+        });
+      }
+    });
+    const selectedTrack = safeLookupData.tracks.find(
+      (track) => String(track.track_id) === String(electiveSubjectForm.track_id || ''),
+    );
+    const selectedItTrackKey = itElectiveTrackKey(selectedTrack);
+    const selectedTrackSubjectCodes = selectedItTrackKey
+      ? IT_ELECTIVE_SUBJECT_CODES_BY_TRACK[selectedItTrackKey]
+      : null;
+
+    return safeLookupData.subjects
+      .filter((subject) => !assignedSubjectIds.has(String(subject.subject_id)))
+      .filter((subject) => {
+        if (!selectedElectiveSlotIsIt) {
+          return programElectiveSubjectIds.has(String(subject.subject_id));
+        }
+        const subjectCode = normalizeSubjectCode(subject.subject_code);
+        if (selectedTrackSubjectCodes) {
+          return selectedTrackSubjectCodes.has(subjectCode);
+        }
+        return IT_ELECTIVE_SUBJECT_CODES.has(subjectCode);
+      })
+      .map((subject) => ({
+        value: String(subject.subject_id),
+        label: `${subject.subject_code} - ${subject.subject_name}`,
+      }));
+  }, [
+    electiveSubjectForm.track_id,
+    selectedElectiveSlot,
+    selectedElectiveSlotIsIt,
+    selectedElectiveSlotProgram,
+    safeLookupData.electiveSlots,
+    safeLookupData.electiveSubjects,
+    safeLookupData.subjects,
+    safeLookupData.tracks,
+  ]);
 
   useEffect(() => {
     if (!canMutateCurriculum) {
       setShowModal(false);
       setShowEditPanel(false);
       setShowCorequisiteModal(false);
+      setShowElectiveSubjectModal(false);
     }
   }, [canMutateCurriculum]);
   
@@ -444,17 +719,63 @@ const CurriculumManagement = () => {
   };
 
   useEffect(() => {
-    fetchCurricula();
-    fetchLookupData();
-  }, []);
+    if (!user || !jwtAuth.isAuthenticated()) {
+      setLoading(false);
+      return undefined;
+    }
+
+    const controller = new AbortController();
+    fetchCurricula({ signal: controller.signal });
+    fetchLookupData({ signal: controller.signal });
+
+    return () => {
+      controller.abort();
+      curriculumFetchInFlightRef.current = false;
+      lookupFetchInFlightRef.current = false;
+    };
+  }, [user]);
 
   useEffect(() => {
     setYearLevelPage(1);
-  }, [filterProgram]);
+  }, [filterProgram, filterCurriculumYear]);
 
-  const fetchCurricula = async () => {
+  useEffect(() => {
+    if (!filterProgram) {
+      if (filterCurriculumYear) {
+        setFilterCurriculumYear('');
+      }
+      return;
+    }
+
+    if (curriculumYearOptions.length === 0) {
+      if (filterCurriculumYear) {
+        setFilterCurriculumYear('');
+      }
+      return;
+    }
+
+    const selectedYearStillAvailable = curriculumYearOptions.some(
+      (option) => String(option.value) === String(filterCurriculumYear)
+    );
+
+    if (!selectedYearStillAvailable) {
+      setFilterCurriculumYear(curriculumYearOptions[0].value);
+    }
+  }, [curriculumYearOptions, filterCurriculumYear, filterProgram]);
+
+  const fetchCurricula = async ({ signal, force = false } = {}) => {
+    if (!jwtAuth.isAuthenticated()) {
+      setLoading(false);
+      return;
+    }
+    if (curriculumFetchInFlightRef.current && !force) {
+      console.info('[Curriculum] Skipped duplicate curriculum fetch while one is already running.');
+      return;
+    }
+
+    curriculumFetchInFlightRef.current = true;
     try {
-      const response = await api.get('/curriculum');
+      const response = await api.get('/curriculum', { signal });
       // Debug: Log elective slots to see if they're loaded
       const curriculaWithElectives = response.data.filter(c => c.elective_slot_id);
       if (curriculaWithElectives.length > 0) {
@@ -469,16 +790,29 @@ const CurriculumManagement = () => {
       }
       setCurricula(response.data);
     } catch (error) {
+      if (error.name === 'CanceledError' || error.code === 'ERR_CANCELED') {
+        return;
+      }
       console.error('Error fetching curriculum:', error);
       setError('Failed to fetch curriculum');
     } finally {
+      curriculumFetchInFlightRef.current = false;
       setLoading(false);
     }
   };
 
-  const fetchLookupData = async () => {
+  const fetchLookupData = async ({ signal, force = false } = {}) => {
+    if (!jwtAuth.isAuthenticated()) {
+      return;
+    }
+    if (lookupFetchInFlightRef.current && !force) {
+      console.info('[Curriculum] Skipped duplicate lookup fetch while one is already running.');
+      return;
+    }
+
+    lookupFetchInFlightRef.current = true;
     try {
-      const res = await api.get('/lookup/page-bundle');
+      const res = await api.get('/lookup/page-bundle', { signal });
       const combinedData = res.data || {};
       const curriculumHeadersData = Array.isArray(combinedData.curriculumHeaders)
         ? combinedData.curriculumHeaders
@@ -546,7 +880,12 @@ const CurriculumManagement = () => {
         setAvailableCorequisites(coreqsBySubject);
       }
     } catch (error) {
+      if (error.name === 'CanceledError' || error.code === 'ERR_CANCELED') {
+        return;
+      }
       console.error('Error fetching lookup data:', error);
+    } finally {
+      lookupFetchInFlightRef.current = false;
     }
   };
 
@@ -647,48 +986,302 @@ const CurriculumManagement = () => {
     }
   };
 
+  const normalizeElectiveSlot = (slot) => ({
+    ...(slot || {}),
+    electiveSubjects: Array.isArray(slot?.electiveSubjects)
+      ? slot.electiveSubjects
+      : Array.isArray(slot?.elective_subjects)
+        ? slot.elective_subjects
+        : [],
+  });
+
+  const updateElectiveSlotInState = (slot) => {
+    const normalizedSlot = normalizeElectiveSlot(slot);
+    if (!normalizedSlot.elective_slot_id) return normalizedSlot;
+
+    setLookupData((prev) => {
+      const existingSlots = Array.isArray(prev.electiveSlots) ? prev.electiveSlots : [];
+      const found = existingSlots.some(
+        (item) => String(item.elective_slot_id) === String(normalizedSlot.elective_slot_id),
+      );
+
+      return {
+        ...prev,
+        electiveSlots: found
+          ? existingSlots.map((item) =>
+              String(item.elective_slot_id) === String(normalizedSlot.elective_slot_id)
+                ? normalizedSlot
+                : item,
+            )
+          : [...existingSlots, normalizedSlot],
+      };
+    });
+
+    setCurricula((prev) =>
+      (Array.isArray(prev) ? prev : []).map((row) =>
+        String(row.elective_slot_id || '') === String(normalizedSlot.elective_slot_id)
+          ? { ...row, electiveSlot: normalizedSlot }
+          : row,
+      ),
+    );
+
+    return normalizedSlot;
+  };
+
+  const refreshElectiveSlotDetails = async (slotId) => {
+    const response = await api.get(`/elective-slots/${slotId}`);
+    const normalizedSlot = updateElectiveSlotInState(response.data);
+    setSelectedElectiveSlot(normalizedSlot);
+    return normalizedSlot;
+  };
+
+  const openElectiveSubjectAssignment = async (curriculum) => {
+    const slotId = curriculum?.elective_slot_id;
+    if (!slotId) return;
+
+    setElectiveSubjectForm({ subject_id: '', track_id: '' });
+    try {
+      const slot = await refreshElectiveSlotDetails(slotId);
+      setSelectedElectiveSlot(slot);
+      setShowElectiveSubjectModal(true);
+    } catch (err) {
+      const fallbackSlot = normalizeElectiveSlot(curriculum.electiveSlot || {
+        elective_slot_id: slotId,
+        slot_name: `Elective Slot #${slotId}`,
+        program_id: curriculum.program_id,
+        semester_id: curriculum.semester_id,
+        year_level_id: normalizeYearLevelId(curriculum.year_level),
+      });
+      setSelectedElectiveSlot(fallbackSlot);
+      setShowElectiveSubjectModal(true);
+      await swalError('Could not load latest elective slot', err.response?.data?.message || 'Showing saved slot data instead.');
+    }
+  };
+
+  const handleAssignElectiveSubject = async () => {
+    if (!selectedElectiveSlot?.elective_slot_id || !electiveSubjectForm.subject_id) {
+      await swalError('Missing subject', 'Select a subject to assign to this elective slot.');
+      return;
+    }
+
+    setElectiveSubjectSaving(true);
+    try {
+      const response = await api.post(`/elective-slots/${selectedElectiveSlot.elective_slot_id}/assign-subject`, {
+        subject_id: Number(electiveSubjectForm.subject_id),
+        track_id: selectedElectiveSlotIsIt && electiveSubjectForm.track_id ? Number(electiveSubjectForm.track_id) : null,
+      });
+
+      if (response.data?.slot) {
+        const normalizedSlot = updateElectiveSlotInState(response.data.slot);
+        setSelectedElectiveSlot(normalizedSlot);
+      } else {
+        await refreshElectiveSlotDetails(selectedElectiveSlot.elective_slot_id);
+      }
+
+      setElectiveSubjectForm({ subject_id: '', track_id: '' });
+      swalToast('success', 'Elective subject assigned.');
+    } catch (err) {
+      await swalError('Assign failed', err.response?.data?.message || err.response?.data?.error || 'Could not assign subject.');
+    } finally {
+      setElectiveSubjectSaving(false);
+    }
+  };
+
+  const handleRemoveElectiveSubject = async (subjectId) => {
+    if (!selectedElectiveSlot?.elective_slot_id || !subjectId) return;
+    const ok = await swalConfirm('Remove elective subject?', 'Remove this subject from the elective slot?', 'Remove', 'Cancel');
+    if (!ok) return;
+
+    setElectiveSubjectSaving(true);
+    try {
+      await api.delete(`/elective-slots/${selectedElectiveSlot.elective_slot_id}/subjects/${subjectId}`);
+      await refreshElectiveSlotDetails(selectedElectiveSlot.elective_slot_id);
+      swalToast('success', 'Elective subject removed.');
+    } catch (err) {
+      await swalError('Remove failed', err.response?.data?.message || 'Could not remove subject.');
+    } finally {
+      setElectiveSubjectSaving(false);
+    }
+  };
+
   const handleAddRow = () => {
-    setSubjectRows([...subjectRows, {
-      subject_id: '',
-      elective_slot_id: '',
-      is_elective_slot: false,
-      passing_grade: '',
-      custom_grade: '',
-      subject_type: '',
-      requisite_id: '',
-    }]);
+    setSubjectRows([...subjectRows, emptySubjectRow()]);
   };
 
   const handleRemoveRow = (index) => {
     if (subjectRows.length > 1) {
       const newRows = subjectRows.filter((_, i) => i !== index);
       setSubjectRows(newRows);
+      setSuggestOpen(null);
     }
+  };
+
+  const findSubjectByCode = (code) => {
+    const key = normalizeSubjectCodeKey(code);
+    if (!key) return null;
+    return (
+      (safeLookupData.subjects || []).find(
+        (s) => s && normalizeSubjectCodeKey(s.subject_code) === key,
+      ) || null
+    );
+  };
+
+  const getSubjectSuggestions = (query, limit = 10) => {
+    const q = String(query || '').trim().toLowerCase();
+    if (q.length < 1) return [];
+    const seen = new Set();
+    const matches = [];
+    for (const s of safeLookupData.subjects || []) {
+      const code = String(s?.subject_code || '').trim();
+      const name = String(s?.subject_name || '').trim();
+      if (!code && !name) continue;
+      const key = `${code.toLowerCase()}|${name.toLowerCase()}`;
+      if (seen.has(key)) continue;
+      const codeHit = code.toLowerCase().includes(q);
+      const nameHit = name.toLowerCase().includes(q);
+      if (!codeHit && !nameHit) continue;
+      seen.add(key);
+      matches.push(s);
+      if (matches.length >= limit) break;
+    }
+    return matches;
+  };
+
+  const applySubjectSuggestion = (index, subject, { fillCode = true } = {}) => {
+    if (!subject) return;
+    setSubjectRows((prev) => {
+      const next = [...prev];
+      const row = { ...next[index] };
+      if (fillCode) {
+        row.subject_code = subject.subject_code || row.subject_code || '';
+      }
+      row.subject_name = subject.subject_name || '';
+      row.subject_id = subject.subject_id != null ? String(subject.subject_id) : '';
+      if (row.number_of_units === '' || row.number_of_units == null) {
+        row.number_of_units = subject.number_of_units ?? '';
+      }
+      if (row.number_of_hrs === '' || row.number_of_hrs == null) {
+        row.number_of_hrs = subject.number_of_hrs ?? '';
+      }
+      if (!row.passing_grade) row.passing_grade = '50';
+      if (!row.subject_type) {
+        row.subject_type = defaultSubjectTypeFromSubjectCode(row.subject_code || subject.subject_code);
+      }
+      next[index] = row;
+      return next;
+    });
+    setSuggestOpen(null);
+    setEditPanelDirty(true);
+  };
+
+  // Back-compat aliases used by older call sites
+  const getTitleSuggestions = getSubjectSuggestions;
+  const applyTitleSuggestion = (index, subject) =>
+    applySubjectSuggestion(index, subject, { fillCode: false });
+
+  const resolveOrCreateSubject = async (row) => {
+    const code = String(row.subject_code || '').trim();
+    const name = String(row.subject_name || '').trim();
+    if (!code) throw new Error('Subject code is required');
+    if (!name) throw new Error('Subject title is required');
+
+    const existing = findSubjectByCode(code);
+    if (existing) return existing;
+
+    if (row.subject_id) {
+      const byId = (safeLookupData.subjects || []).find(
+        (s) => s && String(s.subject_id) === String(row.subject_id),
+      );
+      if (byId && normalizeSubjectCodeKey(byId.subject_code) === normalizeSubjectCodeKey(code)) {
+        return byId;
+      }
+    }
+
+    const units =
+      row.number_of_units === '' || row.number_of_units == null
+        ? null
+        : Number(row.number_of_units);
+    const hrs =
+      row.number_of_hrs === '' || row.number_of_hrs == null
+        ? null
+        : Number(row.number_of_hrs);
+
+    const res = await api.post('/lookup/subjects', {
+      subject_code: code,
+      subject_name: name,
+      number_of_units: Number.isFinite(units) ? units : null,
+      number_of_hrs: Number.isFinite(hrs) ? hrs : null,
+    });
+    return res.data;
   };
 
   const handleRowChange = async (index, field, value) => {
     const newRows = [...subjectRows];
-    newRows[index][field] = value;
-    
-    // If is_elective_slot is toggled, clear the other field
+    newRows[index] = { ...newRows[index], [field]: value };
+    setEditPanelDirty(true);
+
     if (field === 'is_elective_slot') {
       if (value) {
-        // Switching to elective slot - clear subject_id and set subject_type
         newRows[index].subject_id = '';
+        newRows[index].subject_code = '';
+        newRows[index].subject_name = '';
         newRows[index].subject_type = 'elective subject';
+        setSuggestOpen(null);
       } else {
-        // Switching to regular subject - clear elective_slot_id
         newRows[index].elective_slot_id = '';
       }
     }
-    
-    // If elective_slot_id is selected, automatically set subject_type to elective
+
     if (field === 'elective_slot_id' && value) {
       newRows[index].subject_type = 'elective subject';
       newRows[index].is_elective_slot = true;
     }
-    
-    // If subject changed: default passing grade 50, ITE→core / GEN→GE (minor), auto prereq/coreq when loaded
+
+    if (field === 'subject_code') {
+      const codeValue = String(value || '').trim();
+      if (!codeValue) {
+        // Clearing course code also clears title + linked catalog fields
+        newRows[index].subject_id = '';
+        newRows[index].subject_name = '';
+        newRows[index].number_of_units = '';
+        newRows[index].number_of_hrs = '';
+        newRows[index].passing_grade = '';
+        newRows[index].custom_grade = '';
+        newRows[index].subject_type = '';
+        newRows[index].requisite_id = '';
+        setSuggestOpen(null);
+      } else {
+        setSuggestOpen({ index, field: 'code' });
+        const match = findSubjectByCode(value);
+        if (match) {
+          newRows[index].subject_id = String(match.subject_id);
+          if (!String(newRows[index].subject_name || '').trim()) {
+            newRows[index].subject_name = match.subject_name || '';
+          }
+          if (newRows[index].number_of_units === '' || newRows[index].number_of_units == null) {
+            newRows[index].number_of_units = match.number_of_units ?? '';
+          }
+          if (newRows[index].number_of_hrs === '' || newRows[index].number_of_hrs == null) {
+            newRows[index].number_of_hrs = match.number_of_hrs ?? '';
+          }
+          if (!newRows[index].passing_grade) newRows[index].passing_grade = '50';
+          if (!newRows[index].subject_type) {
+            newRows[index].subject_type = defaultSubjectTypeFromSubjectCode(match.subject_code);
+          }
+        } else {
+          newRows[index].subject_id = '';
+          newRows[index].subject_type =
+            newRows[index].subject_type || defaultSubjectTypeFromSubjectCode(value);
+          if (!newRows[index].passing_grade) newRows[index].passing_grade = '50';
+        }
+      }
+    }
+
+    if (field === 'subject_name') {
+      const nameValue = String(value || '').trim();
+      setSuggestOpen(nameValue.length >= 1 ? { index, field: 'title' } : null);
+    }
+
     if (field === 'subject_id') {
       if (value) {
         newRows[index].requisite_id = '';
@@ -698,6 +1291,10 @@ const CurriculumManagement = () => {
           (s) => s && s.subject_id != null && String(s.subject_id) === String(value),
         );
         newRows[index].subject_type = defaultSubjectTypeFromSubjectCode(sub?.subject_code);
+        newRows[index].subject_code = sub?.subject_code || newRows[index].subject_code || '';
+        newRows[index].subject_name = sub?.subject_name || newRows[index].subject_name || '';
+        newRows[index].number_of_units = sub?.number_of_units ?? '';
+        newRows[index].number_of_hrs = sub?.number_of_hrs ?? '';
         const subjectChosen = value;
         setSubjectRows(newRows);
         try {
@@ -711,7 +1308,7 @@ const CurriculumManagement = () => {
             return copy;
           });
         } catch (err) {
-          // ignore - fetch functions already log errors
+          // ignore
         }
         return;
       }
@@ -722,6 +1319,238 @@ const CurriculumManagement = () => {
     }
 
     setSubjectRows(newRows);
+  };
+
+  const parseYearNumber = (value) => {
+    const text = String(value || '').toLowerCase();
+    if (/(^|\D)(1|1st|first)(\D|$)/.test(text)) return 1;
+    if (/(^|\D)(2|2nd|second)(\D|$)/.test(text)) return 2;
+    if (/(^|\D)(3|3rd|third)(\D|$)/.test(text)) return 3;
+    if (/(^|\D)(4|4th|fourth)(\D|$)/.test(text)) return 4;
+    if (/(^|\D)(5|5th|fifth)(\D|$)/.test(text)) return 5;
+    return null;
+  };
+
+  const parseSemesterNumber = (value) => {
+    const text = String(value || '').toLowerCase();
+    if (/(^|\D)(1|1st|first)(\D|$)/.test(text)) return 1;
+    if (/(^|\D)(2|2nd|second)(\D|$)/.test(text)) return 2;
+    if (/(^|\D)(3|3rd|third|summer)(\D|$)/.test(text)) return 3;
+    return null;
+  };
+
+  const yearLevelIdForNumber = (yearNumber) => {
+    const match = (safeLookupData.yearLevels || []).find(
+      (year) => parseYearNumber(year.year_level) === yearNumber,
+    );
+    return match?.year_level_id || yearNumber;
+  };
+
+  const parsedEditBulkPrerequisiteText = () => {
+    const text = String(editBulkPrerequisiteText || '').trim();
+    if (!text) return null;
+
+    if (/^(all\s+(professional|major|core|board)\s+subjects?|all\s+professional\s+education\s+subjects?|all\s+professional\s+and\s+major\s+(specialization\s+)?subjects?|100%\s+professional\s+units|all\s+.*\bmajor\b.*\bsubjects?\b.*)$/i.test(text)) {
+      return { professional_subjects: true };
+    }
+
+    if (/^(all\s+subjects?|all\s+general\s+education,\s*professional\s+education,\s*and\s+specialization\s+subjects?)$/i.test(text)) {
+      return { all_previous_subjects: true };
+    }
+
+    const standingMatch = text.match(/^(2|2nd|second|3|3rd|third|4|4th|fourth|5|5th|fifth)\s+year\s+standing$/i);
+    if (standingMatch) {
+      const standingYear = parseYearNumber(standingMatch[1]);
+      if (!standingYear || standingYear <= 1) return null;
+
+      return {
+        from_year_level: yearLevelIdForNumber(1),
+        to_year_level: yearLevelIdForNumber(standingYear - 1),
+      };
+    }
+
+    const termRangeMatch = text.match(/all\s+subjects\s+from\s+(.+?)\s+to\s+(.+?)\s+(1|1st|first|2|2nd|second|3|3rd|third|summer)\s*(?:sem|semester)$/i);
+    if (termRangeMatch) {
+      const fromYear = parseYearNumber(termRangeMatch[1]);
+      const toYear = parseYearNumber(termRangeMatch[2]);
+      const toSemester = parseSemesterNumber(termRangeMatch[3]);
+      if (!fromYear || !toYear || !toSemester) return null;
+
+      return {
+        from_year_level: yearLevelIdForNumber(fromYear),
+        to_year_level: yearLevelIdForNumber(toYear),
+        to_semester_id: toSemester,
+      };
+    }
+
+    const match = text.match(/all\s+subjects\s+from\s+(.+?)\s+to\s+(.+)$/i);
+    if (!match) return null;
+
+    const fromYear = parseYearNumber(match[1]);
+    const toYear = parseYearNumber(match[2]);
+    if (!fromYear || !toYear) return null;
+
+    return {
+      from_year_level: yearLevelIdForNumber(fromYear),
+      to_year_level: yearLevelIdForNumber(toYear),
+    };
+  };
+
+  const resolvedEditBulkPrerequisiteRange = () => ({
+    ...editBulkPrerequisiteRange,
+    ...(parsedEditBulkPrerequisiteText() || {}),
+  });
+
+  const editCurriculumOrderValue = (row) => {
+    const rowYear = Number(normalizeYearLevelId(row?.year_level ?? row?.yearLevel));
+    const rowSemester = Number(row?.semester_id ?? row?.semester?.semester_id);
+    if (!Number.isFinite(rowYear) || !Number.isFinite(rowSemester)) return null;
+
+    // Summer is stored as semester_id 3, but appears before regular semesters in these curricula.
+    const semesterOrder = rowSemester === 3 ? 0 : rowSemester;
+    return rowYear * 10 + semesterOrder;
+  };
+
+  const isProfessionalCurriculumRow = (row) => {
+    if (!row || row.elective_slot_id) return false;
+    const type = String(row.subject_type || '').trim().toLowerCase();
+    if (type === 'core' || type === 'major') return true;
+
+    const subjectCode = String(row.subject?.subject_code || '').trim().toUpperCase();
+    return /^(NUR|HES|BIO|MLS)\s*\d+/.test(subjectCode);
+  };
+
+  const editRowSubjectCode = (row) =>
+    String(row?.subject?.subject_code || row?.subject_code || '').replace(/\s+/g, '').toUpperCase();
+
+  const editExceptSubjectCodesFromRule = () => {
+    const text = String(editBulkPrerequisiteText || '').trim();
+    const match = text.match(/\bexcept\b(.+)$/i);
+    if (!match) return new Set();
+
+    return new Set(
+      match[1]
+        .split(/,|\band\b/i)
+        .map((code) => code.replace(/[^a-z0-9]/gi, '').toUpperCase())
+        .filter(Boolean),
+    );
+  };
+
+  const getEditBulkPrerequisiteSubjectIds = () => {
+    const row = subjectRows[0] || {};
+    const range = resolvedEditBulkPrerequisiteRange();
+    const programId = bulkFormData.program_id || selectedCurriculum?.program_id;
+    const subjectId = row.subject_id || selectedCurriculum?.subject_id;
+
+    if (range.professional_subjects) {
+      if (!programId || !subjectId) return [];
+
+      const rowsForProgram = (curricula || []).filter(
+        (curriculum) => String(curriculum.program_id) === String(programId),
+      );
+      const targetRow = rowsForProgram.find(
+        (curriculum) => String(curriculum.subject_id) === String(subjectId),
+      );
+      const targetOrder = targetRow ? editCurriculumOrderValue(targetRow) : null;
+      const exceptCodes = editExceptSubjectCodesFromRule();
+
+      return Array.from(
+        new Set(
+          rowsForProgram
+            .filter((curriculum) => String(curriculum.subject_id) !== String(subjectId))
+            .filter(isProfessionalCurriculumRow)
+            .filter((curriculum) => !exceptCodes.has(editRowSubjectCode(curriculum)))
+            .filter((curriculum) => {
+              if (targetOrder == null) return true;
+              const rowOrder = editCurriculumOrderValue(curriculum);
+              return rowOrder != null && rowOrder < targetOrder;
+            })
+            .map((curriculum) => curriculum.subject_id)
+            .filter(Boolean)
+            .map((requiredSubjectId) => Number(requiredSubjectId)),
+        ),
+      );
+    }
+
+    if (range.all_previous_subjects) {
+      if (!programId || !subjectId) return [];
+
+      const rowsForProgram = (curricula || []).filter(
+        (curriculum) => String(curriculum.program_id) === String(programId),
+      );
+      const targetRow = rowsForProgram.find(
+        (curriculum) => String(curriculum.subject_id) === String(subjectId),
+      );
+      const targetOrder = targetRow ? editCurriculumOrderValue(targetRow) : null;
+
+      return Array.from(
+        new Set(
+          rowsForProgram
+            .filter((curriculum) => String(curriculum.subject_id) !== String(subjectId))
+            .filter((curriculum) => {
+              if (targetOrder == null) return true;
+              const rowOrder = editCurriculumOrderValue(curriculum);
+              return rowOrder != null && rowOrder < targetOrder;
+            })
+            .map((curriculum) => curriculum.subject_id)
+            .filter(Boolean)
+            .map((requiredSubjectId) => Number(requiredSubjectId)),
+        ),
+      );
+    }
+
+    const fromYear = range.from_year_level ? Number(range.from_year_level) : null;
+    const toYear = range.to_year_level ? Number(range.to_year_level) : null;
+    const toSemester = range.to_semester_id ? Number(range.to_semester_id) : null;
+
+    if (!programId || !subjectId || !fromYear || !toYear) return [];
+
+    const minYear = Math.min(fromYear, toYear);
+    const maxYear = Math.max(fromYear, toYear);
+    const maxSemesterOrder = toSemester === 3 ? 0 : toSemester;
+
+    return Array.from(
+      new Set(
+        (curricula || [])
+          .filter((curriculum) => String(curriculum.program_id) === String(programId))
+          .filter((curriculum) => {
+            const rowYear = Number(normalizeYearLevelId(curriculum.year_level ?? curriculum.yearLevel));
+            const rowSemester = Number(curriculum.semester_id ?? curriculum.semester?.semester_id);
+            if (toSemester && rowYear === maxYear) {
+              const rowSemesterOrder = rowSemester === 3 ? 0 : rowSemester;
+              return (
+                Number.isFinite(rowYear) &&
+                rowYear >= minYear &&
+                rowYear <= maxYear &&
+                rowSemesterOrder <= maxSemesterOrder
+              );
+            }
+            return Number.isFinite(rowYear) && rowYear >= minYear && rowYear <= maxYear;
+          })
+          .map((curriculum) => curriculum.subject_id)
+          .filter(Boolean)
+          .filter((requiredSubjectId) => String(requiredSubjectId) !== String(subjectId))
+          .map((requiredSubjectId) => Number(requiredSubjectId)),
+      ),
+    );
+  };
+
+  const canSyncEditBulkPrerequisites = () => {
+    const range = resolvedEditBulkPrerequisiteRange();
+    const row = subjectRows[0] || {};
+    if (range.professional_subjects || range.all_previous_subjects) {
+      return Boolean(
+        (bulkFormData.program_id || selectedCurriculum?.program_id) &&
+          (row.subject_id || selectedCurriculum?.subject_id),
+      );
+    }
+
+    return Boolean(
+      (bulkFormData.program_id || selectedCurriculum?.program_id) &&
+        (row.subject_id || selectedCurriculum?.subject_id) &&
+        range.from_year_level &&
+        range.to_year_level,
+    );
   };
 
   const handleBulkSubmit = async (e) => {
@@ -736,19 +1565,43 @@ const CurriculumManagement = () => {
       return;
     }
 
-    // Filter out empty rows (rows without subject_id or elective_slot_id)
-    const validRows = subjectRows.filter(row => row.subject_id || row.elective_slot_id);
+    // Filter out empty rows (need code+title, or elective slot)
+    const validRows = subjectRows.filter((row) => {
+      if (row.is_elective_slot) return !!row.elective_slot_id;
+      return String(row.subject_code || '').trim() && String(row.subject_name || '').trim();
+    });
 
     if (validRows.length === 0) {
-      const msg = 'Please add at least one subject or elective slot';
+      const msg = 'Please add at least one subject (code + title) or elective slot';
       setError(msg);
       await swalError('Nothing to save', msg);
       return;
     }
 
     try {
+      const resolvedRows = [];
+      const createdByCode = new Map();
+      for (const row of validRows) {
+        if (row.is_elective_slot) {
+          resolvedRows.push({ ...row, subject_id: null });
+          continue;
+        }
+        const codeKey = normalizeSubjectCodeKey(row.subject_code);
+        let subject = codeKey ? createdByCode.get(codeKey) : null;
+        if (!subject) {
+          subject = await resolveOrCreateSubject(row);
+          if (codeKey && subject) createdByCode.set(codeKey, subject);
+        }
+        resolvedRows.push({
+          ...row,
+          subject_id: subject.subject_id,
+          subject_code: subject.subject_code || row.subject_code,
+          subject_name: row.subject_name || subject.subject_name,
+        });
+      }
+
       // Prepare subjects data
-      const subjectsData = validRows.map(row => {
+      const subjectsData = resolvedRows.map(row => {
         let finalPassingGrade = row.passing_grade;
         
         // If passing_grade is 'other', use the custom_grade value
@@ -771,6 +1624,14 @@ const CurriculumManagement = () => {
           passing_grade: finalPassingGrade,
           subject_type: row.subject_type || null,
           requisite_id: row.requisite_id ? parseInt(row.requisite_id, 10) : null,
+          number_of_units:
+            row.number_of_units === '' || row.number_of_units == null
+              ? null
+              : Number(row.number_of_units),
+          number_of_hrs:
+            row.number_of_hrs === '' || row.number_of_hrs == null
+              ? null
+              : Number(row.number_of_hrs),
         };
       });
       
@@ -783,7 +1644,7 @@ const CurriculumManagement = () => {
       });
       
       // Batch create all curriculum entries at once
-      const response = await api.post('/curriculum/batch', {
+      await api.post('/curriculum/batch', {
         program_id: parseInt(bulkFormData.program_id, 10),
         year_level: parseInt(bulkFormData.year_level, 10),
         semester_id: parseInt(bulkFormData.semester_id, 10),
@@ -792,18 +1653,16 @@ const CurriculumManagement = () => {
 
       setShowModal(false);
       resetBulkForm();
-      fetchCurricula();
-      fetchLookupData(); // Refresh lookup data to include any new requisites
+      fetchCurricula({ force: true });
+      fetchLookupData({ force: true });
       swalToast('success', 'Curriculum saved');
     } catch (error) {
       console.error('Error saving curriculum:', error);
       console.error('Error response:', error.response?.data);
       
-      // Extract detailed error messages
-      let errorMessage = 'Failed to save curriculum';
+      let errorMessage = error?.message || 'Failed to save curriculum';
       if (error.response?.data) {
         if (error.response.data.errors) {
-          // Validation errors
           const errorMessages = Object.values(error.response.data.errors).flat();
           errorMessage = errorMessages.join(', ') || errorMessage;
         } else if (error.response.data.message) {
@@ -820,19 +1679,13 @@ const CurriculumManagement = () => {
 
   const resetBulkForm = () => {
     setBulkFormData({
-      program_id: '',
+      program_id: scopedProgramId || '',
       year_level: '',
       semester_id: '',
     });
-    setSubjectRows([{
-      subject_id: '',
-      elective_slot_id: '',
-      is_elective_slot: false,
-      passing_grade: '',
-      custom_grade: '',
-      subject_type: '',
-      requisite_id: '',
-    }]);
+    setSubjectRows([emptySubjectRow()]);
+    setSuggestOpen(null);
+    setEditPanelDirty(false);
     setError('');
   };
 
@@ -858,8 +1711,41 @@ const CurriculumManagement = () => {
       );
       const desiredSemesterId = bulkFormData.semester_id || baseCurriculum.semester_id;
       const isElectiveSlot = row.is_elective_slot || !!baseCurriculum.elective_slot_id;
-      const desiredSubjectId = isElectiveSlot ? null : (row.subject_id || baseCurriculum.subject_id);
+      let desiredSubjectId = isElectiveSlot ? null : (row.subject_id || baseCurriculum.subject_id);
+      if (!isElectiveSlot) {
+        const resolved = await resolveOrCreateSubject({
+          ...row,
+          subject_code:
+            row.subject_code ||
+            baseCurriculum.subject?.subject_code ||
+            baseCurriculum.subject_code ||
+            '',
+          subject_name:
+            row.subject_name ||
+            baseCurriculum.subject?.subject_name ||
+            baseCurriculum.subject_name ||
+            '',
+          number_of_units:
+            row.number_of_units ??
+            baseCurriculum.subject?.number_of_units ??
+            '',
+          number_of_hrs:
+            row.number_of_hrs ??
+            baseCurriculum.subject?.number_of_hrs ??
+            '',
+        });
+        desiredSubjectId = resolved.subject_id;
+      }
       const desiredElectiveSlotId = isElectiveSlot ? (row.elective_slot_id || baseCurriculum.elective_slot_id) : null;
+      const hasBulkPrerequisiteText = String(editBulkPrerequisiteText || '').trim();
+      const parsedBulkPrerequisiteText = parsedEditBulkPrerequisiteText();
+
+      if (hasBulkPrerequisiteText && !parsedBulkPrerequisiteText) {
+        const msg = 'Use a saved rule, a year standing rule, or a range like: all subjects from 1st year to 4th year 1st semester.';
+        setError(msg);
+        await swalError('Invalid prerequisite rule', msg);
+        return;
+      }
 
       const resolvedCurriculumToUpdate = Array.isArray(curricula)
         ? (curricula.find(c =>
@@ -882,20 +1768,200 @@ const CurriculumManagement = () => {
         passing_grade: finalPassingGrade ? finalPassingGrade : (resolvedCurriculumToUpdate.passing_grade || null),
         subject_type: row.subject_type || resolvedCurriculumToUpdate.subject_type || (isElectiveSlot ? 'elective subject' : null),
         requisite_id: row.requisite_id || resolvedCurriculumToUpdate.requisite_id || null,
+        ...(desiredSubjectId
+          ? {
+              number_of_units:
+                row.number_of_units === '' || row.number_of_units == null
+                  ? null
+                  : Number(row.number_of_units),
+              number_of_hrs:
+                row.number_of_hrs === '' || row.number_of_hrs == null
+                  ? null
+                  : Number(row.number_of_hrs),
+            }
+          : {}),
       });
+
+      if (!isElectiveSlot && canSyncEditBulkPrerequisites()) {
+        const requiredSubjectIds = getEditBulkPrerequisiteSubjectIds();
+        if (requiredSubjectIds.length === 0) {
+          const msg = 'No subjects were found for that prerequisite rule.';
+          setError(msg);
+          await swalError('No prerequisites found', msg);
+          return;
+        }
+
+        await api.post('/lookup/requisites/sync', {
+          subject_id: parseInt(desiredSubjectId, 10),
+          requisite_type: 'prerequisite',
+          required_subject_ids: requiredSubjectIds,
+          rule_label: hasBulkPrerequisiteText || null,
+        });
+      }
+
       setShowModal(false);
       setShowEditPanel(false);
       setEditingCurriculum(null);
       setSelectedCurriculum(null);
+      setEditBulkPrerequisiteText('');
+      setEditBulkPrerequisiteRange({ from_year_level: '', to_year_level: '' });
       resetBulkForm();
-      fetchCurricula();
-      fetchLookupData(); 
+      fetchCurricula({ force: true });
+      fetchLookupData({ force: true }); 
       swalToast('success', 'Curriculum updated');
     } catch (error) {
-      const msg = error.response?.data?.message || 'Failed to update curriculum';
+      const msg = error?.message || error.response?.data?.message || 'Failed to update curriculum';
       setError(msg);
       await swalError('Update failed', msg);
     }
+  };
+
+  const closeEditPanel = () => {
+    setShowEditPanel(false);
+    setSelectedCurriculum(null);
+    setEditingCurriculum(null);
+    setEditGroupContext(null);
+    setEditPanelMode('edit');
+    setEditPanelDirty(false);
+    setSuggestOpen(null);
+    setEditBulkPrerequisiteText('');
+    setEditBulkPrerequisiteRange({ from_year_level: '', to_year_level: '' });
+    resetBulkForm();
+  };
+
+  const loadCurriculumIntoEditPanel = async (curriculum, mode = 'edit') => {
+    setEditPanelMode(mode);
+    setSelectedCurriculum(curriculum);
+    setEditingCurriculum(curriculum);
+    setEditBulkPrerequisiteText('');
+    setEditBulkPrerequisiteRange({ from_year_level: '', to_year_level: '' });
+    setBulkFormData({
+      program_id: curriculum.program_id?.toString() || '',
+      year_level: normalizeYearLevelId(curriculum.year_level),
+      semester_id: curriculum.semester_id?.toString() || '',
+    });
+    setSubjectRows([subjectRowFromCurriculum(curriculum)]);
+    setEditPanelDirty(false);
+    setSuggestOpen(null);
+    if (curriculum.subject_id) {
+      await fetchPrerequisitesForSubject(curriculum.subject_id);
+    }
+    setShowEditPanel(true);
+  };
+
+  const startInsertInEditPanel = (context = {}) => {
+    const programId = context.programId || bulkFormData.program_id || scopedProgramId || '';
+    const yearLevelId = context.yearLevelId || bulkFormData.year_level || '';
+    const semesterId = context.semesterId || '';
+    setEditPanelMode('insert');
+    setSelectedCurriculum(null);
+    setEditingCurriculum(null);
+    setEditBulkPrerequisiteText('');
+    setEditBulkPrerequisiteRange({ from_year_level: '', to_year_level: '' });
+    setBulkFormData({
+      program_id: programId?.toString() || '',
+      year_level: yearLevelId?.toString() || '',
+      semester_id: semesterId?.toString() || '',
+    });
+    setSubjectRows([emptySubjectRow()]);
+    setEditPanelDirty(false);
+    setSuggestOpen(null);
+    setShowEditPanel(true);
+  };
+
+  const handleEditPanelSave = async (e) => {
+    if (e) e.preventDefault();
+    setError('');
+
+    if (editPanelMode === 'insert') {
+      if (!bulkFormData.program_id || !bulkFormData.year_level || !bulkFormData.semester_id) {
+        const msg = 'Please fill in Program, Year Level, and Semester';
+        setError(msg);
+        await swalError('Missing fields', msg);
+        return;
+      }
+      const row = subjectRows[0] || {};
+      if (row.is_elective_slot) {
+        if (!row.elective_slot_id) {
+          const msg = 'Please select an elective slot';
+          setError(msg);
+          await swalError('Missing elective slot', msg);
+          return;
+        }
+      } else if (!String(row.subject_code || '').trim() || !String(row.subject_name || '').trim()) {
+        const msg = 'Please enter subject code and title';
+        setError(msg);
+        await swalError('Missing subject', msg);
+        return;
+      }
+
+      try {
+        let subjectId = null;
+        let electiveSlotId = null;
+        if (row.is_elective_slot) {
+          electiveSlotId = parseInt(row.elective_slot_id, 10);
+        } else {
+          const subject = await resolveOrCreateSubject(row);
+          subjectId = parseInt(subject.subject_id, 10);
+        }
+
+        let finalPassingGrade = row.passing_grade;
+        if (row.passing_grade === 'other' && row.custom_grade) {
+          finalPassingGrade = row.custom_grade;
+        }
+        if (finalPassingGrade) {
+          const numericGrade = parseInt(finalPassingGrade, 10);
+          finalPassingGrade = Number.isNaN(numericGrade) ? null : numericGrade;
+        } else {
+          finalPassingGrade = null;
+        }
+
+        await api.post('/curriculum/batch', {
+          program_id: parseInt(bulkFormData.program_id, 10),
+          year_level: parseInt(bulkFormData.year_level, 10),
+          semester_id: parseInt(bulkFormData.semester_id, 10),
+          subjects: [
+            {
+              subject_id: subjectId,
+              elective_slot_id: electiveSlotId,
+              passing_grade: finalPassingGrade,
+              subject_type: row.subject_type || (row.is_elective_slot ? 'elective subject' : null),
+              requisite_id: row.requisite_id ? parseInt(row.requisite_id, 10) : null,
+              number_of_units:
+                row.number_of_units === '' || row.number_of_units == null
+                  ? null
+                  : Number(row.number_of_units),
+              number_of_hrs:
+                row.number_of_hrs === '' || row.number_of_hrs == null
+                  ? null
+                  : Number(row.number_of_hrs),
+            },
+          ],
+        });
+
+        fetchCurricula({ force: true });
+        fetchLookupData({ force: true });
+        setEditPanelDirty(false);
+        swalToast('success', 'Subject inserted');
+        // Stay open in insert mode so more subjects can be added
+        setSubjectRows([emptySubjectRow()]);
+      } catch (error) {
+        let errorMessage = error?.message || 'Failed to insert subject';
+        if (error.response?.data) {
+          if (error.response.data.errors) {
+            errorMessage = Object.values(error.response.data.errors).flat().join(', ') || errorMessage;
+          } else if (error.response.data.message) {
+            errorMessage = error.response.data.message;
+          }
+        }
+        setError(errorMessage);
+        await swalError('Insert failed', errorMessage);
+      }
+      return;
+    }
+
+    await handleUpdate(e);
+    setEditPanelDirty(false);
   };
 
   const handleDelete = async (id, options = {}) => {
@@ -909,7 +1975,7 @@ const CurriculumManagement = () => {
 
     try {
       await api.delete(`/curriculum/${id}`);
-      fetchCurricula();
+      fetchCurricula({ force: true });
       swalToast('success', 'Curriculum entry deleted');
       return true;
     } catch (error) {
@@ -923,14 +1989,9 @@ const CurriculumManagement = () => {
   const handleCloseModal = () => {
     setShowModal(false);
     setEditingCurriculum(null);
+    setEditBulkPrerequisiteText('');
+    setEditBulkPrerequisiteRange({ from_year_level: '', to_year_level: '' });
     resetBulkForm();
-  };
-
-  const getSubjectDetails = (subjectId) => {
-    if (!safeLookupData.subjects || !Array.isArray(safeLookupData.subjects)) {
-      return null;
-    }
-    return safeLookupData.subjects.find(s => s && s.subject_id && s.subject_id.toString() === subjectId.toString());
   };
 
   const handleCorequisiteSubmit = async (e) => {
@@ -951,7 +2012,7 @@ const CurriculumManagement = () => {
       await api.post('/corequisites', corequisiteForm);
       setShowCorequisiteModal(false);
       setCorequisiteForm({ subject_id: '', coreq_subject_id: '' });
-      fetchLookupData(); 
+      fetchLookupData({ force: true }); 
     } catch (error) {
       setError(error.response?.data?.message || 'Failed to create co-requisite');
     }
@@ -965,12 +2026,12 @@ const CurriculumManagement = () => {
 
   // Group curricula by program and year level, then organize semesters side-by-side
   const groupCurriculaByProgramYear = () => {
-    if (!Array.isArray(curricula) || curricula.length === 0) {
+    if (!filterProgram || !Array.isArray(curricula) || curricula.length === 0) {
       return [];
     }
     
     const filtered = curricula.filter(
-      curriculum => curriculum && (!filterProgram || curriculum.program_id?.toString() === filterProgram)
+      curriculum => curriculum && curriculum.program_id?.toString() === filterProgram
     );
 
     const grouped = {};
@@ -1011,6 +2072,12 @@ const CurriculumManagement = () => {
 
       const headerDescription = (header?.description || '').toString().trim();
       const headerEffectiveYear = header?.Effective_Year || header?.effective_year || null;
+      if (
+        filterCurriculumYear &&
+        String(headerEffectiveYear || '') !== String(filterCurriculumYear)
+      ) {
+        return;
+      }
 
       const yearLevelId = curriculum.year_level?.year_level_id || curriculum.year_level;
       let yearLevelName = curriculum.year_level?.year_level;
@@ -1077,11 +2144,191 @@ const CurriculumManagement = () => {
   const getCurriculumRequisiteDisplay = (curriculum) => {
     if (!curriculum) return '-';
 
+    const programCode = String(curriculum.program?.program_code || curriculum.program_code || '').trim().toUpperCase();
+    const subjectCode = String(curriculum.subject?.subject_code || curriculum.subject_code || '').replace(/\s+/g, '').toUpperCase();
+    if (programCode === 'BECED' && ['EDU011', 'EDU532'].includes(subjectCode)) {
+      return '-';
+    }
+
+    const requisiteRequiredSubjectId = (requisite) => {
+      const required =
+        requisite?.requiredSubject ||
+        requisite?.required_subject ||
+        null;
+      return (
+        required?.subject_id ??
+        requisite?.requisites_subject_id ??
+        requisite?.required_subject_id ??
+        requisite?.coreq_subject_id ??
+        null
+      );
+    };
+
+    const getPrerequisiteSubjectIdSet = (requisites) =>
+      new Set(
+        (Array.isArray(requisites) ? requisites : [])
+          .filter((r) => String(r?.requisite_type || r?.type || '').toLowerCase() === 'prerequisite')
+          .map(requisiteRequiredSubjectId)
+          .filter(Boolean)
+          .map((id) => String(id)),
+      );
+
+    const curriculumOrderValue = (row) => {
+      const rowYear = Number(normalizeYearLevelId(row?.year_level ?? row?.yearLevel));
+      const rowSemester = Number(row?.semester_id ?? row?.semester?.semester_id);
+      if (!Number.isFinite(rowYear) || !Number.isFinite(rowSemester)) return null;
+      const semesterOrder = rowSemester === 3 ? 0 : rowSemester;
+      return rowYear * 10 + semesterOrder;
+    };
+
+    const isProfessionalSubjectRow = (row) => {
+      if (!row || row.elective_slot_id) return false;
+      const type = String(row.subject_type || '').trim().toLowerCase();
+      if (type === 'core' || type === 'major') return true;
+
+      const subjectCode = String(row.subject?.subject_code || '').trim().toUpperCase();
+      return /^(NUR|HES|BIO|MLS)\s*\d+/.test(subjectCode);
+    };
+
+    const getAllProfessionalSubjectsPrerequisiteSummary = (requisites) => {
+      if (!Array.isArray(requisites) || requisites.length === 0) return null;
+
+      const targetProgramId = curriculum.program_id;
+      const targetOrder = curriculumOrderValue(curriculum);
+      if (!targetProgramId || targetOrder == null) return null;
+
+      const prerequisiteSubjectIds = getPrerequisiteSubjectIdSet(requisites);
+      const professionalSubjectIds = Array.from(
+        new Set(
+          (curricula || [])
+            .filter((row) => String(row.program_id) === String(targetProgramId))
+            .filter((row) => String(row.subject_id) !== String(curriculum.subject_id))
+            .filter((row) => {
+              const rowOrder = curriculumOrderValue(row);
+              return rowOrder != null && rowOrder < targetOrder;
+            })
+            .filter(isProfessionalSubjectRow)
+            .map((row) => row.subject_id)
+            .filter(Boolean)
+            .map((id) => String(id)),
+        ),
+      );
+
+      if (professionalSubjectIds.length < 10) return null;
+
+      const hasEveryProfessionalSubject = professionalSubjectIds.every((id) =>
+        prerequisiteSubjectIds.has(id),
+      );
+
+      return hasEveryProfessionalSubject ? 'P: All professional subjects' : null;
+    };
+
+    const getAllPreviousYearsPrerequisiteSummary = (requisites) => {
+      if (!Array.isArray(requisites) || requisites.length === 0) return null;
+
+      const targetYear = Number(normalizeYearLevelId(curriculum.year_level ?? curriculum.yearLevel));
+      const targetProgramId = curriculum.program_id;
+      if (!Number.isFinite(targetYear) || targetYear <= 1 || !targetProgramId) return null;
+
+      const prerequisiteSubjectIds = getPrerequisiteSubjectIdSet(requisites);
+
+      const prerequisiteYears = (curricula || [])
+        .filter((row) => String(row.program_id) === String(targetProgramId))
+        .filter((row) => prerequisiteSubjectIds.has(String(row.subject_id)))
+        .map((row) => Number(normalizeYearLevelId(row.year_level ?? row.yearLevel)))
+        .filter((rowYear) => Number.isFinite(rowYear) && rowYear >= 1 && rowYear < targetYear);
+
+      if (prerequisiteYears.length === 0) return null;
+
+      const maxPrerequisiteYear = Math.max(...prerequisiteYears);
+      const expectedRangeSubjectIds = Array.from(
+        new Set(
+          (curricula || [])
+            .filter((row) => String(row.program_id) === String(targetProgramId))
+            .filter((row) => {
+              const rowYear = Number(normalizeYearLevelId(row.year_level ?? row.yearLevel));
+              return Number.isFinite(rowYear) && rowYear >= 1 && rowYear <= maxPrerequisiteYear;
+            })
+            .map((row) => row.subject_id)
+            .filter(Boolean)
+            .map((id) => String(id)),
+        ),
+      );
+
+      if (expectedRangeSubjectIds.length === 0) return null;
+
+      const hasEverySubjectInRange = expectedRangeSubjectIds.every((id) =>
+        prerequisiteSubjectIds.has(id),
+      );
+
+      if (!hasEverySubjectInRange) return null;
+
+      if (targetYear === maxPrerequisiteYear + 1 && maxPrerequisiteYear === 1) {
+        return `P: ${ordinalYearLabel(targetYear)} standing`;
+      }
+
+      return `P: All subjects from ${ordinalYearLabel(1)} to ${ordinalYearLabel(maxPrerequisiteYear)}`;
+    };
+
+    const formatSavedRuleLabel = (requisites) => {
+      const labels = Array.from(
+        new Set(
+          (Array.isArray(requisites) ? requisites : [])
+            .map((requisite) => String(requisite?.rule_label || '').trim())
+            .filter(Boolean),
+        ),
+      );
+
+      if (labels.length !== 1) return null;
+
+      const label = labels[0];
+      const lower = label.toLowerCase();
+      if (/^all\s+professional\s+subjects?$/.test(lower)) return 'P: All professional subjects';
+      if (/^all\s+core\s+subjects?$/.test(lower)) return 'P: All core subjects';
+      if (/^all\s+major\s+subjects?$/.test(lower)) return 'P: All major subjects';
+
+      const standingMatch = lower.match(/^(2|2nd|second|3|3rd|third|4|4th|fourth|5|5th|fifth)\s+year\s+standing$/);
+      if (standingMatch) {
+        const standingYear = parseYearNumber(standingMatch[1]);
+        return standingYear ? `P: ${ordinalYearLabel(standingYear)} standing` : `P: ${label}`;
+      }
+
+      const termRangeMatch = lower.match(/^all\s+subjects\s+from\s+(.+?)\s+to\s+(.+?)\s+(1|1st|first|2|2nd|second|3|3rd|third|summer)\s*(?:sem|semester)$/);
+      if (termRangeMatch) {
+        const fromYear = parseYearNumber(termRangeMatch[1]);
+        const toYear = parseYearNumber(termRangeMatch[2]);
+        const toSemester = parseSemesterNumber(termRangeMatch[3]);
+        if (fromYear && toYear && toSemester) {
+          return `P: All subjects from ${ordinalYearLabel(fromYear)} to ${ordinalYearLabel(toYear)} ${ordinalSemesterLabel(toSemester)}`;
+        }
+      }
+
+      const rangeMatch = lower.match(/^all\s+subjects\s+from\s+(.+?)\s+to\s+(.+)$/);
+      if (rangeMatch) {
+        const fromYear = parseYearNumber(rangeMatch[1]);
+        const toYear = parseYearNumber(rangeMatch[2]);
+        if (fromYear && toYear) {
+          return `P: All subjects from ${ordinalYearLabel(fromYear)} to ${ordinalYearLabel(toYear)}`;
+        }
+      }
+
+      return `P: ${label}`;
+    };
+
     // Case 1: curriculum has loaded requisite relationship (now an array from hasMany)
     const req = curriculum.requisite;
     if (req) {
       // Handle array of requisites (new hasMany relationship)
       if (Array.isArray(req) && req.length > 0) {
+        const savedRuleSummary = formatSavedRuleLabel(req);
+        if (savedRuleSummary) return savedRuleSummary;
+
+        const bulkSummary = getAllPreviousYearsPrerequisiteSummary(req);
+        if (bulkSummary) return bulkSummary;
+
+        const professionalSummary = getAllProfessionalSubjectsPrerequisiteSummary(req);
+        if (professionalSummary) return professionalSummary;
+
         const labels = req.map(r => {
           const required = r?.requiredSubject || r?.required_subject || null;
           if (required?.subject_code) {
@@ -1131,6 +2378,15 @@ const CurriculumManagement = () => {
         r => r?.subject_id?.toString() === curriculum.subject_id.toString()
       );
       if (subjectRequisites.length > 0) {
+        const savedRuleSummary = formatSavedRuleLabel(subjectRequisites);
+        if (savedRuleSummary) return savedRuleSummary;
+
+        const bulkSummary = getAllPreviousYearsPrerequisiteSummary(subjectRequisites);
+        if (bulkSummary) return bulkSummary;
+
+        const professionalSummary = getAllProfessionalSubjectsPrerequisiteSummary(subjectRequisites);
+        if (professionalSummary) return professionalSummary;
+
         const labels = subjectRequisites.map(r => resolveRequisiteLabel(r).label).filter(l => l !== '-');
         if (labels.length > 0) {
           return labels.join(', ');
@@ -1145,9 +2401,7 @@ const CurriculumManagement = () => {
   const defaultBasisLine = 'Based on CMO No. 25 Series of 2015';
 
   const formatEffectiveSY = (effectiveYear) => {
-    const y = parseInt(effectiveYear);
-    if (!y || Number.isNaN(y)) return '';
-    return `Effective SY ${y}-${y + 1}`;
+    return formatEffectiveSchoolYear(effectiveYear);
   };
 
   const buildCurriculumHeaderModel = (yearGroup) => {
@@ -1182,13 +2436,6 @@ const CurriculumManagement = () => {
         )}
       </div>
 
-      {!canMutateCurriculum && (
-        <div className="curriculum-view-only-banner" role="status">
-          View only — you can browse programs and subjects. Assign curriculum create/edit/delete or the
-          &quot;Curriculum Management&quot; permission for full access.
-        </div>
-      )}
-
       {error && <div className="error-message">{error}</div>}
 
       {/* Filter by Program */}
@@ -1197,11 +2444,27 @@ const CurriculumManagement = () => {
         <SearchableSelect
           id="program-filter"
           value={filterProgram}
-          onChange={setFilterProgram}
+          onChange={(value) => {
+            if (scopedProgramId) return;
+            setFilterProgram(value);
+            setFilterCurriculumYear('');
+          }}
           options={programSearchOptions}
-          emptyLabel="All Programs"
+          emptyLabel="Select Program"
           placeholder="Search programs…"
-          className="filter-select curriculum-search-select"
+          className="filter-select curriculum-search-select searchable-select--program"
+          disabled={Boolean(scopedProgramId)}
+        />
+        <label htmlFor="curriculum-year-filter">Curriculum Year: </label>
+        <SearchableSelect
+          id="curriculum-year-filter"
+          value={filterCurriculumYear}
+          onChange={setFilterCurriculumYear}
+          options={curriculumYearOptions}
+          emptyLabel="Latest Curriculum Year"
+          placeholder="Search curriculum years…"
+          className="filter-select curriculum-search-select searchable-select--year"
+          disabled={!filterProgram || curriculumYearOptions.length === 0}
         />
       </div>
 
@@ -1269,21 +2532,28 @@ const CurriculumManagement = () => {
                       className="edit-group-button"
                       onClick={async () => {
                         const allCurricula = [];
-                        Object.values(yearGroup.semesters).forEach(semester => {
+                        Object.values(yearGroup.semesters).forEach((semester) => {
                           allCurricula.push(...semester.curricula);
                         });
-                        await fetchLookupData();
-                        if (allCurricula.length > 0) {
-                          setSelectedCurriculum(allCurricula[0]);
-                          setBulkFormData({
-                            program_id: yearGroup.programId?.toString() || '',
-                            year_level: yearGroup.yearLevelId?.toString() || '',
-                            semester_id: '',
-                          });
-                          setShowEditPanel(true);
-                        }
+                        await fetchLookupData({ force: true });
+                        const firstSemId =
+                          Object.keys(yearGroup.semesters || [])[0] ||
+                          allCurricula[0]?.semester_id ||
+                          '';
+                        setEditGroupContext({
+                          programId: yearGroup.programId,
+                          yearLevelId: yearGroup.yearLevelId,
+                          programName: yearGroup.programName,
+                          yearLevelName: yearGroup.yearLevelName,
+                          curricula: allCurricula,
+                        });
+                        startInsertInEditPanel({
+                          programId: yearGroup.programId,
+                          yearLevelId: yearGroup.yearLevelId,
+                          semesterId: firstSemId,
+                        });
                       }}
-                      title="Edit this curriculum group"
+                      title="Edit this curriculum group — insert or edit subjects"
                     >
                       Edit Group
                     </button>
@@ -1316,7 +2586,7 @@ const CurriculumManagement = () => {
                                   api.delete(`/curriculum/${curriculum.curriculum_id}`)
                                 );
                                 await Promise.all(deletePromises);
-                                fetchCurricula();
+                                fetchCurricula({ force: true });
                                 swalToast('success', 'Semester subjects deleted');
                               } catch (error) {
                                 const msg = error.response?.data?.message || 'Failed to delete semester curriculum';
@@ -1368,9 +2638,20 @@ const CurriculumManagement = () => {
                                       <span className="curriculum-data-grid__mobile-label">Subject Code</span>
                                       <span className="curriculum-data-grid__cell-value">
                                         {isElectiveSlot ? (
-                                          <span style={{ fontWeight: 'bold', color: '#0066cc' }}>
-                                            {electiveSlot?.slot_name || `Elective Slot #${curriculum.elective_slot_id}`}
-                                          </span>
+                                          canMutateCurriculum ? (
+                                            <button
+                                              type="button"
+                                              className="curriculum-elective-link curriculum-elective-link--slot"
+                                              onClick={() => void openElectiveSubjectAssignment(curriculum)}
+                                              title={`Assign subjects for ${electiveSlot?.slot_name || 'this elective slot'}`}
+                                            >
+                                              {electiveSlot?.slot_name || `Elective Slot #${curriculum.elective_slot_id}`}
+                                            </button>
+                                          ) : (
+                                            <span style={{ fontWeight: 'bold', color: '#0066cc' }}>
+                                              {electiveSlot?.slot_name || `Elective Slot #${curriculum.elective_slot_id}`}
+                                            </span>
+                                          )
                                         ) : (
                                           subject?.subject_code || '-'
                                         )}
@@ -1411,7 +2692,18 @@ const CurriculumManagement = () => {
                                       <span className="curriculum-data-grid__mobile-label">Type</span>
                                       <span className="curriculum-data-grid__cell-value">
                                         {isElectiveSlot ? (
-                                          <span style={{ color: '#0066cc', fontWeight: 'bold' }}>Elective Subject</span>
+                                          canMutateCurriculum ? (
+                                            <button
+                                              type="button"
+                                              className="curriculum-elective-link"
+                                              onClick={() => void openElectiveSubjectAssignment(curriculum)}
+                                              title={`Assign subjects for ${electiveSlot?.slot_name || 'this elective slot'}`}
+                                            >
+                                              Elective Subject
+                                            </button>
+                                          ) : (
+                                            <span style={{ color: '#0066cc', fontWeight: 'bold' }}>Elective Subject</span>
+                                          )
                                         ) : (
                                           formatSubjectTypeForDisplay(curriculum.subject_type)
                                         )}
@@ -1425,46 +2717,13 @@ const CurriculumManagement = () => {
                                             type="button"
                                             className="edit-button"
                                             onClick={async () => {
-                                              setSelectedCurriculum(curriculum);
-                                              setEditingCurriculum(curriculum);
-                                              setBulkFormData({
-                                                program_id: curriculum.program_id?.toString() || '',
-                                                year_level: normalizeYearLevelId(curriculum.year_level),
-                                                semester_id: curriculum.semester_id?.toString() || '',
-                                              });
-                                              setSubjectRows([{
-                                                subject_id: curriculum.subject_id?.toString() || '',
-                                                elective_slot_id: curriculum.elective_slot_id?.toString() || '',
-                                                is_elective_slot: !!curriculum.elective_slot_id,
-                                                passing_grade: curriculum.passing_grade?.toString() || '',
-                                                subject_type: curriculum.subject_type || '',
-                                                requisite_id: (curriculum.requisite_id ?? curriculum.prerequisite_id ?? curriculum.requisites_id)?.toString() || '',
-                                              }]);
-                                              if (curriculum.subject_id) {
-                                                await fetchPrerequisitesForSubject(curriculum.subject_id);
-                                              }
-                                              setShowEditPanel(true);
+                                              await fetchLookupData({ force: true });
+                                              setEditGroupContext(null);
+                                              await loadCurriculumIntoEditPanel(curriculum, 'edit');
                                             }}
                                             title="Edit this curriculum"
                                           >
                                             Edit
-                                          </button>
-                                          <button
-                                            type="button"
-                                            className="delete-button"
-                                            onClick={async () => {
-                                              const displayName = isElectiveSlot
-                                                ? (electiveSlot?.slot_name || `Elective Slot #${curriculum.elective_slot_id}`)
-                                                : (subject?.subject_code || 'N/A');
-                                              const confirmText = `${isElectiveSlot ? 'Elective Slot' : 'Subject'}: ${displayName}\nProgram: ${curriculum.program?.program_name || 'N/A'}\nYear: ${curriculum.yearLevel?.year_level || 'N/A'}\nSemester: ${curriculum.semester?.semester_name || 'N/A'}`;
-                                              await handleDelete(curriculum.curriculum_id, {
-                                                title: 'Delete curriculum entry?',
-                                                confirmText,
-                                              });
-                                            }}
-                                            title="Delete this curriculum"
-                                          >
-                                            Delete
                                           </button>
                                         </div>
                                       </div>
@@ -1486,9 +2745,13 @@ const CurriculumManagement = () => {
         </>
       ) : (
         <div className="no-data">
-          {canMutateCurriculum
-            ? 'No curriculum entries found. Click "Add Curriculum" to create one.'
-            : 'No curriculum entries found.'}
+          {!filterProgram
+            ? 'Select a program to view its curriculum.'
+            : filterCurriculumYear
+              ? 'No curriculum entries found for this program and curriculum year.'
+            : canMutateCurriculum
+              ? 'No curriculum entries found for this program. Click "Add Curriculum" to create one.'
+              : 'No curriculum entries found for this program.'}
         </div>
       )}
 
@@ -1507,12 +2770,15 @@ const CurriculumManagement = () => {
                   <label>Program <span className="required">*</span></label>
                   <SearchableSelect
                     value={bulkFormData.program_id ? String(bulkFormData.program_id) : ''}
-                    onChange={(v) => setBulkFormData({ ...bulkFormData, program_id: v })}
+                    onChange={(v) => {
+                      if (scopedProgramId) return;
+                      setBulkFormData({ ...bulkFormData, program_id: v });
+                    }}
                     options={programSearchOptions}
                     emptyLabel="Select Program"
                     placeholder="Search programs…"
                     required
-                    disabled={!!editingCurriculum}
+                    disabled={!!editingCurriculum || Boolean(scopedProgramId)}
                     className="subject-select curriculum-search-select"
                   />
                 </div>
@@ -1572,8 +2838,6 @@ const CurriculumManagement = () => {
                   </div>
                   <div className="curriculum-data-grid__body" role="rowgroup">
                     {subjectRows.map((row, index) => {
-                      const selectedSubject = getSubjectDetails(row.subject_id);
-                      
                       // Filter elective slots based on selected program, year level, and semester
                       const filteredElectiveSlots = safeLookupData.electiveSlots.filter(slot => {
                         if (!bulkFormData.program_id || !bulkFormData.year_level || !bulkFormData.semester_id) {
@@ -1621,15 +2885,58 @@ const CurriculumManagement = () => {
                                 className="subject-select curriculum-search-select curriculum-search-select--course-col"
                               />
                             ) : (
-                              <SearchableSelect
-                                value={row.subject_id != null && row.subject_id !== '' ? String(row.subject_id) : ''}
-                                onChange={(v) => void handleRowChange(index, 'subject_id', v)}
-                                options={subjectSearchOptions}
-                                emptyLabel="Select subject (search by code or title)"
-                                placeholder="Search subjects…"
-                                required={index === 0 && !row.is_elective_slot}
-                                className="subject-select curriculum-search-select curriculum-search-select--course-col"
-                              />
+                              <div className="curriculum-title-suggest">
+                                <input
+                                  type="text"
+                                  value={row.subject_code || ''}
+                                  onChange={(e) => void handleRowChange(index, 'subject_code', e.target.value)}
+                                  onFocus={() => {
+                                    if (String(row.subject_code || '').trim().length >= 1) {
+                                      setSuggestOpen({ index, field: 'code' });
+                                    }
+                                  }}
+                                  onBlur={() => {
+                                    window.setTimeout(() => {
+                                      setSuggestOpen((open) =>
+                                        open?.index === index && open?.field === 'code' ? null : open,
+                                      );
+                                    }, 180);
+                                  }}
+                                  className="subject-select curriculum-code-input"
+                                  placeholder="e.g. ITE 366"
+                                  required={index === 0 && !row.is_elective_slot}
+                                  autoComplete="off"
+                                />
+                                {suggestOpen?.index === index &&
+                                  suggestOpen?.field === 'code' &&
+                                  (() => {
+                                    const suggestions = getSubjectSuggestions(row.subject_code);
+                                    if (suggestions.length === 0) return null;
+                                    return (
+                                      <ul className="curriculum-title-suggest__list" role="listbox">
+                                        {suggestions.map((s) => (
+                                          <li key={`code-${s.subject_id}`}>
+                                            <button
+                                              type="button"
+                                              className="curriculum-title-suggest__option"
+                                              onMouseDown={(e) => e.preventDefault()}
+                                              onClick={() =>
+                                                applySubjectSuggestion(index, s, { fillCode: true })
+                                              }
+                                            >
+                                              <span className="curriculum-title-suggest__code">
+                                                {s.subject_code}
+                                              </span>
+                                              <span className="curriculum-title-suggest__name">
+                                                {s.subject_name}
+                                              </span>
+                                            </button>
+                                          </li>
+                                        ))}
+                                      </ul>
+                                    );
+                                  })()}
+                              </div>
                             )}
                             </div>
                           </div>
@@ -1651,13 +2958,58 @@ const CurriculumManagement = () => {
                                 );
                               })()
                             ) : (
-                              <input
-                                type="text"
-                                value={selectedSubject?.subject_name || ''}
-                                readOnly
-                                className="subject-name-readonly"
-                                placeholder="Auto-filled"
-                              />
+                              <div className="curriculum-title-suggest">
+                                <input
+                                  type="text"
+                                  value={row.subject_name || ''}
+                                  onChange={(e) => void handleRowChange(index, 'subject_name', e.target.value)}
+                                  onFocus={() => {
+                                    if (String(row.subject_name || '').trim().length >= 1) {
+                                      setSuggestOpen({ index, field: 'title' });
+                                    }
+                                  }}
+                                  onBlur={() => {
+                                    window.setTimeout(() => {
+                                      setSuggestOpen((open) =>
+                                        open?.index === index && open?.field === 'title' ? null : open,
+                                      );
+                                    }, 180);
+                                  }}
+                                  className="subject-select curriculum-title-input"
+                                  placeholder="Type title (suggests existing…)"
+                                  required={index === 0 && !row.is_elective_slot}
+                                  autoComplete="off"
+                                />
+                                {suggestOpen?.index === index &&
+                                  suggestOpen?.field === 'title' &&
+                                  (() => {
+                                    const suggestions = getSubjectSuggestions(row.subject_name);
+                                    if (suggestions.length === 0) return null;
+                                    return (
+                                      <ul className="curriculum-title-suggest__list" role="listbox">
+                                        {suggestions.map((s) => (
+                                          <li key={`title-${s.subject_id}`}>
+                                            <button
+                                              type="button"
+                                              className="curriculum-title-suggest__option"
+                                              onMouseDown={(e) => e.preventDefault()}
+                                              onClick={() =>
+                                                applySubjectSuggestion(index, s, { fillCode: false })
+                                              }
+                                            >
+                                              <span className="curriculum-title-suggest__name">
+                                                {s.subject_name}
+                                              </span>
+                                              <span className="curriculum-title-suggest__code">
+                                                {s.subject_code}
+                                              </span>
+                                            </button>
+                                          </li>
+                                        ))}
+                                      </ul>
+                                    );
+                                  })()}
+                              </div>
                             )}
                             </div>
                           </div>
@@ -1675,10 +3027,12 @@ const CurriculumManagement = () => {
                             ) : (
                               <input
                                 type="number"
-                                value={selectedSubject?.number_of_units || ''}
-                                readOnly
+                                min="0"
+                                max="30"
+                                value={row.number_of_units ?? ''}
+                                onChange={(e) => handleRowChange(index, 'number_of_units', e.target.value)}
                                 className="units-hours-input"
-                                placeholder="Auto-filled"
+                                placeholder="Units"
                               />
                             )}
                             </div>
@@ -1697,10 +3051,12 @@ const CurriculumManagement = () => {
                             ) : (
                               <input
                                 type="number"
-                                value={selectedSubject?.number_of_hrs || ''}
-                                readOnly
+                                min="0"
+                                max="60"
+                                value={row.number_of_hrs ?? ''}
+                                onChange={(e) => handleRowChange(index, 'number_of_hrs', e.target.value)}
                                 className="units-hours-input"
-                                placeholder="Auto-filled"
+                                placeholder="Hours"
                               />
                             )}
                             </div>
@@ -1744,7 +3100,7 @@ const CurriculumManagement = () => {
                             >
                               <option value="">Select Type</option>
                               <option value="minor">GE</option>
-                              <option value="core">Core</option>
+                              <option value="core">Core / Major</option>
                               <option value="elective subject">Elective Subject</option>
                             </select>
                             {row.is_elective_slot && (
@@ -1814,51 +3170,130 @@ const CurriculumManagement = () => {
 
       {/* Edit Panel - Right Side */}
       {canMutateCurriculum && showEditPanel && (
-        <div className="edit-panel-overlay" onClick={() => setShowEditPanel(false)}>
+        <div className="edit-panel-overlay" onClick={closeEditPanel}>
           <div className="edit-panel" onClick={(e) => e.stopPropagation()}>
             <div className="edit-panel-header">
-              <h3>Edit Curriculum</h3>
-              <button className="close-panel-button" onClick={() => {
-                setShowEditPanel(false);
-                setSelectedCurriculum(null);
-              }}>
+              <h3>{editPanelMode === 'insert' ? 'Insert Subject' : 'Edit Curriculum'}</h3>
+              <button className="close-panel-button" onClick={closeEditPanel} type="button">
                 ×
               </button>
             </div>
-            
+
             <div className="edit-panel-content">
-              {selectedCurriculum ? (
-                <div className="edit-single-curriculum">
-                  <h4>Edit Selected Subject</h4>
-                  <form onSubmit={async (e) => {
+              <div className="edit-single-curriculum">
+                <div className="edit-panel-mode-tabs" role="tablist">
+                  <button
+                    type="button"
+                    role="tab"
+                    aria-selected={editPanelMode === 'insert'}
+                    className={`edit-panel-mode-tab${editPanelMode === 'insert' ? ' is-active' : ''}`}
+                    onClick={() =>
+                      startInsertInEditPanel({
+                        programId: editGroupContext?.programId || bulkFormData.program_id,
+                        yearLevelId: editGroupContext?.yearLevelId || bulkFormData.year_level,
+                        semesterId: bulkFormData.semester_id,
+                      })
+                    }
+                  >
+                    Insert subject
+                  </button>
+                  <button
+                    type="button"
+                    role="tab"
+                    aria-selected={editPanelMode === 'edit'}
+                    className={`edit-panel-mode-tab${editPanelMode === 'edit' ? ' is-active' : ''}`}
+                    onClick={() => {
+                      const list =
+                        editGroupContext?.curricula ||
+                        (selectedCurriculum ? [selectedCurriculum] : []);
+                      if (list.length > 0) {
+                        void loadCurriculumIntoEditPanel(list[0], 'edit');
+                      } else {
+                        setEditPanelMode('edit');
+                      }
+                    }}
+                  >
+                    Edit subject
+                  </button>
+                </div>
+
+                {editPanelMode === 'edit' && (editGroupContext?.curricula?.length > 0 || selectedCurriculum) && (
+                  <div className="form-group">
+                    <label>Select subject to edit</label>
+                    <select
+                      className="subject-select"
+                      value={selectedCurriculum?.curriculum_id != null ? String(selectedCurriculum.curriculum_id) : ''}
+                      onChange={(e) => {
+                        const list = editGroupContext?.curricula || [];
+                        const found =
+                          list.find((c) => String(c.curriculum_id) === String(e.target.value)) ||
+                          (Array.isArray(curricula)
+                            ? curricula.find((c) => String(c.curriculum_id) === String(e.target.value))
+                            : null);
+                        if (found) void loadCurriculumIntoEditPanel(found, 'edit');
+                      }}
+                    >
+                      {(editGroupContext?.curricula?.length
+                        ? editGroupContext.curricula
+                        : selectedCurriculum
+                          ? [selectedCurriculum]
+                          : []
+                      ).map((c) => {
+                        const code = c.subject?.subject_code || c.elective_slot?.slot_name || '—';
+                        const title = c.subject?.subject_name || c.elective_slot?.slot_name || '';
+                        const sem = c.semester?.semester_name || c.semester_name || '';
+                        return (
+                          <option key={c.curriculum_id} value={c.curriculum_id}>
+                            {code} — {title}{sem ? ` (${sem})` : ''}
+                          </option>
+                        );
+                      })}
+                    </select>
+                  </div>
+                )}
+
+                <h4>
+                  {editPanelMode === 'insert' ? 'Insert New Subject' : 'Edit Selected Subject'}
+                </h4>
+                <form
+                  id="edit-curriculum-panel-form"
+                  onSubmit={(e) => {
                     e.preventDefault();
-                    await handleUpdate(e);
-                    setShowEditPanel(false);
-                    setSelectedCurriculum(null);
-                  }}>
+                    void handleEditPanelSave(e);
+                  }}
+                >
                     <div className="form-group form-group--program-search">
                       <label>Program <span className="required">*</span></label>
                       <SearchableSelect
                         value={
-                          bulkFormData.program_id || selectedCurriculum.program_id
-                            ? String(bulkFormData.program_id || selectedCurriculum.program_id)
+                          bulkFormData.program_id || selectedCurriculum?.program_id
+                            ? String(bulkFormData.program_id || selectedCurriculum?.program_id)
                             : ''
                         }
-                        onChange={(v) => setBulkFormData({ ...bulkFormData, program_id: v })}
+                        onChange={(v) => {
+                          if (scopedProgramId) return;
+                          setBulkFormData({ ...bulkFormData, program_id: v });
+                          setEditPanelDirty(true);
+                        }}
                         options={programSearchOptions}
                         emptyLabel="Select Program"
                         placeholder="Search programs…"
                         required
+                        disabled={Boolean(scopedProgramId) || Boolean(editGroupContext)}
                         className="subject-select curriculum-search-select"
                       />
                     </div>
-                    
+
                     <div className="form-group">
                       <label>Year Level <span className="required">*</span></label>
                       <select
-                        value={bulkFormData.year_level || normalizeYearLevelId(selectedCurriculum.year_level)}
-                        onChange={(e) => setBulkFormData({ ...bulkFormData, year_level: e.target.value })}
+                        value={bulkFormData.year_level || normalizeYearLevelId(selectedCurriculum?.year_level) || ''}
+                        onChange={(e) => {
+                          setBulkFormData({ ...bulkFormData, year_level: e.target.value });
+                          setEditPanelDirty(true);
+                        }}
                         required
+                        disabled={Boolean(editGroupContext)}
                         className="subject-select"
                       >
                         <option value="">Select Year Level</option>
@@ -1869,12 +3304,15 @@ const CurriculumManagement = () => {
                         ))}
                       </select>
                     </div>
-                    
+
                     <div className="form-group">
                       <label>Semester <span className="required">*</span></label>
                       <select
-                        value={bulkFormData.semester_id || selectedCurriculum.semester_id}
-                        onChange={(e) => setBulkFormData({ ...bulkFormData, semester_id: e.target.value })}
+                        value={bulkFormData.semester_id || selectedCurriculum?.semester_id || ''}
+                        onChange={(e) => {
+                          setBulkFormData({ ...bulkFormData, semester_id: e.target.value });
+                          setEditPanelDirty(true);
+                        }}
                         required
                         className="subject-select"
                       >
@@ -1886,37 +3324,25 @@ const CurriculumManagement = () => {
                         ))}
                       </select>
                     </div>
-                    
+
                     <div className="form-group">
                       <label style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                         <input
                           type="checkbox"
-                          checked={subjectRows[0]?.is_elective_slot || !!selectedCurriculum.elective_slot_id || false}
-                          onChange={(e) => {
-                            const newRows = [{ ...subjectRows[0], is_elective_slot: e.target.checked }];
-                            if (e.target.checked) {
-                              newRows[0].subject_id = '';
-                              newRows[0].subject_type = 'elective subject';
-                            } else {
-                              newRows[0].elective_slot_id = '';
-                            }
-                            setSubjectRows(newRows);
-                          }}
+                          checked={!!subjectRows[0]?.is_elective_slot}
+                          onChange={(e) => void handleRowChange(0, 'is_elective_slot', e.target.checked)}
                           style={{ cursor: 'pointer' }}
                         />
                         <span>Is Elective Slot</span>
                       </label>
                     </div>
-                    
-                    {subjectRows[0]?.is_elective_slot || selectedCurriculum.elective_slot_id ? (
+
+                    {subjectRows[0]?.is_elective_slot ? (
                       <div className="form-group">
                         <label>Elective Slot <span className="required">*</span></label>
                         <SearchableSelect
-                          value={String(subjectRows[0]?.elective_slot_id || selectedCurriculum.elective_slot_id || '')}
-                          onChange={(v) => {
-                            const newRows = [{ ...subjectRows[0], elective_slot_id: v, subject_type: 'elective subject' }];
-                            setSubjectRows(newRows);
-                          }}
+                          value={String(subjectRows[0]?.elective_slot_id || '')}
+                          onChange={(v) => void handleRowChange(0, 'elective_slot_id', v)}
                           options={editElectiveSlotSearchOptions}
                           emptyLabel="Select Elective Slot"
                           placeholder="Search elective slots…"
@@ -1925,121 +3351,198 @@ const CurriculumManagement = () => {
                         />
                       </div>
                     ) : (
-                      <div className="form-group">
-                        <label>Subject <span className="required">*</span></label>
-                        <SearchableSelect
-                          value={String(subjectRows[0]?.subject_id || selectedCurriculum.subject_id || '')}
-                          onChange={(v) => {
-                            const next = {
-                              ...subjectRows[0],
-                              subject_id: v,
-                              requisite_id: '',
-                            };
-                            if (v) {
-                              next.passing_grade = '50';
-                              next.custom_grade = '';
-                              const sub = safeLookupData.subjects.find(
-                                (s) =>
-                                  s &&
-                                  s.subject_id != null &&
-                                  String(s.subject_id) === String(v),
-                              );
-                              next.subject_type = defaultSubjectTypeFromSubjectCode(sub?.subject_code);
-                              setSubjectRows([next]);
-                              const subjectChosen = v;
-                              void (async () => {
-                                try {
-                                  const prereqs = await fetchPrerequisitesForSubject(subjectChosen);
-                                  const coreqs = await fetchCorequisitesForSubject(subjectChosen);
-                                  const rid = pickDefaultRequisiteId(prereqs, coreqs);
-                                  setSubjectRows((prev) => {
-                                    const cur = prev[0];
-                                    if (!cur || cur.subject_id?.toString() !== String(subjectChosen)) {
-                                      return prev;
-                                    }
-                                    return [{ ...cur, requisite_id: rid }];
-                                  });
-                                } catch {
-                                  /* fetch helpers already log */
+                      <>
+                        <div className="form-group">
+                          <label>Course Code <span className="required">*</span></label>
+                          <div className="curriculum-title-suggest">
+                            <input
+                              type="text"
+                              value={subjectRows[0]?.subject_code || ''}
+                              onChange={(e) => void handleRowChange(0, 'subject_code', e.target.value)}
+                              onFocus={() => {
+                                if (String(subjectRows[0]?.subject_code || '').trim().length >= 1) {
+                                  setSuggestOpen({ index: 0, field: 'code' });
                                 }
-                              })();
-                            } else {
-                              next.passing_grade = '';
-                              next.custom_grade = '';
-                              next.subject_type = '';
-                              setSubjectRows([next]);
-                            }
-                          }}
-                          options={subjectSearchOptions}
-                          emptyLabel="Select subject (search by code or title)"
-                          placeholder="Search subjects…"
-                          required
-                          className="subject-select curriculum-search-select"
-                        />
+                              }}
+                              onBlur={() => {
+                                window.setTimeout(() => {
+                                  setSuggestOpen((open) =>
+                                    open?.index === 0 && open?.field === 'code' ? null : open,
+                                  );
+                                }, 180);
+                              }}
+                              className="subject-select"
+                              placeholder="e.g. ITE 366"
+                              required
+                              autoComplete="off"
+                            />
+                            {suggestOpen?.index === 0 &&
+                              suggestOpen?.field === 'code' &&
+                              (() => {
+                                const suggestions = getSubjectSuggestions(subjectRows[0]?.subject_code);
+                                if (suggestions.length === 0) return null;
+                                return (
+                                  <ul className="curriculum-title-suggest__list" role="listbox">
+                                    {suggestions.map((s) => (
+                                      <li key={`edit-code-${s.subject_id}`}>
+                                        <button
+                                          type="button"
+                                          className="curriculum-title-suggest__option"
+                                          onMouseDown={(e) => e.preventDefault()}
+                                          onClick={() =>
+                                            applySubjectSuggestion(0, s, { fillCode: true })
+                                          }
+                                        >
+                                          <span className="curriculum-title-suggest__code">
+                                            {s.subject_code}
+                                          </span>
+                                          <span className="curriculum-title-suggest__name">
+                                            {s.subject_name}
+                                          </span>
+                                        </button>
+                                      </li>
+                                    ))}
+                                  </ul>
+                                );
+                              })()}
+                          </div>
+                        </div>
+                        <div className="form-group">
+                          <label>Subject Title <span className="required">*</span></label>
+                          <div className="curriculum-title-suggest">
+                            <input
+                              type="text"
+                              value={subjectRows[0]?.subject_name || ''}
+                              onChange={(e) => void handleRowChange(0, 'subject_name', e.target.value)}
+                              onFocus={() => {
+                                if (String(subjectRows[0]?.subject_name || '').trim().length >= 1) {
+                                  setSuggestOpen({ index: 0, field: 'title' });
+                                }
+                              }}
+                              onBlur={() => {
+                                window.setTimeout(() => {
+                                  setSuggestOpen((open) =>
+                                    open?.index === 0 && open?.field === 'title' ? null : open,
+                                  );
+                                }, 180);
+                              }}
+                              className="subject-select curriculum-title-input"
+                              placeholder="Type title (suggests existing…)"
+                              required
+                              autoComplete="off"
+                            />
+                            {suggestOpen?.index === 0 &&
+                              suggestOpen?.field === 'title' &&
+                              (() => {
+                                const suggestions = getSubjectSuggestions(subjectRows[0]?.subject_name);
+                                if (suggestions.length === 0) return null;
+                                return (
+                                  <ul className="curriculum-title-suggest__list" role="listbox">
+                                    {suggestions.map((s) => (
+                                      <li key={`edit-title-${s.subject_id}`}>
+                                        <button
+                                          type="button"
+                                          className="curriculum-title-suggest__option"
+                                          onMouseDown={(e) => e.preventDefault()}
+                                          onClick={() =>
+                                            applySubjectSuggestion(0, s, { fillCode: false })
+                                          }
+                                        >
+                                          <span className="curriculum-title-suggest__name">
+                                            {s.subject_name}
+                                          </span>
+                                          <span className="curriculum-title-suggest__code">
+                                            {s.subject_code}
+                                          </span>
+                                        </button>
+                                      </li>
+                                    ))}
+                                  </ul>
+                                );
+                              })()}
+                          </div>
+                        </div>
+                      </>
+                    )}
+
+                    {!subjectRows[0]?.is_elective_slot && (
+                      <div className="form-row-2">
+                        <div className="form-group">
+                          <label>Units</label>
+                          <input
+                            type="number"
+                            min="0"
+                            max="30"
+                            step="1"
+                            value={subjectRows[0]?.number_of_units ?? ''}
+                            onChange={(e) => void handleRowChange(0, 'number_of_units', e.target.value)}
+                            className="subject-select"
+                            placeholder="e.g. 3"
+                          />
+                        </div>
+                        <div className="form-group">
+                          <label>Hours</label>
+                          <input
+                            type="number"
+                            min="0"
+                            max="60"
+                            step="1"
+                            value={subjectRows[0]?.number_of_hrs ?? ''}
+                            onChange={(e) => void handleRowChange(0, 'number_of_hrs', e.target.value)}
+                            className="subject-select"
+                            placeholder="e.g. 3"
+                          />
+                        </div>
                       </div>
                     )}
-                    
+
                     <div className="form-group">
                       <label>Passing Grade</label>
-                      <div className="passing-grade-container">
-                        <select
-                          value={subjectRows[0]?.passing_grade || selectedCurriculum.passing_grade || ''}
-                          onChange={(e) => {
-                            const newRows = [{ ...subjectRows[0], passing_grade: e.target.value }];
-                            setSubjectRows(newRows);
-                          }}
+                      <select
+                        value={subjectRows[0]?.passing_grade || ''}
+                        onChange={(e) => void handleRowChange(0, 'passing_grade', e.target.value)}
+                        className="subject-select"
+                      >
+                        <option value="">Select Grade</option>
+                        <option value="50">50</option>
+                        <option value="60">60</option>
+                        <option value="70">70</option>
+                        <option value="pass">Pass</option>
+                        <option value="failed">Failed</option>
+                        <option value="other">Other (specify)</option>
+                      </select>
+                      {subjectRows[0]?.passing_grade === 'other' && (
+                        <input
+                          type="text"
+                          value={subjectRows[0]?.custom_grade || ''}
+                          onChange={(e) => void handleRowChange(0, 'custom_grade', e.target.value)}
+                          placeholder="Enter grade"
                           className="subject-select"
-                        >
-                          <option value="">Select Grade</option>
-                          <option value="50">50</option>
-                          <option value="60">60</option>
-                          <option value="70">70</option>
-                          <option value="pass">Pass</option>
-                          <option value="failed">Failed</option>
-                          <option value="other">Other (specify)</option>
-                        </select>
-                        {(subjectRows[0]?.passing_grade === 'other' || selectedCurriculum?.passing_grade === 'other') && (
-                          <input
-                            type="text"
-                            value={subjectRows[0]?.custom_grade || selectedCurriculum?.custom_grade || ''}
-                            onChange={(e) => {
-                              const newRows = [{ ...subjectRows[0], custom_grade: e.target.value }];
-                              setSubjectRows(newRows);
-                            }}
-                            placeholder="Enter grade"
-                          />
-                        )}
-                      </div>
+                          style={{ marginTop: '4px' }}
+                        />
+                      )}
                     </div>
-                    
+
                     <div className="form-group">
                       <label>Type</label>
                       <select
-                        value={subjectRows[0]?.subject_type || selectedCurriculum.subject_type || ''}
-                        onChange={(e) => {
-                          const newRows = [{ ...subjectRows[0], subject_type: e.target.value }];
-                          setSubjectRows(newRows);
-                        }}
+                        value={subjectRows[0]?.subject_type || ''}
+                        onChange={(e) => void handleRowChange(0, 'subject_type', e.target.value)}
                         className="subject-select"
-                        disabled={
-                          !!subjectRows[0]?.is_elective_slot || !!selectedCurriculum.elective_slot_id
-                        }
+                        disabled={subjectRows[0]?.is_elective_slot}
                       >
                         <option value="">Select Type</option>
                         <option value="minor">GE</option>
-                        <option value="core">Core</option>
+                        <option value="core">Core / Major</option>
                         <option value="elective subject">Elective Subject</option>
                       </select>
                     </div>
-                    
+
                     <div className="form-group">
                       <label>Pre/Co-requisite</label>
                       <select
-                        value={subjectRows[0]?.requisite_id || selectedCurriculum.requisite_id || ''}
-                        onChange={(e) => {
-                          const newRows = [{ ...subjectRows[0], requisite_id: e.target.value }];
-                          setSubjectRows(newRows);
-                        }}
+                        value={subjectRows[0]?.requisite_id || selectedCurriculum?.requisite_id || ''}
+                        onChange={(e) => void handleRowChange(0, 'requisite_id', e.target.value)}
                         className="subject-select"
                       >
                         <option value="">None</option>
@@ -2050,39 +3553,92 @@ const CurriculumManagement = () => {
                         ))}
                       </select>
                     </div>
-                    
-                    <div className="edit-panel-actions">
-                      <button
-                        type="button"
-                        className="delete-button"
-                        onClick={async () => {
-                          const deleted = await handleDelete(selectedCurriculum.curriculum_id);
-                          if (deleted) {
-                            setShowEditPanel(false);
-                            setSelectedCurriculum(null);
-                          }
+
+                    {editPanelMode === 'edit' && !(subjectRows[0]?.is_elective_slot || selectedCurriculum?.elective_slot_id) && (
+                      <div
+                        className="form-group"
+                        style={{
+                          border: '1px solid #dbe4f0',
+                          borderRadius: '8px',
+                          padding: '12px',
+                          background: '#f8fbff',
                         }}
                       >
-                        Delete
-                      </button>
-                      <button type="button" onClick={() => {
-                        setShowEditPanel(false);
-                        setSelectedCurriculum(null);
-                        resetBulkForm();
-                      }}>
-                        Cancel
-                      </button>
-                      <button type="submit">Save Changes</button>
-                    </div>
+                        <label>Bulk prerequisite rule</label>
+                        <p style={{ margin: '4px 0 10px', color: '#6c757d', fontSize: '12px' }}>
+                          Use this to replace the subject&apos;s prerequisites with a saved rule, year range, or Core/Major subject group.
+                        </p>
+                        <SearchableSelect
+                          value={editBulkPrerequisiteText}
+                          onChange={(v) => {
+                            setEditBulkPrerequisiteText(v);
+                            setEditPanelDirty(true);
+                          }}
+                          options={BULK_PREREQUISITE_RULE_OPTIONS}
+                          emptyLabel="Type or select a rule"
+                          placeholder="4th year standing, all subjects from 1st year to 4th year 1st semester, or all professional subjects"
+                          allowCustomValue
+                          aria-label="Bulk prerequisite rule"
+                        />
+                        {canSyncEditBulkPrerequisites() && (
+                          <div style={{ color: '#495057', fontSize: '12px', marginTop: '8px' }}>
+                            Will save {getEditBulkPrerequisiteSubjectIds().length} subjects from this rule.
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {editPanelMode === 'edit' && selectedCurriculum && (
+                      <div className="edit-panel-actions">
+                        <button
+                          type="button"
+                          className="delete-button"
+                          onClick={async () => {
+                            const deleted = await handleDelete(selectedCurriculum.curriculum_id);
+                            if (deleted) closeEditPanel();
+                          }}
+                        >
+                          Delete
+                        </button>
+                      </div>
+                    )}
                   </form>
                 </div>
-              ) : (
-                <div className="edit-panel-empty">
-                  <p>Select a subject from the table to edit it here.</p>
-                  <p className="hint">Click "Select" button on any subject row to edit it.</p>
-                </div>
-              )}
             </div>
+
+            {editPanelDirty && (
+              <div className="floating-save-bar curriculum-edit-floating-bar">
+                <span>
+                  {editPanelMode === 'insert'
+                    ? '1 subject ready to insert'
+                    : '1 subject(s) with unsaved changes'}
+                </span>
+                <div className="floating-actions">
+                  <button
+                    type="button"
+                    className="btn-secondary"
+                    onClick={() => {
+                      if (editPanelMode === 'insert') {
+                        setSubjectRows([emptySubjectRow()]);
+                        setEditPanelDirty(false);
+                        setSuggestOpen(null);
+                      } else if (selectedCurriculum) {
+                        void loadCurriculumIntoEditPanel(selectedCurriculum, 'edit');
+                      }
+                    }}
+                  >
+                    Clear All
+                  </button>
+                  <button
+                    type="submit"
+                    form="edit-curriculum-panel-form"
+                    className="btn-primary"
+                  >
+                    Save All Changes
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}
@@ -2130,6 +3686,117 @@ const CurriculumManagement = () => {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {canMutateCurriculum && showElectiveSubjectModal && selectedElectiveSlot && (
+        <div
+          className="modal-overlay"
+          onClick={() => setShowElectiveSubjectModal(false)}
+        >
+          <div
+            className="modal-content large-modal curriculum-elective-modal"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="modal-header">
+              <div>
+                <h3>Assign Elective Subjects</h3>
+                <p className="curriculum-elective-modal__subtitle">
+                  {selectedElectiveSlot.slot_name || `Elective Slot #${selectedElectiveSlot.elective_slot_id}`}
+                </p>
+              </div>
+              <button
+                type="button"
+                className="close-button"
+                onClick={() => setShowElectiveSubjectModal(false)}
+              >
+                ×
+              </button>
+            </div>
+
+            <div className={`curriculum-elective-assign-card${selectedElectiveSlotIsIt ? '' : ' curriculum-elective-assign-card--no-track'}`}>
+              {selectedElectiveSlotIsIt && (
+                <div className="form-group">
+                  <label>Track</label>
+                  <SearchableSelect
+                    value={electiveSubjectForm.track_id ? String(electiveSubjectForm.track_id) : ''}
+                    onChange={(v) =>
+                      setElectiveSubjectForm((prev) => ({ ...prev, track_id: v || '', subject_id: '' }))
+                    }
+                    options={trackSearchOptions}
+                    emptyLabel="No specific track"
+                    placeholder="Search track…"
+                    className="subject-select"
+                    aria-label="Optional track for elective subject"
+                  />
+                </div>
+              )}
+
+              <div className="form-group">
+                <label>Subject</label>
+                <SearchableSelect
+                  value={electiveSubjectForm.subject_id ? String(electiveSubjectForm.subject_id) : ''}
+                  onChange={(v) =>
+                    setElectiveSubjectForm((prev) => ({ ...prev, subject_id: v || '' }))
+                  }
+                  options={electiveSlotSubjectOptions}
+                  emptyLabel="Select Subject"
+                  placeholder="Search subject to assign…"
+                  className="subject-select"
+                  aria-label="Subject to assign to elective slot"
+                />
+              </div>
+
+              <button
+                type="button"
+                className="add-button"
+                onClick={handleAssignElectiveSubject}
+                disabled={electiveSubjectSaving || !electiveSubjectForm.subject_id}
+              >
+                {electiveSubjectSaving ? 'Saving...' : 'Assign Subject'}
+              </button>
+            </div>
+
+            <div className="curriculum-elective-assigned">
+              <h4>
+                Assigned Subjects ({selectedElectiveSlot.electiveSubjects?.length || 0})
+              </h4>
+              {selectedElectiveSlot.electiveSubjects?.length > 0 ? (
+                <div className={`curriculum-elective-assigned__table${selectedElectiveSlotIsIt ? '' : ' curriculum-elective-assigned__table--no-track'}`}>
+                  <div className="curriculum-elective-assigned__head">
+                    <span>Code</span>
+                    <span>Subject</span>
+                    {selectedElectiveSlotIsIt && <span>Track</span>}
+                    <span>Action</span>
+                  </div>
+                  {selectedElectiveSlot.electiveSubjects.map((item) => (
+                    <div
+                      className="curriculum-elective-assigned__row"
+                      key={item.elective_subject_id || `${item.subject_id}-${item.track_id || 'none'}`}
+                    >
+                      <span>{item.subject?.subject_code || '-'}</span>
+                      <span>{item.subject?.subject_name || '-'}</span>
+                      {selectedElectiveSlotIsIt && <span>{item.track?.track_name || item.track?.track_code || '-'}</span>}
+                      <span>
+                        <button
+                          type="button"
+                          className="delete-button"
+                          onClick={() => void handleRemoveElectiveSubject(item.subject_id)}
+                          disabled={electiveSubjectSaving}
+                        >
+                          Remove
+                        </button>
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="curriculum-elective-assigned__empty">
+                  No subjects assigned yet. Add the subject choices for this elective slot above.
+                </p>
+              )}
+            </div>
           </div>
         </div>
       )}

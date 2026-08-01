@@ -47,6 +47,8 @@ class TblUser extends Authenticatable implements JWTSubject
         'password',
         'contact_number',
         'role_id',
+        'department_id',
+        'program_id',
         'use_custom_permissions',
         'status',
         'failed_login_attempts',
@@ -142,6 +144,16 @@ class TblUser extends Authenticatable implements JWTSubject
     public function role()
     {
         return $this->belongsTo(Role::class, 'role_id', 'role_id');
+    }
+
+    public function department()
+    {
+        return $this->belongsTo(Department::class, 'department_id', 'department_id');
+    }
+
+    public function program()
+    {
+        return $this->belongsTo(Program::class, 'program_id', 'program_id');
     }
 
     /** Per-user permission overrides when use_custom_permissions is true. */
@@ -250,6 +262,9 @@ class TblUser extends Authenticatable implements JWTSubject
         if ($this->isAdmin()) {
             return true;
         }
+        if ($this->hasRole('Dean')) {
+            return true;
+        }
         $allowed = $this->effectiveEvaluationYearLevelIds();
         if ($allowed === null) {
             return true;
@@ -281,10 +296,10 @@ class TblUser extends Authenticatable implements JWTSubject
         return $this->role && $this->role->role_name === $roleName;
     }
 
-    /** Evaluator or Adviser (evaluator portal / student evaluation workflows). */
+    /** Adviser portal / student evaluation workflows (legacy Evaluator role merged into Adviser). */
     public function isEvaluatorLike(): bool
     {
-        return $this->hasRole('Evaluator') || $this->hasRole('Adviser');
+        return $this->hasRole('Adviser') || $this->hasRole('Evaluator');
     }
 
     /**
@@ -417,6 +432,109 @@ class TblUser extends Authenticatable implements JWTSubject
         ]);
     }
 
+    /** Student Management screen + student-scoped /users / CSV import. */
+    public function canManageStudents(): bool
+    {
+        if ($this->isEvaluatorLike()) {
+            return false;
+        }
+
+        if ($this->isAdmin()) {
+            return true;
+        }
+
+        return $this->hasAnyPermission([
+            'Student Management',
+            'students.view',
+            'students.create',
+            'students.edit',
+            'students.enroll',
+        ]);
+    }
+
+    /** Directory APIs shared by User Management and Student Management (list/view). */
+    public function canAccessUserDirectory(): bool
+    {
+        return $this->canManageUsers() || $this->canManageStudents();
+    }
+
+    public function canCreateStaffUsers(): bool
+    {
+        if ($this->isEvaluatorLike()) {
+            return false;
+        }
+        if ($this->isAdmin()) {
+            return true;
+        }
+
+        return $this->hasAnyPermission([
+            'User Management',
+            'users.create',
+        ]);
+    }
+
+    public function canEditStaffUsers(): bool
+    {
+        if ($this->isEvaluatorLike()) {
+            return false;
+        }
+        if ($this->isAdmin()) {
+            return true;
+        }
+
+        return $this->hasAnyPermission([
+            'User Management',
+            'users.edit',
+            'users.manage_roles',
+        ]);
+    }
+
+    public function canDeleteStaffUsers(): bool
+    {
+        if ($this->isEvaluatorLike()) {
+            return false;
+        }
+        if ($this->isAdmin()) {
+            return true;
+        }
+
+        return $this->hasAnyPermission([
+            'User Management',
+            'users.delete',
+        ]);
+    }
+
+    public function canCreateStudentUsers(): bool
+    {
+        if ($this->isEvaluatorLike()) {
+            return false;
+        }
+        if ($this->isAdmin()) {
+            return true;
+        }
+
+        return $this->hasAnyPermission([
+            'Student Management',
+            'students.create',
+            'students.enroll',
+        ]);
+    }
+
+    public function canEditStudentUsers(): bool
+    {
+        if ($this->isEvaluatorLike()) {
+            return false;
+        }
+        if ($this->isAdmin()) {
+            return true;
+        }
+
+        return $this->hasAnyPermission([
+            'Student Management',
+            'students.edit',
+        ]);
+    }
+
     /** Security settings API (Dean portal tab when role has system permissions). */
     public function canManageSecuritySettings(): bool
     {
@@ -448,9 +566,12 @@ class TblUser extends Authenticatable implements JWTSubject
 
         if ($this->hasAnyPermission([
             'User Management',
+            'Student Management',
             'Curriculum Management',
             'Lookup Data',
             'users.create',
+            'students.create',
+            'students.enroll',
             'curriculum.create',
             'lookup.manage',
         ])) {

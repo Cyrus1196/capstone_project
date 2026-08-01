@@ -7,7 +7,6 @@ use App\Models\TblUser;
 use App\Models\Evaluation;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Validation\ValidationException;
 
 class FacultyController extends Controller
 {
@@ -31,7 +30,7 @@ class FacultyController extends Controller
             }
 
             $profile = FacultyProfile::where('user_id', $userId)
-                ->with('department')
+                ->with(['department', 'program'])
                 ->first();
 
             if (!$profile) {
@@ -63,7 +62,6 @@ class FacultyController extends Controller
                 'middle_name' => 'nullable|string|max:50',
                 'last_name' => 'nullable|string|max:50',
                 'employee_id' => 'nullable|string|max:50',
-                'department_id' => 'nullable|integer|exists:tbl_departments,department_id',
                 'specialization' => 'nullable|string|max:255',
             ]);
 
@@ -76,7 +74,7 @@ class FacultyController extends Controller
                 $profile = FacultyProfile::create($validated);
             }
 
-            $profile->load('department');
+            $profile->load(['department', 'program']);
 
             return response()->json($profile);
         } catch (\Exception $e) {
@@ -205,12 +203,6 @@ class FacultyController extends Controller
                 return response()->json(['message' => 'Unauthorized'], 401);
             }
 
-            if ($user->hasRole('Evaluator')) {
-                return response()->json([
-                    'message' => 'Evaluators cannot change grades here. Grades are maintained from imported records.',
-                ], 403);
-            }
-
             $validated = $request->validate([
                 'grade' => 'nullable|string|max:10',
                 'status' => 'nullable|string|max:50',
@@ -227,6 +219,11 @@ class FacultyController extends Controller
 
             // In a full implementation, verify that the faculty is assigned to this class
             // For now, allow update if the evaluation exists
+
+            $studentProfile = $evaluation->student;
+            if ($studentProfile && $studentProfile->current_program !== null && $studentProfile->current_program !== '') {
+                $validated['graded_under_program_id'] = (int) $studentProfile->current_program;
+            }
 
             $evaluation->update($validated);
 

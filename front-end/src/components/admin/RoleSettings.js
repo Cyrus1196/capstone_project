@@ -6,6 +6,10 @@ import './RoleSettings.css';
 
 /** Modules without `*.view` (e.g. system.settings / system.backup): minimal tier = these ids. */
 const VIEW_TIER_IDS_RESOLVER = {
+  evaluation: (perms) =>
+    perms
+      .filter((p) => ['evaluation.view', 'credit_eval.view'].includes(p.permission_name))
+      .map((p) => Number(p.permission_id)),
   system: (perms) =>
     perms
       .filter((p) => p.permission_name === 'system.settings')
@@ -34,6 +38,8 @@ const FRIENDLY_PERMISSION_MERGE_INTO = {
   'Curriculum Management': 'curriculum',
   'Elective Slots': 'electives',
   'User Management': 'users',
+  'Student Management': 'students',
+  'Credit Evaluation': 'evaluation',
   'Student Evaluation': 'evaluation',
   /** Merge with system.settings / system.backup — one "Security Settings" block in the UI */
   'System Management': 'system',
@@ -46,6 +52,9 @@ const moduleKeyFromPermissionName = (name) => {
   if (parts[0] === 'lookup' && parts.length >= 3) {
     return `lookup.${parts[1]}`;
   }
+  if (parts[0] === 'credit_eval') {
+    return 'evaluation';
+  }
   const dot = name.indexOf('.');
   return dot > 0 ? name.slice(0, dot) : name;
 };
@@ -53,8 +62,10 @@ const moduleKeyFromPermissionName = (name) => {
 /** Dot-prefix module keys → clearer titles (not the same as the user’s role name). */
 const MODULE_LABEL_OVERRIDES = {
   curriculum: 'Curriculum Management',
+  evaluation: 'Credit Evaluation',
   system: 'Security Settings',
   users: 'User Management',
+  students: 'Student Management',
 };
 
 /** DB permission_name → label in lists (backend still uses "System Management"). */
@@ -65,13 +76,58 @@ const PERMISSION_DISPLAY_NAME_OVERRIDES = {
 const displayPermissionName = (name) =>
   PERMISSION_DISPLAY_NAME_OVERRIDES[name] ?? name;
 
+const LOOKUP_DATA_CATEGORY = 'lookup-data';
+const LOOKUP_DATA_LABEL = 'Lookup Data';
+const isLookupModuleKey = (key) => key.startsWith('lookup.');
+const HIDDEN_PERMISSION_NAMES = new Set([
+  'Evaluation Reports',
+  'reports.view',
+  'reports.generate',
+  'Faculty',
+  'faculty.view',
+  'lookup.view',
+  'lookup.manage',
+  'roles.view',
+  'roles.create',
+  'roles.edit',
+  'roles.delete',
+]);
+
+const HIDDEN_MODULE_KEYS = new Set(['faculty']);
+
+const formatModuleLabel = (key) => {
+  if (MODULE_LABEL_OVERRIDES[key]) {
+    return MODULE_LABEL_OVERRIDES[key];
+  }
+  if (isLookupModuleKey(key)) {
+    return key
+      .replace(/^lookup\./, '')
+      .replace(/_/g, ' ')
+      .replace(/\b\w/g, (c) => c.toUpperCase());
+  }
+  return key
+    .replace(/_/g, ' ')
+    .replace(/\b\w/g, (c) => c.toUpperCase());
+};
+
+const formatPermissionActionLabel = (name, moduleKey, multi) => {
+  if (!multi) return null;
+  const parts = name.split('.');
+  if (isLookupModuleKey(moduleKey)) {
+    return parts[2] || null;
+  }
+  const dot = name.indexOf('.');
+  return dot > 0 ? name.slice(dot + 1) : null;
+};
+
 const userRoleName = (u) => u?.role?.role_name || u?.role_name || '';
 
-/** User permissions UI is for staff roles only — not student accounts. */
-const excludeStudentUsers = (list) =>
-  list.filter((u) => userRoleName(u) !== 'Student');
-
-const LOOKUP_DATA_CATEGORY = 'Lookup Data';
+/** User permissions UI is for editable staff roles only — not Student or Admin accounts. */
+const editablePermissionUsers = (list) =>
+  list.filter((u) => {
+    const roleName = userRoleName(u);
+    return roleName !== 'Student' && roleName !== 'Admin';
+  });
 
 const RoleSettings = () => {
   const { user, refreshUser } = useAuth();
@@ -88,14 +144,15 @@ const RoleSettings = () => {
   const [useCustomPermissions, setUseCustomPermissions] = useState(false);
   const [yearLevels, setYearLevels] = useState([]);
   const [evalYearLevelSelectedIds, setEvalYearLevelSelectedIds] = useState([]);
+  const selectedUserId = selectedUser?.user_id;
 
   useEffect(() => {
     fetchUsers();
   }, []);
 
   useEffect(() => {
-    if (selectedUser) {
-      fetchPermissionsForUser(selectedUser.user_id);
+    if (selectedUserId) {
+      fetchPermissionsForUser(selectedUserId);
     } else {
       setPermissions([]);
       setAssignedIds([]);
@@ -105,7 +162,7 @@ const RoleSettings = () => {
       setYearLevels([]);
       setEvalYearLevelSelectedIds([]);
     }
-  }, [selectedUser?.user_id]);
+  }, [selectedUserId]);
 
   const fetchUsers = async () => {
     try {
@@ -113,7 +170,7 @@ const RoleSettings = () => {
       setError('');
       const data = await userService.getUsers();
       const raw = Array.isArray(data) ? data : [];
-      const list = excludeStudentUsers(raw);
+      const list = editablePermissionUsers(raw);
       setUsers(list);
       setSelectedUser((prev) => {
         if (prev && list.some((u) => Number(u.user_id) === Number(prev.user_id))) {
@@ -259,20 +316,13 @@ const RoleSettings = () => {
     }
   };
 
-  const formatModuleLabel = (key) => {
-    if (MODULE_LABEL_OVERRIDES[key]) {
-      return MODULE_LABEL_OVERRIDES[key];
-    }
-    return key
-      .replace(/_/g, ' ')
-      .replace(/\b\w/g, (c) => c.toUpperCase());
-  };
-
   const modulesByCategory = useMemo(() => {
     const buckets = {};
     permissions.forEach((p) => {
       const name = p.permission_name || '';
+      if (HIDDEN_PERMISSION_NAMES.has(name)) return;
       const mk = moduleKeyFromPermissionName(name);
+      if (HIDDEN_MODULE_KEYS.has(mk)) return;
       if (!buckets[mk]) buckets[mk] = [];
       buckets[mk].push(p);
     });
@@ -294,27 +344,40 @@ const RoleSettings = () => {
     });
     const out = {};
     Object.entries(byCat).forEach(([category, entries]) => {
-      out[category] = entries.sort(([a], [b]) => a.localeCompare(b));
+      out[category] = entries.sort(([a], [b]) =>
+        formatModuleLabel(a).localeCompare(formatModuleLabel(b))
+      );
     });
     return out;
   }, [permissions]);
 
   const permissionCategoryEntries = useMemo(() => {
-    const sortCat = (a, b) => {
-      const rank = (k) => (k === 'Other' ? 1 : 0);
-      const r = rank(a) - rank(b);
-      if (r !== 0) return r;
-      return a.localeCompare(b);
-    };
-    return Object.keys(modulesByCategory)
-      .sort(sortCat)
-      .map((category) => [category, modulesByCategory[category]]);
+    const entries = Object.entries(modulesByCategory).flatMap(([, moduleEntries]) => moduleEntries);
+    const regularEntries = entries
+      .filter(([moduleKey]) => !isLookupModuleKey(moduleKey))
+      .sort(([a], [b]) => formatModuleLabel(a).localeCompare(formatModuleLabel(b)));
+    const lookupEntries = entries
+      .filter(([moduleKey]) => isLookupModuleKey(moduleKey))
+      .sort(([a], [b]) => formatModuleLabel(a).localeCompare(formatModuleLabel(b)));
+
+    const sections = regularEntries.map(([moduleKey, perms]) => [
+      `module:${moduleKey}`,
+      [[moduleKey, perms]],
+    ]);
+    if (lookupEntries.length > 0) {
+      sections.push([LOOKUP_DATA_CATEGORY, lookupEntries]);
+    }
+
+    const sectionLabel = ([category, moduleEntries]) =>
+      category === LOOKUP_DATA_CATEGORY
+        ? LOOKUP_DATA_LABEL
+        : formatModuleLabel(moduleEntries[0]?.[0] || category);
+
+    return sections.sort((a, b) => sectionLabel(a).localeCompare(sectionLabel(b)));
   }, [modulesByCategory]);
 
   const [expandedModules, setExpandedModules] = useState({});
-  /** Collapse the long Lookup Data list by default to cut scrolling. */
   const [lookupDataExpanded, setLookupDataExpanded] = useState(false);
-
   const moduleStorageKey = (category, moduleKey) => `${category}::${moduleKey}`;
 
   const isModuleExpanded = (category, moduleKey, permCount) => {
@@ -460,14 +523,14 @@ const RoleSettings = () => {
                     const assignedLookupCount = isLookupCategory
                       ? assignedIds.filter((id) => allLookupIds.includes(Number(id))).length
                       : 0;
-                    const lookupAllFull =
+                    const lookupAllChecked =
                       isLookupCategory &&
                       allLookupIds.length > 0 &&
                       assignedLookupCount === allLookupIds.length;
                     const lookupIndeterminate =
                       isLookupCategory &&
                       assignedLookupCount > 0 &&
-                      !lookupAllFull;
+                      !lookupAllChecked;
 
                     return (
                     <div
@@ -478,36 +541,27 @@ const RoleSettings = () => {
                           : 'permission-category'
                       }
                     >
-                      {isLookupCategory ? (
-                        <div className="permission-category-lookup-toolbar">
+                      {isLookupCategory && (
+                        <div className="permission-module-toggle permission-lookup-toggle">
                           <button
                             type="button"
-                            className="permission-category-lookup-collapse-btn"
+                            className="permission-lookup-expand-button"
                             onClick={() => setLookupDataExpanded((v) => !v)}
                             aria-expanded={lookupDataExpanded}
-                            aria-label={
-                              lookupDataExpanded
-                                ? 'Collapse Lookup Data section'
-                                : 'Expand Lookup Data section'
-                            }
                           >
-                            <span className="permission-category-lookup-chevron" aria-hidden>
+                            <span className="permission-module-chevron" aria-hidden>
                               {lookupDataExpanded ? '▼' : '▶'}
                             </span>
+                            <span className="permission-module-title">{LOOKUP_DATA_LABEL}</span>
                           </button>
-                          <h4 className="permission-category-title permission-category-lookup-title">
-                            {category}
-                          </h4>
                           {!permissionsReadOnly && allLookupIds.length > 0 && (
                             <label className="permission-category-lookup-master">
                               <input
                                 type="checkbox"
-                                checked={lookupAllFull}
+                                checked={lookupAllChecked}
                                 ref={(el) => {
                                   if (el) el.indeterminate = lookupIndeterminate;
                                 }}
-                                disabled={permissionsReadOnly}
-                                title="Adds every lookup permission (view and full access for each resource). Uncheck to clear all lookup permissions for this user."
                                 onChange={(e) => {
                                   const on = e.target.checked;
                                   setAssignedIds((prev) => {
@@ -519,15 +573,14 @@ const RoleSettings = () => {
                                   });
                                 }}
                               />
-                              <span>Select all (full access)</span>
+                              <span>All lookup data</span>
                             </label>
                           )}
                         </div>
-                      ) : (
-                        <h4 className="permission-category-title">{category}</h4>
                       )}
-                      {(!isLookupCategory || lookupDataExpanded) &&
-                      moduleEntries.map(([moduleKey, perms]) => {
+                      {(!isLookupCategory || lookupDataExpanded) && (
+                        <div className={isLookupCategory ? 'permission-lookup-modules' : undefined}>
+                      {moduleEntries.map(([moduleKey, perms]) => {
                         const multi = perms.length > 1;
                         const open = isModuleExpanded(category, moduleKey, perms.length);
                         const allIds = perms.map((p) => Number(p.permission_id));
@@ -563,11 +616,6 @@ const RoleSettings = () => {
                                   </span>
                                 </label>
                               </div>
-                              {p.description && (
-                                <p className="permission-desc permission-tier-single-desc">
-                                  {p.description}
-                                </p>
-                              )}
                             </div>
                           );
                         }
@@ -589,11 +637,6 @@ const RoleSettings = () => {
                               ? moduleEnabled
                               : expandedModules[nestedKey];
                           const radioName = `module-tier-${uid}-${category}-${moduleKey}`;
-                          const tierHint =
-                            moduleKey === 'system'
-                              ? 'View only: system settings. Full access: Security Settings (permissions), settings, and backups.'
-                              : 'View only: browse and open this area. Full access: all actions for this module (create, edit, delete, approve, etc., as defined).';
-
                           return (
                             <div key={`${category}-${moduleKey}-tier`} className={tierUiClass}>
                               <div className="permission-tier-parent-row">
@@ -666,16 +709,8 @@ const RoleSettings = () => {
                                     />
                                     <span>FULL ACCESS</span>
                                   </label>
-                                  <p className="permission-desc permission-tier-hint">{tierHint}</p>
                                   {moduleKey === 'evaluation' && yearLevels.length > 0 && (
                                     <div className="permission-eval-year-nested">
-                                      <p className="permission-eval-year-subtitle">
-                                        Permitted year levels
-                                      </p>
-                                      <p className="permission-desc permission-eval-year-hint">
-                                        Filters the evaluation roster by the student&apos;s current year
-                                        level (inherits the role default when unchanged). Uncheck all for none.
-                                      </p>
                                       <div className="permission-eval-year-checkboxes">
                                         {yearLevels.map((yl) => {
                                           const id = Number(yl.year_level_id);
@@ -729,7 +764,6 @@ const RoleSettings = () => {
                                 <span className="permission-module-title">
                                   {formatModuleLabel(moduleKey)}
                                 </span>
-                                <span className="permission-module-meta">{perms.length} actions</span>
                               </button>
                             )}
                             <ul
@@ -741,9 +775,7 @@ const RoleSettings = () => {
                             >
                               {perms.map((p) => {
                                 const name = p.permission_name || '';
-                                const dot = name.indexOf('.');
-                                const actionLabel =
-                                  multi && dot > 0 ? name.slice(dot + 1) : null;
+                                const actionLabel = formatPermissionActionLabel(name, moduleKey, multi);
                                 return (
                                   <li
                                     key={p.permission_id}
@@ -765,7 +797,6 @@ const RoleSettings = () => {
                                       {actionLabel ? (
                                         <span className="permission-name permission-name-crud">
                                           <span className="permission-crud-action">{actionLabel}</span>
-                                          <code className="permission-crud-full">{name}</code>
                                         </span>
                                       ) : (
                                         <span className="permission-name">
@@ -773,9 +804,6 @@ const RoleSettings = () => {
                                         </span>
                                       )}
                                     </label>
-                                    {p.description && (
-                                      <span className="permission-desc">{p.description}</span>
-                                    )}
                                   </li>
                                 );
                               })}
@@ -783,6 +811,8 @@ const RoleSettings = () => {
                           </div>
                         );
                       })}
+                        </div>
+                      )}
                     </div>
                     );
                   })}

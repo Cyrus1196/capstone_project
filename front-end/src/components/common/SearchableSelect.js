@@ -15,6 +15,7 @@ export default function SearchableSelect({
   disabled = false,
   className = '',
   required = false,
+  allowCustomValue = false,
   'aria-label': ariaLabel,
   'aria-labelledby': ariaLabelledBy,
 }) {
@@ -31,8 +32,8 @@ export default function SearchableSelect({
   const selectedLabel = useMemo(() => {
     if (strValue === '') return '';
     const opt = options.find((o) => String(o.value) === strValue);
-    return opt?.label ?? '';
-  }, [strValue, options]);
+    return opt?.label ?? (allowCustomValue ? strValue : '');
+  }, [strValue, options, allowCustomValue]);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -78,6 +79,8 @@ export default function SearchableSelect({
     setOpen(false);
     setQuery('');
   };
+
+  const customQuery = query.trim();
 
   const displayText = selectedLabel || emptyLabel;
 
@@ -126,7 +129,13 @@ export default function SearchableSelect({
             placeholder={placeholder}
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            onKeyDown={(e) => e.stopPropagation()}
+            onKeyDown={(e) => {
+              e.stopPropagation();
+              if (allowCustomValue && e.key === 'Enter' && customQuery) {
+                e.preventDefault();
+                pick(customQuery);
+              }
+            }}
             autoComplete="off"
             aria-label="Filter options"
           />
@@ -160,6 +169,19 @@ export default function SearchableSelect({
                 );
               })
             )}
+            {allowCustomValue &&
+              customQuery &&
+              !options.some((o) => o.label.toLowerCase() === customQuery.toLowerCase() || String(o.value).toLowerCase() === customQuery.toLowerCase()) && (
+                <li role="presentation">
+                  <button
+                    type="button"
+                    className="searchable-select__option"
+                    onClick={() => pick(customQuery)}
+                  >
+                    Use "{customQuery}"
+                  </button>
+                </li>
+              )}
           </ul>
         </div>
       )}

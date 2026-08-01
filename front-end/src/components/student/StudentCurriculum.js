@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import api from '../../api/axios';
 import { swalError } from '../../utils/swal';
 import {
@@ -7,10 +7,11 @@ import {
   getGradedSemesterOptionsFromPayload,
 } from '../../utils/studentAcademicEvaluationPdf';
 import EvaluationPdfSemesterModal from '../common/EvaluationPdfSemesterModal';
-import GradeConversionModal from './GradeConversionModal';
 import {
-  formatPctBoundary,
   getGradeDisplayParts,
+  getStudentCurriculumOutcomeDisplay,
+  isCompleteGrade,
+  isCompleteOnlySubject,
 } from '../../utils/gradePercentageConversion';
 import '../admin/CurriculumManagement.css';
 import './StudentCurriculum.css';
@@ -33,6 +34,13 @@ function ordinalYearLabel(yearNum) {
 }
 
 /** Distinct program terms (year + semester) in catalog order — same ordering as curriculum rows. */
+function semesterSortValue(semesterId, semesterName = '') {
+  const name = String(semesterName || '').trim().toLowerCase();
+  if (name.includes('summer') || Number(semesterId) === 3) return 0;
+  const numeric = Number(semesterId);
+  return Number.isFinite(numeric) ? numeric : 99;
+}
+
 function orderedDistinctTerms(items) {
   const m = new Map();
   (items || []).forEach((item) => {
@@ -40,11 +48,17 @@ function orderedDistinctTerms(items) {
     const s = Number(item.semester_id ?? item.semester?.semester_id);
     if (!Number.isFinite(y) || !Number.isFinite(s)) return;
     const k = `${y}|${s}`;
-    if (!m.has(k)) m.set(k, { year_level_id: y, semester_id: s });
+    if (!m.has(k)) {
+      m.set(k, {
+        year_level_id: y,
+        semester_id: s,
+        semester_name: item.semester_name || item.semester?.semester_name || '',
+      });
+    }
   });
   return [...m.values()].sort((a, b) => {
     if (a.year_level_id !== b.year_level_id) return a.year_level_id - b.year_level_id;
-    return a.semester_id - b.semester_id;
+    return semesterSortValue(a.semester_id, a.semester_name) - semesterSortValue(b.semester_id, b.semester_name);
   });
 }
 
@@ -54,6 +68,25 @@ function normalizeSubjectCode(code) {
     .trim()
     .toUpperCase()
     .replace(/\s+/g, '');
+}
+
+function formatRequisiteRuleLabel(label, prefix) {
+  const raw = String(label || '').trim();
+  if (!raw) return '';
+  const standingMatch = raw.match(/^(2|2nd|second|3|3rd|third|4|4th|fourth|5|5th|fifth)\s+year\s+standing$/i);
+  if (standingMatch) {
+    const normalized = String(standingMatch[1]).toLowerCase();
+    const year =
+      normalized === '2' || normalized === '2nd' || normalized === 'second'
+        ? '2nd'
+        : normalized === '3' || normalized === '3rd' || normalized === 'third'
+          ? '3rd'
+          : normalized === '4' || normalized === '4th' || normalized === 'fourth'
+            ? '4th'
+            : '5th';
+    return `${prefix}: ${year} year standing`;
+  }
+  return `${prefix}: ${raw}`;
 }
 
 /**
@@ -106,6 +139,7 @@ function evaluationRecordHasOutcome(e) {
     st === 'incomplete' ||
     st === 'credit' ||
     st === 'completed' ||
+    st === 'complete' ||
     st === 'ongoing'
   ) {
     return true;
@@ -117,7 +151,6 @@ function evaluationRecordHasOutcome(e) {
 
 const StudentCurriculum = () => {
   const [curriculum, setCurriculum] = useState([]);
-  const [evaluations, setEvaluations] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [enrollments, setEnrollments] = useState([]);
@@ -129,25 +162,18 @@ const StudentCurriculum = () => {
   const [evalPdfSemesterOptions, setEvalPdfSemesterOptions] = useState([]);
   /** When API returns [] curriculum, explains why (e.g. program not assigned). */
   const [curriculumEmptyHint, setCurriculumEmptyHint] = useState({ message: '', reason: null });
-  const [showGradePointEquiv, setShowGradePointEquiv] = useState(false);
-  const [gradeConvModalOpen, setGradeConvModalOpen] = useState(false);
   /** Staff “Promote to next semester” — caps which terms appear in My Curriculum. */
   const [promotion, setPromotion] = useState(null);
 
-  useEffect(() => {
-    fetchCurriculum();
-    fetchEnrollments();
-  }, []);
-
   /** API may return { curriculum: [...] } or error-shaped objects; never assume .map exists. */
-  const normalizeList = (payload, key) => {
+  const normalizeList = useCallback((payload, key) => {
     const raw = key != null ? payload?.[key] : payload;
     if (Array.isArray(raw)) return raw;
     if (raw && typeof raw === 'object' && Array.isArray(raw.data)) return raw.data;
     return [];
-  };
+  }, []);
 
-  const fetchCurriculum = async () => {
+  const fetchCurriculum = useCallback(async () => {
     try {
       setLoading(true);
       const response = await api.get('/students/curriculum');
@@ -185,9 +211,13 @@ const StudentCurriculum = () => {
       ].sort((a, b) => a - b);
       setYearLevels(uniqueYearLevels);
 
-      if (uniqueYearLevels.length > 0 && selectedYearLevel == null) {
-        setSelectedYearLevel(uniqueYearLevels[0]);
-      }
+      setSelectedYearLevel((current) => {
+        if (uniqueYearLevels.length === 0) return null;
+        if (current == null || !uniqueYearLevels.includes(Number(current))) {
+          return uniqueYearLevels[0];
+        }
+        return current;
+      });
 
       setError(null);
     } catch (err) {
@@ -199,37 +229,39 @@ const StudentCurriculum = () => {
       );
       setCurriculum([]);
       setYearLevels([]);
+      setSelectedYearLevel(null);
       setPromotion(null);
       setCurriculumEmptyHint({ message: '', reason: null });
     } finally {
       setLoading(false);
     }
-  };
+  }, [normalizeList]);
 
-  const fetchEnrollments = async () => {
+  const fetchEnrollments = useCallback(async () => {
     try {
       const response = await api.get('/students/enrollments');
       const list = normalizeList(response.data, 'enrollments');
       setEnrollments(list);
-      // Same records as evaluations (backend exposes them as enrollments); avoids 404 on /students/evaluations.
-      setEvaluations(list);
     } catch (err) {
       console.error('Error fetching enrollments:', err);
       setEnrollments([]);
-      setEvaluations([]);
     }
-  };
+  }, [normalizeList]);
+
+  useEffect(() => {
+    fetchCurriculum();
+    fetchEnrollments();
+  }, [fetchCurriculum, fetchEnrollments]);
 
   const orderedTerms = useMemo(() => orderedDistinctTerms(curriculum), [curriculum]);
 
   const maxVisibleTermIndex = useMemo(() => {
     if (!orderedTerms.length) return 0;
-    if (!promotion?.promoted_at) return 0;
-    const ty = Number(promotion.target_year_level_id);
-    const ts = Number(promotion.target_semester_id);
-    if (!Number.isFinite(ty) || !Number.isFinite(ts)) return 0;
+    const ty = Number(promotion?.target_year_level_id);
+    const ts = Number(promotion?.target_semester_id);
+    if (!Number.isFinite(ty) || !Number.isFinite(ts)) return orderedTerms.length - 1;
     const idx = orderedTerms.findIndex((t) => t.year_level_id === ty && t.semester_id === ts);
-    return idx >= 0 ? idx : 0;
+    return idx >= 0 ? idx : orderedTerms.length - 1;
   }, [orderedTerms, promotion]);
 
   /** Year tabs: only years that include at least one term the student is allowed to see. */
@@ -287,7 +319,7 @@ const StudentCurriculum = () => {
       gradeRaw !== '' && gradeRaw != null && !Number.isNaN(parseFloat(gradeRaw))
         ? parseFloat(gradeRaw)
         : NaN;
-    const passedByStatus = ['completed', 'passed', 'pass', 'credit'].includes(statusStr);
+    const passedByStatus = ['completed', 'passed', 'pass', 'credit', 'complete'].includes(statusStr);
     const passedByPercent = !Number.isNaN(numGrade) && numGrade >= minPassing;
 
     return {
@@ -524,15 +556,33 @@ const StudentCurriculum = () => {
   const getPrerequisites = (row) => {
     const list = requisitesListForRow(row);
     if (list.length === 0) return 'None';
-    return list
-      .map((p) => {
+    const seen = new Set();
+    const parts = [];
+
+    list.forEach((p) => {
+      const t = String(p.requisite_type || '').toLowerCase();
+      const prefix = t === 'corequisite' ? 'Co' : 'P';
+      const ruleLabel = String(p.rule_label || '').trim();
+
+      if (ruleLabel) {
+        const ruleKey = `${prefix}:rule:${ruleLabel.toLowerCase()}`;
+        if (!seen.has(ruleKey)) {
+          seen.add(ruleKey);
+          const formattedRule = formatRequisiteRuleLabel(ruleLabel, prefix);
+          if (formattedRule) parts.push(formattedRule);
+        }
+        return;
+      }
+
         const code = p.subject_code || p.prereq_subject_code || p.requiredSubject?.subject_code;
-        const t = String(p.requisite_type || '').toLowerCase();
-        const prefix = t === 'corequisite' ? 'Co' : 'P';
-        return code ? `${prefix}: ${code}` : '';
-      })
-      .filter(Boolean)
-      .join(', ');
+      const key = `${prefix}:code:${normalizeSubjectCode(code)}`;
+      if (code && !seen.has(key)) {
+        seen.add(key);
+        parts.push(`${prefix}: ${code}`);
+      }
+    });
+
+    return parts.length ? parts.join(', ') : 'None';
   };
 
   /** Human text for INC compliance countdown on the student curriculum view. */
@@ -562,6 +612,88 @@ const StudentCurriculum = () => {
     for (const prereq of prerequisites) {
       const reqType = String(prereq.requisite_type || '').toLowerCase();
       if (reqType === 'corequisite') continue;
+
+      const prereqSlotId = prereq.elective_slot_id || prereq.prerequisite_elective_slot_id;
+      if (prereqSlotId != null && prereqSlotId !== '') {
+        const prereqSlotRow =
+          curriculum.find((item) => Number(item.elective_slot_id) === Number(prereqSlotId)) ??
+          null;
+        const slotLabel =
+          prereq.elective_slot_name ||
+          prereq.slot_name ||
+          prereq.subject_code ||
+          prereq.prereq_subject_code ||
+          `Elective slot ${prereqSlotId}`;
+
+        if (!prereqSlotRow) {
+          failedPrereqs.push(slotLabel);
+          continue;
+        }
+
+        if (isRowTransferCredited(prereqSlotRow)) {
+          continue;
+        }
+
+        if (rowHasPassingRecord(prereqSlotRow)) {
+          continue;
+        }
+
+        const prereqSlotSubjectId =
+          prereqSlotRow.subject_id || prereqSlotRow.subject?.subject_id;
+        if (prereqSlotSubjectId == null || prereqSlotSubjectId === '') {
+          failedPrereqs.push(slotLabel);
+          continue;
+        }
+
+        const enrollment = getEnrollmentStatus(
+          prereqSlotSubjectId,
+          prereqSlotRow.semester_id,
+          prereqSlotRow.passing_grade ?? 50
+        );
+        const evaluation = getEvaluationStatus(prereqSlotSubjectId, prereqSlotRow.semester_id);
+        const prereqSt = String(enrollment?.status || evaluation?.status || '')
+          .toLowerCase()
+          .trim();
+
+        if (prereqSt === 'inc' || prereqSt === 'incomplete') {
+          failedPrereqs.push(slotLabel);
+          continue;
+        }
+
+        const evalSt = String(evaluation?.status || '')
+          .toLowerCase()
+          .trim();
+        const enrollSt = String(enrollment?.status || '')
+          .toLowerCase()
+          .trim();
+        const isPassed =
+          enrollment?.completed ||
+          enrollSt === 'passed' ||
+          enrollSt === 'pass' ||
+          enrollSt === 'credit' ||
+          enrollSt === 'completed' ||
+          evalSt === 'passed' ||
+          evalSt === 'pass' ||
+          evalSt === 'credit' ||
+          evalSt === 'completed' ||
+          parseFloat(enrollment?.grade || 0) >= 50 ||
+          parseFloat(evaluation?.grade || 0) >= 50;
+
+        const isFailed =
+          enrollSt === 'failed' ||
+          enrollSt === 'fail' ||
+          enrollSt === 'f' ||
+          evalSt === 'failed' ||
+          evalSt === 'fail' ||
+          evalSt === 'f' ||
+          parseFloat(enrollment?.grade || 0) < 50 ||
+          parseFloat(evaluation?.grade || 0) < 50;
+
+        if (isFailed && !isPassed) {
+          failedPrereqs.push(slotLabel);
+        }
+        continue;
+      }
 
       const prereqCode =
         prereq.subject_code ||
@@ -680,7 +812,7 @@ const StudentCurriculum = () => {
       grouped[semesterId].rows.push(item);
     });
 
-    return Object.values(grouped).sort((a, b) => Number(a.id) - Number(b.id));
+    return Object.values(grouped).sort((a, b) => semesterSortValue(a.id, a.name) - semesterSortValue(b.id, b.name));
   };
 
   /** Semesters in this year up to the latest term allowed by staff promotion (catalog order). */
@@ -766,21 +898,6 @@ const StudentCurriculum = () => {
         <div className="student-curriculum-header-actions">
           <button
             type="button"
-            className={`student-curriculum-pct-toggle${showGradePointEquiv ? ' active' : ''}`}
-            aria-pressed={showGradePointEquiv}
-            onClick={() => setShowGradePointEquiv((v) => !v)}
-          >
-            {showGradePointEquiv ? 'Hide 1.00–5.00 equivalent' : 'Show 1.00–5.00 equivalent'}
-          </button>
-          <button
-            type="button"
-            className="student-curriculum-conv-tables"
-            onClick={() => setGradeConvModalOpen(true)}
-          >
-            Conversion tables
-          </button>
-          <button
-            type="button"
             className="student-curriculum-download-eval"
             onClick={openEvalPdfModal}
             disabled={evaluationPdfLoading}
@@ -789,8 +906,6 @@ const StudentCurriculum = () => {
           </button>
         </div>
       </div>
-
-      <GradeConversionModal open={gradeConvModalOpen} onClose={() => setGradeConvModalOpen(false)} />
 
       <EvaluationPdfSemesterModal
         open={evalPdfModalOpen}
@@ -935,8 +1050,18 @@ const StudentCurriculum = () => {
                             !hasStoredEvaluation;
                           const statusRaw = enrollment?.status || '';
                           const statusLc = String(statusRaw).toLowerCase().trim();
-                          const statusLabel =
-                            statusLc === 'incomplete' ? 'INC' : statusRaw || '—';
+                          const completeOutcome = getStudentCurriculumOutcomeDisplay(
+                            row,
+                            pickedForRow,
+                            enrollment?.completed
+                          );
+                          const statusLabel = completeOutcome
+                            ? completeOutcome.label
+                            : statusLc === 'complete' || statusLc === 'completed'
+                              ? 'Complete'
+                              : statusLc === 'incomplete'
+                                ? 'INC'
+                                : statusRaw || '—';
                           const isIncStatus =
                             statusLc === 'incomplete' || statusLc === 'inc';
                           const incDeadlineSource =
@@ -951,10 +1076,18 @@ const StudentCurriculum = () => {
                             ? ` (by ${String(incDeadlineSource).slice(0, 10)})`
                             : '';
 
+                          const suppressGradeDisplay =
+                            completeOutcome != null ||
+                            statusLc === 'complete' ||
+                            statusLc === 'completed' ||
+                            (isCompleteOnlySubject(row) && !!enrollment?.completed);
+
                           const gradeDisplayParts =
+                            !suppressGradeDisplay &&
                             enrollment?.grade != null &&
                             String(enrollment.grade).trim() !== '' &&
-                            !isIncStatus
+                            !isIncStatus &&
+                            !isCompleteGrade(enrollment.grade)
                               ? getGradeDisplayParts(enrollment.grade, passing)
                               : null;
 
@@ -1034,39 +1167,29 @@ const StudentCurriculum = () => {
                                   ) : enrollment ? (
                                     <span className="student-curriculum-status-inline">
                                       <span
-                                        className={`status-badge status-${(enrollment.status || '')
-                                          .toLowerCase()
-                                          .replace(/\s+/g, '-')}`}
+                                        className={`status-badge status-${
+                                          completeOutcome
+                                            ? completeOutcome.badgeClass
+                                            : statusLc === 'complete' || statusLc === 'completed'
+                                              ? 'complete'
+                                              : (enrollment.status || '')
+                                                  .toLowerCase()
+                                                  .replace(/\s+/g, '-')
+                                        }`}
                                       >
                                         {statusLabel}
                                       </span>
-                                      {enrollment.grade != null &&
+                                      {!suppressGradeDisplay &&
+                                        enrollment.grade != null &&
                                         enrollment.grade !== '' &&
-                                        !isIncStatus && (
+                                        !isIncStatus &&
+                                        !isCompleteGrade(enrollment.grade) && (
                                           <span className="student-curriculum-grade-block">
                                             <span className="student-curriculum-grade">
                                               {gradeDisplayParts
                                                 ? `Grade: ${gradeDisplayParts.primaryText}`
                                                 : `Grade: ${enrollment.grade}`}
                                             </span>
-                                            {showGradePointEquiv &&
-                                              gradeDisplayParts &&
-                                              !gradeDisplayParts.isLetter &&
-                                              gradeDisplayParts.secondaryGp ? (
-                                              <span
-                                                className="student-curriculum-grade-pct"
-                                                title={
-                                                  gradeDisplayParts.bandMin != null &&
-                                                  gradeDisplayParts.bandMax != null
-                                                    ? `${gradeDisplayParts.scaleLabel}. Official score band: ${formatPctBoundary(
-                                                        gradeDisplayParts.bandMin
-                                                      )}–${formatPctBoundary(gradeDisplayParts.bandMax)}.`
-                                                    : gradeDisplayParts.scaleLabel || ''
-                                                }
-                                              >
-                                                ≈ {gradeDisplayParts.secondaryGp}
-                                              </span>
-                                            ) : null}
                                           </span>
                                         )}
                                       {incHint ? (

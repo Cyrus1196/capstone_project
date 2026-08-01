@@ -376,7 +376,6 @@ class RBACSeeder extends Seeder
             'Program Head' => $programHead === [] ? null : $programHead,
             'Secretary' => $secondYear === [] ? null : $secondYear,
             'Adviser' => $firstYear === [] ? null : $firstYear,
-            'Evaluator' => $firstYear === [] ? null : $firstYear,
         ];
 
         foreach ($map as $roleName => $ids) {
@@ -417,14 +416,8 @@ class RBACSeeder extends Seeder
                 'reports.view',
                 'reports.generate',
             ],
-            // Evaluator: review imported grades + store “evaluation complete” only (no row writes via evaluation API).
-            // Adviser: full curriculum row editing, student profile edits, and grade entry in the UI.
-            'Evaluator' => [
-                'evaluation.view',
-                'evaluation.export_pdf',
-                'faculty.view',
-                'curriculum.view',
-            ],
+            // Adviser: curriculum evaluation, student guidance, and grade entry in the UI.
+            // (Evaluator role was merged into Adviser and voided.)
             'Adviser' => [
                 'evaluation.view',
                 'evaluation.create',

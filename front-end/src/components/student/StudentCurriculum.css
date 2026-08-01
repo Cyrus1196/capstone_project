@@ -132,14 +132,6 @@
   flex-shrink: 0;
 }
 
-.curriculum-data-grid__row.student-curriculum-row-passed {
-  border-color: rgba(22, 163, 74, 0.25);
-}
-
-.curriculum-data-grid__row.student-curriculum-row-passed .curriculum-data-grid__cell {
-  background: rgba(22, 163, 74, 0.06);
-}
-
 .student-curriculum-grade-block {
   display: flex;
   flex-direction: column;
@@ -190,6 +182,16 @@
   display: inline-block;
   background: #fff3cd;
   color: #856404;
+  padding: 4px 10px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.student-curriculum-grid .status-complete {
+  display: inline-block;
+  background: #dbeafe;
+  color: #1e40af;
   padding: 4px 10px;
   border-radius: 6px;
   font-size: 12px;

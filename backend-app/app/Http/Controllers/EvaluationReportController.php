@@ -25,12 +25,17 @@ class EvaluationReportController extends Controller
         return null;
     }
 
-    /** Scope student queries: Dean → assigned program; others optional program_id query. */
+    /** Scope student queries: Dean → assigned department; old program assignment is a fallback. */
     private function applyDeanProgramScope(Builder $query, Request $request, $user): void
     {
         if ($user->hasRole('Dean') && ! $user->isAdmin()) {
             $deanProfile = DeanProfile::where('user_id', $user->user_id)->first();
-            if ($deanProfile && $deanProfile->program_id) {
+            if ($deanProfile && $deanProfile->department_id) {
+                $departmentId = $deanProfile->department_id;
+                $query->whereHas('program', function ($q) use ($departmentId) {
+                    $q->where('department_id', $departmentId);
+                });
+            } elseif ($deanProfile && $deanProfile->program_id) {
                 $pid = $deanProfile->program_id;
                 $query->where(function ($q) use ($pid) {
                     $q->where('Current_Program', $pid)->orWhere('current_program', $pid);
@@ -192,7 +197,12 @@ class EvaluationReportController extends Controller
 
         if ($user->hasRole('Dean') && ! $user->isAdmin()) {
             $deanProfile = DeanProfile::where('user_id', $user->user_id)->first();
-            if ($deanProfile && $deanProfile->program_id) {
+            if ($deanProfile && $deanProfile->department_id) {
+                $student->loadMissing('program');
+                if ((int) ($student->program?->department_id ?? 0) !== (int) $deanProfile->department_id) {
+                    return response()->json(['message' => 'Forbidden'], 403);
+                }
+            } elseif ($deanProfile && $deanProfile->program_id) {
                 $pid = $deanProfile->program_id;
                 $sid = $student->getAttributes()['current_program']
                     ?? $student->getAttributes()['Current_Program']
@@ -265,7 +275,7 @@ class EvaluationReportController extends Controller
         $evaluatedStudents = (clone $doneQ)->distinct()->count('student_id');
 
         $evaluatorRoles = TblUser::query()
-            ->whereHas('role', fn ($r) => $r->whereIn('role_name', ['Evaluator', 'Adviser']))
+            ->whereHas('role', fn ($r) => $r->whereIn('role_name', ['Adviser']))
             ->count();
 
         $recent = (clone $doneQ)

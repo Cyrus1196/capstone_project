@@ -299,8 +299,8 @@ const SUBJECT_EQUIV_MUTATE_PERMS = [
  * @param {{ approvalMode?: boolean, studentInformationMode?: boolean }} props
  *
  * Flow (studentInformationMode — Dean "External transfer credits"):
- * 1. Prior school + external courses (OSS rows are created/reused immediately; no approval). Optional roster link removed from UI.
- * 2. Curriculum evaluation → subject equivalence maps an external course to a PEN subject; credit lines get `subject_id`.
+ * 1. Prior school + external courses (OSS rows are created/reused immediately; no separate approval).
+ * 2. Subject equivalence is only a suggestion/helper; saved transfer detail rows with `subject_id` are the real credit decision.
  *
  * When approvalMode (e.g. secretary review), list-focused UI for approve/reject.
  */
@@ -897,29 +897,6 @@ const CreditEvaluationManagement = ({
 
       {error && <div className="error-message">{error}</div>}
 
-      {studentInformationMode && (
-        <aside className="ce-transfer-help-panel" aria-label="How transfer crediting works">
-          <p className="ce-transfer-help-panel__lead">
-            <strong>Three layers:</strong> intake (this table) → catalog equivalence (reused for many people) →
-            curriculum link on <strong>Evaluation → Student</strong> so a PEN row shows <strong>Credited</strong>.
-          </p>
-          <ul className="ce-transfer-help-panel__list">
-            <li>
-              <strong>Reusable (“infinite”) in the right way:</strong> define each <em>outside course → catalog PEN</em>{' '}
-              once; every new student or new intake that lists that outside course can use the same rule.
-            </li>
-            <li>
-              <strong>Not reusable on one person:</strong> for a single student, the same outside line cannot satisfy two
-              different PEN subjects—one transcript course, one curriculum slot.
-            </li>
-            <li>
-              <strong>Duplicate rows:</strong> do not list the same external course twice on one transfer record; merge
-              units on one line.
-            </li>
-          </ul>
-        </aside>
-      )}
-
       {approvalMode && (
         <div className="credit-eval-filters" role="tablist" aria-label="Filter by status">
           {['all', 'pending', 'approved', 'rejected'].map((f) => (
@@ -1245,8 +1222,8 @@ const CreditEvaluationManagement = ({
                 <div className="form-group">
                   <label>Credit Details <span className="required">*</span></label>
                   <p className="credit-equiv-hint">
-                    Pick the school of origin first. If a row exists in Subject Equivalences, the local subject, units,
-                    and basis fill automatically when you pick the external course.
+                    Pick the school of origin first. Subject Equivalences only suggest a matching local subject, units,
+                    and basis; the saved transfer row is the actual student credit decision.
                   </p>
                   <div className="credit-eval-bulk-actions">
                     <button type="button" className="add-detail-button" onClick={applyEquivalencesToAllRows}>

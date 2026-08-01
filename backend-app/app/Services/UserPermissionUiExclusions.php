@@ -18,16 +18,33 @@ final class UserPermissionUiExclusions
     {
         return [
             'Admin Dashboard',
+            'Faculty',
             'faculty.view',
+            // Admin-only modules. Admin accounts have these intrinsically and are hidden from User permissions.
+            'audit.view',
+            'Audit Logs',
+            'system.settings',
+            'system.backup',
+            'System Management',
+            'test',
+            'Test',
+            // Lookup Data is managed from its own sidebar area; do not duplicate it in User permissions.
+            'Lookup Data',
+            'lookup.view',
+            'lookup.manage',
+            // Role lookup/table permissions are internal; keep only the Role Settings module visible.
+            'roles.view',
+            'roles.create',
+            'roles.edit',
+            'roles.delete',
             // Dean portal + high-impact academic approvals — not shown here; use Student Evaluation for grade/eval
             // workspace. Implicit merge (see implicitMergeIdsForRole) keeps Dean role baseline on custom saves.
             'dean.view',
             'dean.approve',
-            // Legacy module keys — not enforced in API (subjects/students use lookup.* and users.* instead).
-            'students.view',
-            'students.create',
-            'students.edit',
-            'students.enroll',
+            'Evaluation Reports',
+            'reports.view',
+            'reports.generate',
+            // Legacy subject module keys — managed via Lookup Data (subjects / lookup.subjects.*) instead.
             'subjects.view',
             'subjects.create',
             'subjects.edit',

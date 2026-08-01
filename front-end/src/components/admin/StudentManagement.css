@@ -1,9 +1,13 @@
 .student-management {
-  max-width: 1200px;
+  width: 100%;
+  max-width: none;
+  min-width: 0;
+  padding: 1.25rem;
+  box-sizing: border-box;
 }
 
 .student-management__header {
-  margin-bottom: 1.25rem;
+  margin-bottom: 0.9rem;
 }
 
 .student-management__header h2 {
@@ -21,7 +25,7 @@
 .student-management__tabs {
   display: flex;
   gap: 0.5rem;
-  margin-bottom: 1.25rem;
+  margin-bottom: 1rem;
   border-bottom: 1px solid #e2e8f0;
   padding-bottom: 0;
 }
@@ -52,4 +56,5 @@
 
 .student-management__panel {
   min-height: 200px;
+  min-width: 0;
 }

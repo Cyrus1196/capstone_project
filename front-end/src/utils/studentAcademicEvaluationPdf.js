@@ -1,5 +1,6 @@
 import html2canvas from 'html2canvas';
 import { jsPDF } from 'jspdf';
+import { getStudentCurriculumOutcomeDisplay } from './gradePercentageConversion';
 
 function esc(s) {
   return String(s ?? '')
@@ -213,11 +214,30 @@ function fillReportElement(el, data, renderOpts = {}) {
             <td style="padding:${pad};border:1px solid #cfe8d8;font-weight:600;color:#1e40af;font-size:${fs};">${esc(r.subject_code || '—')}</td>
             <td style="padding:${pad};border:1px solid #cfe8d8;font-size:${fs};">${esc(r.subject_name || '—')}</td>
             <td style="padding:${pad};border:1px solid #cfe8d8;text-align:center;font-size:${fs};">${esc(r.units ?? '—')}</td>
-            <td style="padding:${pad};border:1px solid #cfe8d8;text-align:center;font-size:${fs};">${esc(r.grade != null && String(r.grade).trim() !== '' ? r.grade : '—')}</td>
+            <td style="padding:${pad};border:1px solid #cfe8d8;text-align:center;font-size:${fs};">${
+              (() => {
+                const outcome = getStudentCurriculumOutcomeDisplay(
+                  r,
+                  { evaluation_status: r.status, status: r.status, grade: r.grade },
+                  Number(r.units_earned) > 0
+                );
+                if (outcome?.label === 'Complete') return esc('—');
+                return esc(
+                  r.grade != null && String(r.grade).trim() !== '' ? r.grade : '—'
+                );
+              })()
+            }</td>
             <td style="padding:${pad};border:1px solid #cfe8d8;font-size:${fs};">${esc(
-              r.passed_via_transfer_credit
-                ? 'Credit (transfer)'
-                : r.status || (Number(r.units_earned) > 0 ? 'Passed' : '—')
+              (() => {
+                if (r.passed_via_transfer_credit) return 'Credit (transfer)';
+                const outcome = getStudentCurriculumOutcomeDisplay(
+                  r,
+                  { evaluation_status: r.status, status: r.status, grade: r.grade },
+                  Number(r.units_earned) > 0
+                );
+                if (outcome) return outcome.label;
+                return r.status || (Number(r.units_earned) > 0 ? 'Passed' : '—');
+              })()
             )}</td>
           </tr>`
               )

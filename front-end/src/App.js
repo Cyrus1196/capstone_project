@@ -2,6 +2,7 @@ import React, { Suspense, lazy } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate } from 'react-router-dom';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import SessionIdleController from './components/SessionIdleController';
+import GlobalRequestLoading from './components/common/GlobalRequestLoading';
 import Landing from './components/Landing';
 import Login from './components/Login';
 import './App.css';
@@ -10,20 +11,29 @@ const AdminPanel = lazy(() => import('./components/admin/AdminPanel'));
 const SecuritySettings = lazy(() => import('./components/admin/SecuritySettings'));
 const StudentPanel = lazy(() => import('./components/student/StudentPanel'));
 const DeanPanel = lazy(() => import('./components/dean/DeanPanel'));
+const DeanStudentRecords = lazy(() => import('./components/dean/DeanStudentRecords'));
 const FacultyPanel = lazy(() => import('./components/faculty/FacultyPanel'));
 const ProgramHeadPanel = lazy(() => import('./components/program_head/ProgramHeadPanel'));
 const SecretaryPanel = lazy(() => import('./components/secretary/SecretaryPanel'));
 const GuestPanel = lazy(() => import('./components/guest/GuestPanel'));
 
 const RouteFallback = () => (
-  <div style={{ padding: '2rem', textAlign: 'center', color: '#64748b' }}>Loading module…</div>
+  <div className="app-route-fallback" role="status" aria-live="polite">
+    <span className="app-route-fallback__spinner" aria-hidden />
+    <span>Loading module…</span>
+  </div>
 );
 
 const PrivateRoute = ({ children, requiredRole = null }) => {
   const { user, loading, isAdmin, isDean, isFaculty, isProgramHead, isSecretary } = useAuth();
 
   if (loading) {
-    return <div style={{ padding: '2rem', textAlign: 'center' }}>Loading…</div>;
+    return (
+      <div className="app-route-fallback" role="status" aria-live="polite">
+        <span className="app-route-fallback__spinner" aria-hidden />
+        <span>Loading…</span>
+      </div>
+    );
   }
 
   if (!user) {
@@ -82,6 +92,7 @@ const PrivateRoute = ({ children, requiredRole = null }) => {
 function App() {
   return (
     <AuthProvider>
+      <GlobalRequestLoading />
       <SessionIdleController />
       <Router>
         <Suspense fallback={<RouteFallback />}>
@@ -119,6 +130,14 @@ function App() {
               element={
                 <PrivateRoute requiredRole="dean">
                   <DeanPanel />
+                </PrivateRoute>
+              }
+            />
+            <Route
+              path="/dean/student-records/:studentIdNumber"
+              element={
+                <PrivateRoute requiredRole="dean">
+                  <DeanStudentRecords />
                 </PrivateRoute>
               }
             />

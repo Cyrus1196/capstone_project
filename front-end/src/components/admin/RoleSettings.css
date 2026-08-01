@@ -260,7 +260,7 @@
 }
 
 .permission-category {
-  margin-bottom: 24px;
+  margin-bottom: 10px;
 }
 
 .permission-category:last-child {
@@ -282,7 +282,7 @@
 .permission-category-lookup {
   border: 1px solid #d8eee0;
   border-radius: 10px;
-  padding: 0 0 12px;
+  padding: 0 0 8px;
   background: #f8fdf9;
 }
 
@@ -291,9 +291,9 @@
   align-items: center;
   flex-wrap: wrap;
   gap: 10px 14px;
-  padding: 10px 12px 12px;
+  padding: 8px 10px;
   border-bottom: 1px solid #c8e6d0;
-  margin-bottom: 10px;
+  margin-bottom: 8px;
 }
 
 .permission-category-lookup-collapse-btn {
@@ -352,9 +352,18 @@
   cursor: pointer;
 }
 
+.permission-module-toggle.permission-lookup-toggle {
+  border-bottom: 0;
+  border-radius: 8px;
+}
+
+.permission-lookup-modules {
+  padding: 8px 10px 0;
+}
+
 /* Group dotted permissions (e.g. credit_eval.*) under a collapsible module */
 .permission-module {
-  margin-bottom: 10px;
+  margin-bottom: 8px;
   border: 1px solid #e2e8f0;
   border-radius: 8px;
   background: #fff;
@@ -386,6 +395,32 @@
 
 .permission-module-toggle:hover {
   background: #e2e8f0;
+}
+
+.permission-module-toggle.permission-lookup-toggle {
+  border-bottom: 0;
+  border-radius: 8px;
+  cursor: default;
+}
+
+.permission-lookup-expand-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1;
+  min-width: 0;
+  padding: 0;
+  margin: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+
+.permission-lookup-expand-button:hover {
+  color: #0f172a;
 }
 
 .permission-module-chevron {

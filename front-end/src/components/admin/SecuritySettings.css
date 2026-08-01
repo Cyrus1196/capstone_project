@@ -1,6 +1,6 @@
 .security-settings {
   max-width: 720px;
-  margin: 0 auto;
+  margin: 2rem auto 0;
 }
 
 .security-settings--loading {

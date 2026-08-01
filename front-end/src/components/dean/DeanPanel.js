@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { useNavigate, useLocation } from 'react-router-dom';
 import api from '../../api/axios';
@@ -8,20 +8,21 @@ import DeanAnalytics from './DeanAnalytics';
 import ElectiveSlotManagement from '../admin/ElectiveSlotManagement';
 import AcademicManagement from '../admin/AcademicManagement';
 import UserManagement from '../admin/UserManagement';
+import StudentManagement from '../admin/StudentManagement';
 import LookupDataManagement from '../admin/LookupDataManagement';
 import CurriculumManagement from '../admin/CurriculumManagement';
-import CsvImport from '../admin/CsvImport';
 import SecuritySettings from '../admin/SecuritySettings';
 import StudentEvaluationView from '../common/StudentEvaluationView';
 import {
   ACADEMIC_MANAGEMENT_TAB_PERMISSIONS,
   CURRICULUM_HEADERS_TAB_PERMISSIONS,
   CURRICULUM_TAB_PERMISSIONS,
-  CSV_IMPORT_TAB_PERMISSIONS,
+  EVALUATION_REPORTS_TAB_PERMISSIONS,
   ELECTIVE_SLOTS_TAB_PERMISSIONS,
   LOOKUP_TAB_PERMISSIONS,
   SECURITY_TAB_PERMISSIONS,
   STUDENT_EVALUATION_TAB_PERMISSIONS,
+  STUDENT_MANAGEMENT_TAB_PERMISSIONS,
   USER_MANAGEMENT_TAB_PERMISSIONS,
 } from '../../config/adminPanelTabs';
 import PortalSidebar from '../common/PortalSidebar';
@@ -32,14 +33,42 @@ import {
 } from '../../config/lookupDataSidebarPanels';
 import './DeanPanel.css';
 
+const DEAN_ACTIVE_TAB_STORAGE_KEY = 'deanPortalActiveTab';
+
+function readStoredDeanTab() {
+  try {
+    return window.localStorage.getItem(DEAN_ACTIVE_TAB_STORAGE_KEY) || 'dean-dashboard';
+  } catch {
+    return 'dean-dashboard';
+  }
+}
+
 const DeanPanel = () => {
   const { user, logout, refreshUser, hasPermission, canAccessModule, isAdmin } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
-  const [activeTab, setActiveTab] = useState('dean-dashboard');
+  const [activeTab, setActiveTabState] = useState(readStoredDeanTab);
   const [academicMgmtRemountKey, setAcademicMgmtRemountKey] = useState(0);
   const [lookupSubPanel, setLookupSubPanel] = useState('programs');
   const [deanProfile, setDeanProfile] = useState(null);
+
+  const fetchDeanProfile = useCallback(async () => {
+    try {
+      const response = await api.get('/deans/profile', { skipLoading: true, silent: true });
+      setDeanProfile(response.data);
+    } catch (error) {
+      console.error('Error fetching dean profile:', error);
+    }
+  }, []);
+
+  const setActiveTab = useCallback((tab) => {
+    setActiveTabState(tab);
+    try {
+      window.localStorage.setItem(DEAN_ACTIVE_TAB_STORAGE_KEY, tab);
+    } catch {
+      // Ignore storage errors; tab navigation should still work.
+    }
+  }, []);
 
   /** Refetch permissions when opening /dean (e.g. after Admin saved this role) or when Dean returns to the tab. */
   useEffect(() => {
@@ -48,10 +77,14 @@ const DeanPanel = () => {
   }, [location.pathname, user?.role, refreshUser]);
 
   useEffect(() => {
+    let lastAt = 0;
     const onVisible = () => {
-      if (document.visibilityState === 'visible' && user?.role === 'Dean') {
-        refreshUser();
-      }
+      if (document.visibilityState !== 'visible' || user?.role !== 'Dean') return;
+      const now = Date.now();
+      // Avoid hammering /user on every Alt+Tab (and stacking loaders on artisan serve).
+      if (now - lastAt < 60_000) return;
+      lastAt = now;
+      refreshUser();
     };
     document.addEventListener('visibilitychange', onVisible);
     return () => document.removeEventListener('visibilitychange', onVisible);
@@ -62,10 +95,14 @@ const DeanPanel = () => {
       navigate('/login');
     } else if (user.role !== 'Dean' && !user.is_admin) {
       navigate('/');
-    } else if (user.role === 'Dean') {
-      fetchDeanProfile();
     }
   }, [user, navigate]);
+
+  useEffect(() => {
+    if (user?.role === 'Dean') {
+      fetchDeanProfile();
+    }
+  }, [user?.user_id, user?.role, fetchDeanProfile]);
 
   useEffect(() => {
     const openAcademicManagement = () => {
@@ -78,13 +115,15 @@ const DeanPanel = () => {
       window.removeEventListener('portal-open-credit-evaluation', openAcademicManagement);
       window.removeEventListener('portal-open-academic-management', openAcademicManagement);
     };
-  }, []);
+  }, [setActiveTab]);
 
   const showStudentEvalTabs = canAccessModule(STUDENT_EVALUATION_TAB_PERMISSIONS);
   const showUserManagement = canAccessModule(USER_MANAGEMENT_TAB_PERMISSIONS);
+  const showStudentManagement = canAccessModule(STUDENT_MANAGEMENT_TAB_PERMISSIONS);
   const showElectiveTab = canAccessModule(ELECTIVE_SLOTS_TAB_PERMISSIONS);
   const showSystemTab = canAccessModule(ACADEMIC_MANAGEMENT_TAB_PERMISSIONS);
   const showLookupTab = canAccessModule(LOOKUP_TAB_PERMISSIONS);
+  const showEvaluationReportsTab = canAccessModule(EVALUATION_REPORTS_TAB_PERMISSIONS);
 
   const visibleLookupPanels = useMemo(
     () =>
@@ -101,21 +140,27 @@ const DeanPanel = () => {
 
   const showCurriculumHeadersTab = canAccessModule(CURRICULUM_HEADERS_TAB_PERMISSIONS);
   const showAdminCurriculumTab = canAccessModule(CURRICULUM_TAB_PERMISSIONS);
-  const showCsvTab = canAccessModule(CSV_IMPORT_TAB_PERMISSIONS);
   const showSecurityTab = canAccessModule(SECURITY_TAB_PERMISSIONS);
 
   const deanSidebarGroups = useMemo(() => {
     const overviewItems = [];
     if (showStudentEvalTabs) {
-      overviewItems.push(
-        { id: 'dean-dashboard', label: 'Dashboard', icon: 'fa-solid fa-table-columns' },
-        { id: 'dean-analytics', label: 'Analytics', icon: 'fa-solid fa-chart-column' }
-      );
+      overviewItems.push({ id: 'dean-dashboard', label: 'Dashboard', icon: 'fa-solid fa-table-columns' });
+    }
+    if (showEvaluationReportsTab) {
+      overviewItems.push({ id: 'dean-analytics', label: 'Analytics', icon: 'fa-solid fa-chart-column' });
     }
 
     const adminItems = [];
     if (showUserManagement) {
       adminItems.push({ id: 'user-management', label: 'User management', icon: 'fa-solid fa-users' });
+    }
+    if (showStudentManagement) {
+      adminItems.push({
+        id: 'student-management',
+        label: 'Student management',
+        icon: 'fa-solid fa-user-graduate',
+      });
     }
     if (showCurriculumHeadersTab) {
       adminItems.push({
@@ -152,9 +197,6 @@ const DeanPanel = () => {
         })),
       });
     }
-    if (showCsvTab) {
-      adminItems.push({ id: 'csv-import', label: 'CSV import', icon: 'fa-solid fa-file-csv' });
-    }
     if (showSecurityTab) {
       adminItems.push({
         id: 'security-settings',
@@ -187,30 +229,31 @@ const DeanPanel = () => {
     return groups;
   }, [
     showStudentEvalTabs,
+    showEvaluationReportsTab,
     showUserManagement,
+    showStudentManagement,
     showCurriculumHeadersTab,
     showAdminCurriculumTab,
     showElectiveTab,
     showSystemTab,
     showLookupTab,
-    visibleLookupPanels.length,
-    showCsvTab,
+    visibleLookupPanels,
     showSecurityTab,
   ]);
 
   const firstAllowedDeanTab = useMemo(() => {
     const order = [
       ['dean-dashboard', showStudentEvalTabs],
-      ['dean-analytics', showStudentEvalTabs],
+      ['dean-analytics', showEvaluationReportsTab],
       ['academic-record', showStudentEvalTabs],
       ['evaluated-students', showStudentEvalTabs],
       ['user-management', showUserManagement],
+      ['student-management', showStudentManagement],
       ['curriculum-headers', showCurriculumHeadersTab],
       ['admin-curriculum', showAdminCurriculumTab],
       ['elective-slots', showElectiveTab],
       ['system-mgmt', showSystemTab],
       ['lookup-data', showLookupTab && visibleLookupPanels.length > 0],
-      ['csv-import', showCsvTab],
       ['security-settings', showSecurityTab],
       ['profile', true],
     ];
@@ -218,14 +261,15 @@ const DeanPanel = () => {
     return hit ? hit[0] : 'profile';
   }, [
     showStudentEvalTabs,
+    showEvaluationReportsTab,
     showUserManagement,
+    showStudentManagement,
     showCurriculumHeadersTab,
     showAdminCurriculumTab,
     showElectiveTab,
     showSystemTab,
     showLookupTab,
     visibleLookupPanels.length,
-    showCsvTab,
     showSecurityTab,
   ]);
 
@@ -247,16 +291,16 @@ const DeanPanel = () => {
     }
     const allowed = {
       'dean-dashboard': showStudentEvalTabs,
-      'dean-analytics': showStudentEvalTabs,
+      'dean-analytics': showEvaluationReportsTab,
       'academic-record': showStudentEvalTabs,
       'evaluated-students': showStudentEvalTabs,
       'user-management': showUserManagement,
+      'student-management': showStudentManagement,
       'curriculum-headers': showCurriculumHeadersTab,
       'elective-slots': showElectiveTab,
       'system-mgmt': showSystemTab,
       'lookup-data': showLookupTab && visibleLookupPanels.length > 0,
       'admin-curriculum': showAdminCurriculumTab,
-      'csv-import': showCsvTab,
       'security-settings': showSecurityTab,
       profile: true,
     };
@@ -267,15 +311,17 @@ const DeanPanel = () => {
     activeTab,
     firstAllowedDeanTab,
     showStudentEvalTabs,
+    showEvaluationReportsTab,
     showUserManagement,
+    showStudentManagement,
     showCurriculumHeadersTab,
     showElectiveTab,
     showSystemTab,
     showLookupTab,
     visibleLookupPanels.length,
     showAdminCurriculumTab,
-    showCsvTab,
     showSecurityTab,
+    setActiveTab,
   ]);
 
   const handleDeanSidebarSelect = (id) => {
@@ -293,16 +339,12 @@ const DeanPanel = () => {
 
   const noopPanelChange = () => {};
 
-  const fetchDeanProfile = async () => {
-    try {
-      const response = await api.get('/deans/profile');
-      setDeanProfile(response.data);
-    } catch (error) {
-      console.error('Error fetching dean profile:', error);
-    }
-  };
-
   const handleLogout = async () => {
+    try {
+      window.localStorage.removeItem(DEAN_ACTIVE_TAB_STORAGE_KEY);
+    } catch {
+      // Ignore storage errors; logout should still continue.
+    }
     await logout();
     navigate('/login');
   };
@@ -351,8 +393,8 @@ const DeanPanel = () => {
             canManageUsers={showUserManagement}
           />
         )}
-        {activeTab === 'dean-analytics' && showStudentEvalTabs && (
-          <DeanAnalytics showEvalModules={showStudentEvalTabs} />
+        {activeTab === 'dean-analytics' && showEvaluationReportsTab && (
+          <DeanAnalytics showEvalModules={showEvaluationReportsTab} />
         )}
         {activeTab === 'academic-record' && showStudentEvalTabs && (
           <StudentEvaluationView listMode="need-evaluation" />
@@ -361,6 +403,7 @@ const DeanPanel = () => {
           <StudentEvaluationView listMode="already-evaluated" />
         )}
         {activeTab === 'user-management' && showUserManagement && <UserManagement userScope="staff" />}
+        {activeTab === 'student-management' && showStudentManagement && <StudentManagement />}
         {activeTab === 'curriculum-headers' && showCurriculumHeadersTab && (
           <LookupDataManagement
             panelNav="external"
@@ -368,8 +411,20 @@ const DeanPanel = () => {
             onActivePanelChange={noopPanelChange}
           />
         )}
-        {activeTab === 'admin-curriculum' && showAdminCurriculumTab && <CurriculumManagement />}
-        {activeTab === 'elective-slots' && showElectiveTab && <ElectiveSlotManagement />}
+        {activeTab === 'admin-curriculum' && showAdminCurriculumTab && (
+          <CurriculumManagement
+            lockedProgramId={
+              deanProfile?.program_id ?? deanProfile?.program?.program_id ?? null
+            }
+          />
+        )}
+        {activeTab === 'elective-slots' && showElectiveTab && (
+          <ElectiveSlotManagement
+            lockedProgramId={
+              deanProfile?.program_id ?? deanProfile?.program?.program_id ?? null
+            }
+          />
+        )}
         {activeTab === 'system-mgmt' && showSystemTab && (
           <AcademicManagement key={academicMgmtRemountKey} remountKey={academicMgmtRemountKey} />
         )}
@@ -380,7 +435,6 @@ const DeanPanel = () => {
             onActivePanelChange={setLookupSubPanel}
           />
         )}
-        {activeTab === 'csv-import' && showCsvTab && <CsvImport />}
         {activeTab === 'security-settings' && showSecurityTab && <SecuritySettings />}
         {activeTab === 'profile' && <DeanProfile deanProfile={deanProfile} onUpdate={fetchDeanProfile} />}
         </div>

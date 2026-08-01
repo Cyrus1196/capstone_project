@@ -4,7 +4,7 @@ import api from '../../api/axios';
 import './FacultyPanel.css';
 
 const FacultyProfile = ({ facultyProfile, onUpdate }) => {
-  const { user } = useAuth();
+  const { user, refreshUser } = useAuth();
   const [formData, setFormData] = useState({
     email: '',
     contact_number: '',
@@ -13,14 +13,16 @@ const FacultyProfile = ({ facultyProfile, onUpdate }) => {
     last_name: '',
     employee_id: '',
     department_id: '',
+    program_id: '',
     specialization: '',
   });
   const [departments, setDepartments] = useState([]);
+  const [programs, setPrograms] = useState([]);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState({ type: '', text: '' });
 
   useEffect(() => {
-    fetchDepartments();
+    fetchProfileOptions();
     if (user) {
       setFormData((prev) => ({
         ...prev,
@@ -36,17 +38,21 @@ const FacultyProfile = ({ facultyProfile, onUpdate }) => {
         last_name: facultyProfile.last_name || '',
         employee_id: facultyProfile.employee_id || '',
         department_id: facultyProfile.department_id || '',
+        program_id: facultyProfile.program_id || '',
         specialization: facultyProfile.specialization || '',
       }));
     }
   }, [user, facultyProfile]);
 
-  const fetchDepartments = async () => {
+  const fetchProfileOptions = async () => {
     try {
-      const response = await api.get('/departments');
-      setDepartments(response.data.departments || response.data || []);
+      const response = await api.get('/profile/options');
+      setDepartments(response.data?.departments || []);
+      setPrograms(response.data?.programs || []);
     } catch (error) {
-      console.error('Error fetching departments:', error);
+      console.error('Error fetching profile options:', error);
+      setDepartments([]);
+      setPrograms([]);
     }
   };
 
@@ -55,8 +61,14 @@ const FacultyProfile = ({ facultyProfile, onUpdate }) => {
     setFormData((prev) => ({
       ...prev,
       [name]: value,
+      ...(name === 'department_id' ? { program_id: '' } : {}),
     }));
   };
+
+  const filteredPrograms = programs.filter((program) => {
+    if (!formData.department_id) return true;
+    return String(program.department_id) === String(formData.department_id);
+  });
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -65,8 +77,7 @@ const FacultyProfile = ({ facultyProfile, onUpdate }) => {
 
     try {
       // Update user info
-      await api.put(`/users/${user.user_id}`, {
-        email: formData.email,
+      await api.put('/profile/account', {
         contact_number: formData.contact_number,
       });
 
@@ -77,7 +88,6 @@ const FacultyProfile = ({ facultyProfile, onUpdate }) => {
           middle_name: formData.middle_name,
           last_name: formData.last_name,
           employee_id: formData.employee_id,
-          department_id: formData.department_id,
           specialization: formData.specialization,
         });
       } else {
@@ -86,7 +96,6 @@ const FacultyProfile = ({ facultyProfile, onUpdate }) => {
           middle_name: formData.middle_name,
           last_name: formData.last_name,
           employee_id: formData.employee_id,
-          department_id: formData.department_id,
           specialization: formData.specialization,
         });
       }
@@ -99,6 +108,7 @@ const FacultyProfile = ({ facultyProfile, onUpdate }) => {
       if (onUpdate) {
         onUpdate();
       }
+      refreshUser();
     } catch (error) {
       setMessage({
         type: 'error',
@@ -130,7 +140,7 @@ const FacultyProfile = ({ facultyProfile, onUpdate }) => {
               id="email"
               name="email"
               value={formData.email}
-              onChange={handleChange}
+              disabled
               required
             />
           </div>
@@ -205,12 +215,30 @@ const FacultyProfile = ({ facultyProfile, onUpdate }) => {
               id="department_id"
               name="department_id"
               value={formData.department_id}
-              onChange={handleChange}
+              disabled
             >
               <option value="">Select Department</option>
               {departments.map((dept) => (
                 <option key={dept.department_id} value={dept.department_id}>
                   {dept.department_name}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="form-group">
+            <label htmlFor="program_id">Program</label>
+            <select
+              id="program_id"
+              name="program_id"
+              value={formData.program_id}
+              disabled
+            >
+              <option value="">Select Program</option>
+              {filteredPrograms.map((program) => (
+                <option key={program.program_id} value={program.program_id}>
+                  {program.program_name}
+                  {program.program_code ? ` (${program.program_code})` : ''}
                 </option>
               ))}
             </select>
@@ -226,15 +254,6 @@ const FacultyProfile = ({ facultyProfile, onUpdate }) => {
             value={formData.specialization}
             onChange={handleChange}
             placeholder="Enter area of specialization"
-          />
-        </div>
-
-        <div className="form-group">
-          <label>Role</label>
-          <input
-            type="text"
-            value={user?.role || 'Evaluator'}
-            disabled
           />
         </div>
 

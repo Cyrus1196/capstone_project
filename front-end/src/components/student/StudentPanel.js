@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { useNavigate } from 'react-router-dom';
 import StudentProfile from './StudentProfile';
@@ -6,10 +6,29 @@ import StudentCurriculum from './StudentCurriculum';
 import StudentDashboard from './StudentDashboard';
 import './StudentPanel.css';
 
+const STUDENT_ACTIVE_TAB_STORAGE_KEY = 'studentPortalActiveTab';
+
+function readStoredStudentTab() {
+  try {
+    return window.localStorage.getItem(STUDENT_ACTIVE_TAB_STORAGE_KEY) || 'dashboard';
+  } catch {
+    return 'dashboard';
+  }
+}
+
 const StudentPanel = () => {
   const { user, logout, isAdmin } = useAuth();
   const navigate = useNavigate();
-  const [activeTab, setActiveTab] = useState('dashboard');
+  const [activeTab, setActiveTabState] = useState(readStoredStudentTab);
+
+  const setActiveTab = useCallback((tab) => {
+    setActiveTabState(tab);
+    try {
+      window.localStorage.setItem(STUDENT_ACTIVE_TAB_STORAGE_KEY, tab);
+    } catch {
+      // Ignore storage errors; tab navigation should still work.
+    }
+  }, []);
 
   useEffect(() => {
     if (!user) {
@@ -21,6 +40,11 @@ const StudentPanel = () => {
   }, [user, isAdmin, navigate]);
 
   const handleLogout = async () => {
+    try {
+      window.localStorage.removeItem(STUDENT_ACTIVE_TAB_STORAGE_KEY);
+    } catch {
+      // Ignore storage errors; logout should still continue.
+    }
     await logout();
     navigate('/login');
   };

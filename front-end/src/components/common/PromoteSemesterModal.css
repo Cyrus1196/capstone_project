@@ -179,6 +179,23 @@
   color: #1e293b;
 }
 
+.promote-modal__row--blocked td {
+  background: #fff1f2;
+  color: #7f1d1d;
+}
+
+.promote-modal__blocked-badge {
+  width: fit-content;
+  padding: 0.16rem 0.45rem;
+  border-radius: 999px;
+  background: #fee2e2;
+  color: #b91c1c;
+  font-size: 0.72rem;
+  font-weight: 800;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
 .promote-modal__pill {
   display: inline-block;
   max-width: 100%;

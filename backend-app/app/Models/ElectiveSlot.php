@@ -19,6 +19,7 @@ class ElectiveSlot extends Model
         'year_level_id',
         'slot_name',
         'status',
+        'prerequisite_slot_id',
     ];
 
     public function program()
@@ -39,6 +40,11 @@ class ElectiveSlot extends Model
     public function electiveSubjects()
     {
         return $this->hasMany(ElectiveSubject::class, 'elective_slot_id', 'elective_slot_id');
+    }
+
+    public function prerequisiteSlot()
+    {
+        return $this->belongsTo(ElectiveSlot::class, 'prerequisite_slot_id', 'elective_slot_id');
     }
 }
 

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { useNavigate } from 'react-router-dom';
 import PortalSidebar from './PortalSidebar';
@@ -6,9 +6,23 @@ import StudentEvaluationView from './StudentEvaluationView';
 import EvaluatorDashboard from '../faculty/EvaluatorDashboard';
 import EvaluatorAnalytics from '../faculty/EvaluatorAnalytics';
 import ProgramHeadProfile from '../program_head/ProgramHeadProfile';
-import { STUDENT_EVALUATION_TAB_PERMISSIONS } from '../../config/adminPanelTabs';
+import LookupDataManagement from '../admin/LookupDataManagement';
+import { LOOKUP_TAB_PERMISSIONS, STUDENT_EVALUATION_TAB_PERMISSIONS } from '../../config/adminPanelTabs';
+import {
+  LOOKUP_DATA_SIDEBAR_PANELS,
+  lookupSidebarChildId,
+  parseLookupSidebarChildId,
+} from '../../config/lookupDataSidebarPanels';
 import '../faculty/FacultyPanel.css';
 import '../program_head/ProgramHeadPanel.css';
+
+function readStoredStaffTab(key) {
+  try {
+    return window.localStorage.getItem(key) || 'dashboard';
+  } catch {
+    return 'dashboard';
+  }
+}
 
 /**
  * @param {{ expectedRole: 'Program Head' | 'Secretary', sidebarVariant: string, collapsedStorageKey: string, sidebarBrand: string, workspaceTitle: string, roleChipLabel: string }} props
@@ -23,7 +37,7 @@ function homeRouteForWrongRole(user, expectedRole) {
   if (r === 'Secretary') return '/secretary';
   if (r === 'Program Head') return '/program-head';
   if (r === 'Dean') return '/dean';
-  if (r === 'Evaluator' || r === 'Adviser') return '/evaluator';
+  if (r === 'Adviser' || r === 'Evaluator') return '/evaluator';
   return '/admin';
 }
 
@@ -35,13 +49,41 @@ const CurriculumStaffPortal = ({
   workspaceTitle,
   roleChipLabel,
 }) => {
-  const { user, logout, refreshUser, canAccessModule } = useAuth();
+  const { user, logout, refreshUser, canAccessModule, hasPermission } = useAuth();
   const navigate = useNavigate();
-  const [activeTab, setActiveTab] = useState('dashboard');
+  const activeTabStorageKey = `${collapsedStorageKey}_activeTab`;
+  const [activeTab, setActiveTabState] = useState(() => readStoredStaffTab(activeTabStorageKey));
+  const [lookupSubPanel, setLookupSubPanel] = useState('programs');
+  const refreshedUserIdRef = useRef(null);
 
   const hasExpectedRole = user?.role === expectedRole;
 
   const showEvalModules = canAccessModule(STUDENT_EVALUATION_TAB_PERMISSIONS);
+  const showLookupTab = canAccessModule(LOOKUP_TAB_PERMISSIONS);
+  const visibleLookupPanels = useMemo(
+    () =>
+      LOOKUP_DATA_SIDEBAR_PANELS.filter(
+        (p) =>
+          user?.is_admin ||
+          hasPermission('lookup.view') ||
+          hasPermission('lookup.manage') ||
+          hasPermission(`lookup.${p.permissionSlug}.view`) ||
+          hasPermission(`lookup.${p.permissionSlug}.manage`)
+      ),
+    [user?.is_admin, hasPermission]
+  );
+
+  const setActiveTab = useCallback(
+    (tab) => {
+      setActiveTabState(tab);
+      try {
+        window.localStorage.setItem(activeTabStorageKey, tab);
+      } catch {
+        // Ignore storage errors; tab navigation should still work.
+      }
+    },
+    [activeTabStorageKey]
+  );
 
   const sidebarGroups = useMemo(() => {
     const items = [{ id: 'dashboard', label: 'Dashboard', icon: 'fa-solid fa-table-columns' }];
@@ -51,12 +93,23 @@ const CurriculumStaffPortal = ({
         { id: 'evaluated-students', label: 'Evaluated students', icon: 'fa-solid fa-clipboard-check' }
       );
     }
+    if (showLookupTab && visibleLookupPanels.length > 0) {
+      items.push({
+        id: 'lookup-data',
+        label: 'Lookup data',
+        icon: 'fa-solid fa-table-list',
+        children: visibleLookupPanels.map((p) => ({
+          id: lookupSidebarChildId(p.panelKey),
+          label: p.label,
+        })),
+      });
+    }
     items.push(
       { id: 'analytics', label: 'Analytics', icon: 'fa-solid fa-chart-column' },
       { id: 'profile', label: 'My Profile', icon: 'fa-solid fa-id-card' }
     );
     return [{ id: 'main', title: workspaceTitle, items }];
-  }, [showEvalModules, workspaceTitle]);
+  }, [showEvalModules, showLookupTab, visibleLookupPanels, workspaceTitle]);
 
   useEffect(() => {
     if (!user) {
@@ -69,24 +122,59 @@ const CurriculumStaffPortal = ({
   }, [user, navigate, hasExpectedRole, expectedRole]);
 
   useEffect(() => {
-    if (!hasExpectedRole || !user) return undefined;
+    if (!hasExpectedRole || !user?.user_id) return undefined;
+    if (refreshedUserIdRef.current !== user.user_id) {
+      refreshedUserIdRef.current = user.user_id;
+      refreshUser();
+    }
+    let lastAt = 0;
     const onVisible = () => {
-      if (document.visibilityState === 'visible') {
-        refreshUser();
-      }
+      if (document.visibilityState !== 'visible') return;
+      const now = Date.now();
+      if (now - lastAt < 60_000) return;
+      lastAt = now;
+      refreshUser();
     };
     document.addEventListener('visibilitychange', onVisible);
     return () => document.removeEventListener('visibilitychange', onVisible);
-  }, [hasExpectedRole, user, refreshUser]);
+  }, [hasExpectedRole, user?.user_id, refreshUser]);
 
   useEffect(() => {
     if (!hasExpectedRole) return;
     if (!showEvalModules && (activeTab === 'academic-record' || activeTab === 'evaluated-students')) {
       setActiveTab('dashboard');
+      return;
     }
-  }, [hasExpectedRole, showEvalModules, activeTab]);
+    if ((!showLookupTab || visibleLookupPanels.length === 0) && activeTab === 'lookup-data') {
+      setActiveTab('dashboard');
+    }
+  }, [hasExpectedRole, showEvalModules, showLookupTab, visibleLookupPanels.length, activeTab, setActiveTab]);
+
+  useEffect(() => {
+    if (activeTab !== 'lookup-data' || visibleLookupPanels.length === 0) return;
+    if (!visibleLookupPanels.some((p) => p.panelKey === lookupSubPanel)) {
+      setLookupSubPanel(visibleLookupPanels[0].panelKey);
+    }
+  }, [activeTab, lookupSubPanel, visibleLookupPanels]);
+
+  const handleSidebarSelect = (id) => {
+    const panelKey = parseLookupSidebarChildId(id);
+    if (panelKey) {
+      setActiveTab('lookup-data');
+      setLookupSubPanel(panelKey);
+      return;
+    }
+    setActiveTab(id);
+  };
+
+  const sidebarActiveId = activeTab === 'lookup-data' ? lookupSidebarChildId(lookupSubPanel) : activeTab;
 
   const handleLogout = async () => {
+    try {
+      window.localStorage.removeItem(activeTabStorageKey);
+    } catch {
+      // Ignore storage errors; logout should still continue.
+    }
     await logout();
     navigate('/login');
   };
@@ -107,8 +195,8 @@ const CurriculumStaffPortal = ({
         storageKey={collapsedStorageKey}
         brandTitle={sidebarBrand}
         groups={sidebarGroups}
-        activeId={activeTab}
-        onSelect={setActiveTab}
+        activeId={sidebarActiveId}
+        onSelect={handleSidebarSelect}
         footer={
           <>
             <i className="fa-solid fa-user-circle portal-sidebar__footer-icon" aria-hidden />
@@ -147,7 +235,16 @@ const CurriculumStaffPortal = ({
           {activeTab === 'evaluated-students' && showEvalModules && (
             <StudentEvaluationView listMode="already-evaluated" />
           )}
-          {activeTab === 'analytics' && <EvaluatorAnalytics showEvalModules={showEvalModules} />}
+          {activeTab === 'lookup-data' && showLookupTab && visibleLookupPanels.length > 0 && (
+            <LookupDataManagement
+              panelNav="external"
+              activePanel={lookupSubPanel}
+              onActivePanelChange={setLookupSubPanel}
+            />
+          )}
+          {activeTab === 'analytics' && (
+            <EvaluatorAnalytics showEvalModules={showEvalModules} onNavigate={setActiveTab} />
+          )}
           {activeTab === 'profile' && <ProgramHeadProfile />}
         </div>
       </div>

@@ -90,7 +90,7 @@ const DeanAnalytics = ({ showEvalModules }) => {
     return () => clearTimeout(t);
   }, [showEvalModules, loadAtRisk, riskSearch]);
 
-  const programs = department?.programs || [];
+  const programs = useMemo(() => department?.programs || [], [department?.programs]);
   const maxProg = useMemo(
     () => Math.max(1, ...programs.map((p) => p.evaluation_count || 0)),
     [programs]

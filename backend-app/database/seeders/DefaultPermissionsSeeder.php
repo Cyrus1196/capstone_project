@@ -16,6 +16,7 @@ class DefaultPermissionsSeeder extends Seeder
         $permissions = [
             ['permission_name' => 'Admin Dashboard', 'category' => 'Dashboard', 'description' => 'Display admin statistics and overview'],
             ['permission_name' => 'User Management', 'category' => 'User Management', 'description' => 'Create, update, or deactivate system users'],
+            ['permission_name' => 'Student Management', 'category' => 'Students', 'description' => 'Manage student accounts, profiles, and SIS CSV import'],
             ['permission_name' => 'Role Settings', 'category' => 'User Management', 'description' => 'Manage roles and assign permissions to roles'],
             ['permission_name' => 'Lookup Data', 'category' => 'User Management', 'description' => 'Manage programs, subjects, campus, and other lookup data'],
             ['permission_name' => 'Curriculum Management', 'category' => 'Curriculum', 'description' => 'View and manage curriculum and subjects'],

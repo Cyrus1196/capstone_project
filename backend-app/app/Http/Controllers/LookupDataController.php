@@ -12,11 +12,13 @@ use App\Models\Semester;
 use App\Models\Section;
 use App\Models\AcademicYear;
 use App\Models\Track;
+use App\Models\Curriculum;
 use App\Models\CurriculumHeader;
 use App\Models\OfferedSubject;
 use App\Models\ElectiveSubject;
 use App\Models\ElectiveSlot;
 use App\Models\Prerequisite;
+use App\Models\StudentProfile;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
@@ -28,6 +30,18 @@ class LookupDataController extends Controller
         $s = strtolower(trim((string) ($status ?? '')));
 
         return $s === 'active' ? 'active' : 'inactive';
+    }
+
+    private function isInformationTechnologyProgram(?Program $program): bool
+    {
+        if (!$program) {
+            return false;
+        }
+
+        $code = strtolower((string) $program->program_code);
+        $name = strtolower((string) $program->program_name);
+
+        return str_contains($code, 'it') || str_contains($name, 'information technology');
     }
 
     /** Ensure only one semester is active: deactivate all except $exceptSemesterId (when not null). */
@@ -81,7 +95,7 @@ class LookupDataController extends Controller
             'electives.manage',
             'curriculum.view',
             'Curriculum Management',
-        ]);
+        ]) || $user->canAccessLookupResource('elective_subjects', false);
     }
 
     /**
@@ -137,18 +151,35 @@ class LookupDataController extends Controller
                 ? Track::all()
                 : collect([]);
             $curriculumHeaders = $this->canReadLookup($request, 'curriculum_headers')
-                ? CurriculumHeader::with('program')->get()
+                ? CurriculumHeader::with(['program', 'academicYear'])->get()
+                : collect([]);
+            $curriculums = ($this->canReadLookup($request, 'curriculum_headers') || $this->canReadLookup($request, 'requisites'))
+                ? Curriculum::with(['subject', 'program', 'yearLevel', 'semester', 'curriculumHeader'])
+                    ->orderBy('program_id')
+                    ->orderBy('year_level')
+                    ->orderBy('semester_id')
+                    ->orderBy('curriculum_id')
+                    ->get()
                 : collect([]);
             $offeredSubjects = $this->canReadLookup($request, 'offered_subjects')
                 ? OfferedSubject::with(['subject', 'academicYear', 'semester', 'program', 'track', 'yearLevel'])->get()
                 : collect([]);
             $electiveSubjects = $this->canReadLookup($request, 'elective_subjects')
-                ? ElectiveSubject::with(['track', 'subject'])->get()
+                ? ElectiveSubject::with(['department', 'program', 'track', 'subject', 'electiveSlot'])->get()
                 : collect([]);
 
             $electiveSlots = collect([]);
             if ($this->canListElectiveSlotsBundle($request)) {
-                $slots = ElectiveSlot::with(['program', 'semester', 'yearLevel', 'electiveSubjects.subject', 'electiveSubjects.track'])
+                $slots = ElectiveSlot::with([
+                    'program',
+                    'semester',
+                    'yearLevel',
+                    'prerequisiteSlot',
+                    'electiveSubjects.department',
+                    'electiveSubjects.program',
+                    'electiveSubjects.subject',
+                    'electiveSubjects.track',
+                ])
                     ->get();
                 $electiveSlots = $slots->map(function ($slot) {
                     return [
@@ -158,6 +189,8 @@ class LookupDataController extends Controller
                         'year_level_id' => $slot->year_level_id,
                         'slot_name' => $slot->slot_name,
                         'status' => $slot->status,
+                        'prerequisite_slot_id' => $slot->prerequisite_slot_id,
+                        'prerequisiteSlot' => $slot->prerequisiteSlot,
                         'program' => $slot->program,
                         'semester' => $slot->semester,
                         'yearLevel' => $slot->yearLevel,
@@ -166,8 +199,12 @@ class LookupDataController extends Controller
                                 'elective_subject_id' => $es->elective_subject_id,
                                 'elective_slot_id' => $es->elective_slot_id,
                                 'subject_id' => $es->subject_id,
+                                'department_id' => $es->department_id,
+                                'program_id' => $es->program_id,
                                 'track_id' => $es->track_id,
                                 'description' => $es->description,
+                                'department' => $es->department,
+                                'program' => $es->program,
                                 'subject' => $es->subject,
                                 'track' => $es->track,
                             ];
@@ -188,6 +225,7 @@ class LookupDataController extends Controller
                 'roles' => $roles,
                 'tracks' => $tracks,
                 'curriculumHeaders' => $curriculumHeaders,
+                'curriculums' => $curriculums,
                 'offeredSubjects' => $offeredSubjects,
                 'electiveSubjects' => $electiveSubjects,
                 'electiveSlots' => $electiveSlots,
@@ -680,11 +718,26 @@ class LookupDataController extends Controller
                 $this->deactivateAllSemestersExcept($id);
             }
             $semester->update(['status' => $newStatus]);
+
+            // Bind Lookup active semester → student standing (dean evaluation Year/Semester banner).
+            if ($newStatus === 'active') {
+                StudentProfile::query()->update([
+                    'semester_id' => $id,
+                    'promotion_target_semester_id' => $id,
+                ]);
+            }
         });
 
         $semester->refresh();
 
-        return response()->json($semester);
+        return response()->json([
+            'semester_id' => $semester->semester_id,
+            'semester_name' => $semester->semester_name,
+            'status' => $this->normalizedSemesterStatus($semester->status),
+            'message' => $newStatus === 'active'
+                ? 'Semester activated and applied to student standing.'
+                : 'Semester deactivated.',
+        ]);
     }
 
     public function deleteSemester(Request $request, $id)
@@ -721,7 +774,7 @@ class LookupDataController extends Controller
             // Return predefined access levels matching the database
             $accessLevels = [
                 ['id' => 10, 'name' => 'Admin', 'description' => 'Full system access'],
-                ['id' => 8, 'name' => 'Evaluator', 'description' => 'Evaluator access'],
+                ['id' => 8, 'name' => 'Adviser', 'description' => 'Adviser access'],
                 ['id' => 9, 'name' => 'Dean', 'description' => 'Dean access'],
                 ['id' => 5, 'name' => 'Student', 'description' => 'Student access'],
             ];
@@ -943,10 +996,73 @@ class LookupDataController extends Controller
             'requisites_subject_id' => 'required|exists:tbl_subjects,subject_id|different:subject_id',
         ]);
 
-        $requisite = Prerequisite::create($validated);
+        $requisite = Prerequisite::firstOrCreate($validated);
+
+        Prerequisite::where('subject_id', $validated['subject_id'])
+            ->where('requisite_type', $validated['requisite_type'])
+            ->where('requisites_subject_id', $validated['requisites_subject_id'])
+            ->where('requisites_id', '!=', $requisite->requisites_id)
+            ->delete();
+
         $requisite->load(['subject', 'requiredSubject']);
 
-        return response()->json($requisite, 201);
+        return response()->json($requisite, $requisite->wasRecentlyCreated ? 201 : 200);
+    }
+
+    public function syncRequisites(Request $request)
+    {
+        if ($resp = $this->ensureLookupAccess($request, 'requisites', true)) {
+            return $resp;
+        }
+
+        $validated = $request->validate([
+            'subject_id' => 'required|exists:tbl_subjects,subject_id',
+            'requisite_type' => 'required|in:prerequisite,corequisite',
+            'required_subject_ids' => 'present|array',
+            'required_subject_ids.*' => 'integer|exists:tbl_subjects,subject_id|different:subject_id',
+            'rule_label' => 'nullable|string|max:100',
+        ]);
+
+        $requiredSubjectIds = collect($validated['required_subject_ids'])
+            ->map(fn ($id) => (int) $id)
+            ->filter(fn ($id) => $id !== (int) $validated['subject_id'])
+            ->unique()
+            ->values();
+        $ruleLabel = trim((string) ($validated['rule_label'] ?? '')) ?: null;
+
+        DB::transaction(function () use ($validated, $requiredSubjectIds, $ruleLabel) {
+            Prerequisite::where('subject_id', $validated['subject_id'])
+                ->where('requisite_type', $validated['requisite_type'])
+                ->whereNotIn('requisites_subject_id', $requiredSubjectIds)
+                ->delete();
+
+            foreach ($requiredSubjectIds as $requiredSubjectId) {
+                $requisite = Prerequisite::firstOrCreate([
+                    'subject_id' => $validated['subject_id'],
+                    'requisite_type' => $validated['requisite_type'],
+                    'requisites_subject_id' => $requiredSubjectId,
+                ]);
+                $requisite->rule_label = $ruleLabel;
+                $requisite->save();
+
+                Prerequisite::where('subject_id', $validated['subject_id'])
+                    ->where('requisite_type', $validated['requisite_type'])
+                    ->where('requisites_subject_id', $requiredSubjectId)
+                    ->where('requisites_id', '!=', $requisite->requisites_id)
+                    ->delete();
+            }
+        });
+
+        $requisites = Prerequisite::with(['subject', 'requiredSubject'])
+            ->where('subject_id', $validated['subject_id'])
+            ->where('requisite_type', $validated['requisite_type'])
+            ->orderBy('requisites_subject_id')
+            ->get();
+
+        return response()->json([
+            'message' => 'Requisites synced successfully',
+            'requisites' => $requisites,
+        ]);
     }
 
     public function updateRequisite(Request $request, $id)
@@ -963,7 +1079,26 @@ class LookupDataController extends Controller
             'requisites_subject_id' => 'required|exists:tbl_subjects,subject_id|different:subject_id',
         ]);
 
+        $existing = Prerequisite::where('subject_id', $validated['subject_id'])
+            ->where('requisite_type', $validated['requisite_type'])
+            ->where('requisites_subject_id', $validated['requisites_subject_id'])
+            ->where('requisites_id', '!=', $requisite->requisites_id)
+            ->first();
+
+        if ($existing) {
+            $requisite->delete();
+            $existing->load(['subject', 'requiredSubject']);
+            return response()->json($existing);
+        }
+
         $requisite->update($validated);
+
+        Prerequisite::where('subject_id', $validated['subject_id'])
+            ->where('requisite_type', $validated['requisite_type'])
+            ->where('requisites_subject_id', $validated['requisites_subject_id'])
+            ->where('requisites_id', '!=', $requisite->requisites_id)
+            ->delete();
+
         $requisite->load(['subject', 'requiredSubject']);
 
         return response()->json($requisite);
@@ -989,7 +1124,7 @@ class LookupDataController extends Controller
                 return $resp;
             }
 
-            $headers = CurriculumHeader::with('program')->get();
+            $headers = CurriculumHeader::with(['program', 'academicYear'])->get();
             return response()->json($headers);
         } catch (\Exception $e) {
             return response()->json(['error' => 'Failed to fetch curriculum headers', 'message' => $e->getMessage()], 500);
@@ -1005,11 +1140,12 @@ class LookupDataController extends Controller
         $validated = $request->validate([
             'program_id' => 'required|exists:tbl_program,program_id',
             'Effective_Year' => 'required|integer',
+            'academic_year_id' => 'required|exists:tbl_academic_year,academic_year_id',
             'description' => 'nullable|string',
         ]);
 
         $header = CurriculumHeader::create($validated);
-        $header->load('program');
+        $header->load(['program', 'academicYear']);
 
         return response()->json($header, 201);
     }
@@ -1025,11 +1161,12 @@ class LookupDataController extends Controller
         $validated = $request->validate([
             'program_id' => 'required|exists:tbl_program,program_id',
             'Effective_Year' => 'required|integer',
+            'academic_year_id' => 'required|exists:tbl_academic_year,academic_year_id',
             'description' => 'nullable|string',
         ]);
 
         $header->update($validated);
-        $header->load('program');
+        $header->load(['program', 'academicYear']);
 
         return response()->json($header);
     }
@@ -1074,8 +1211,9 @@ class LookupDataController extends Controller
             'program_id' => 'required|exists:tbl_program,program_id',
             'track_id' => 'nullable|exists:tbl_track,track_id',
             'year_level_id' => 'nullable|exists:year_level,year_level_id',
-            'status' => 'nullable|string|max:50',
+            'status' => 'nullable|in:active,inactive',
         ]);
+        $validated['status'] = $validated['status'] ?? 'active';
 
         $offered = OfferedSubject::create($validated);
         $offered->load(['subject', 'academicYear', 'semester', 'program', 'track', 'yearLevel']);
@@ -1098,10 +1236,28 @@ class LookupDataController extends Controller
             'program_id' => 'required|exists:tbl_program,program_id',
             'track_id' => 'nullable|exists:tbl_track,track_id',
             'year_level_id' => 'nullable|exists:year_level,year_level_id',
-            'status' => 'nullable|string|max:50',
+            'status' => 'nullable|in:active,inactive',
         ]);
+        $validated['status'] = $validated['status'] ?? 'active';
 
         $offered->update($validated);
+        $offered->load(['subject', 'academicYear', 'semester', 'program', 'track', 'yearLevel']);
+
+        return response()->json($offered);
+    }
+
+    public function setOfferedSubjectStatus(Request $request, $id)
+    {
+        if ($resp = $this->ensureLookupAccess($request, 'offered_subjects', true)) {
+            return $resp;
+        }
+
+        $validated = $request->validate([
+            'status' => 'required|in:active,inactive',
+        ]);
+
+        $offered = OfferedSubject::findOrFail($id);
+        $offered->update(['status' => $validated['status']]);
         $offered->load(['subject', 'academicYear', 'semester', 'program', 'track', 'yearLevel']);
 
         return response()->json($offered);
@@ -1127,7 +1283,7 @@ class LookupDataController extends Controller
                 return $resp;
             }
 
-            $electives = ElectiveSubject::with(['track', 'subject'])->get();
+            $electives = ElectiveSubject::with(['department', 'program', 'track', 'subject', 'electiveSlot'])->get();
             return response()->json($electives);
         } catch (\Exception $e) {
             return response()->json(['error' => 'Failed to fetch elective subjects', 'message' => $e->getMessage()], 500);
@@ -1141,13 +1297,47 @@ class LookupDataController extends Controller
         }
 
         $validated = $request->validate([
-            'track_id' => 'required|exists:tbl_track,track_id',
+            'department_id' => 'required|exists:tbl_departments,department_id',
+            'program_id' => 'required|exists:tbl_program,program_id',
+            'track_id' => 'nullable|exists:tbl_track,track_id',
             'subject_id' => 'required|exists:tbl_subjects,subject_id',
+            'elective_slot_id' => 'nullable|exists:tbl_elective_slot,elective_slot_id',
             'description' => 'nullable|string',
         ]);
 
+        $program = Program::findOrFail($validated['program_id']);
+        if ((int) $program->department_id !== (int) $validated['department_id']) {
+            return response()->json([
+                'message' => 'The selected program does not belong to the selected department.',
+                'errors' => ['program_id' => ['The selected program does not belong to the selected department.']],
+            ], 422);
+        }
+
+        if (! empty($validated['elective_slot_id'])) {
+            $slot = ElectiveSlot::findOrFail($validated['elective_slot_id']);
+            if ((int) $slot->program_id !== (int) $validated['program_id']) {
+                return response()->json([
+                    'message' => 'The selected elective slot does not belong to the selected program.',
+                    'errors' => ['elective_slot_id' => ['The selected elective slot does not belong to the selected program.']],
+                ], 422);
+            }
+        } else {
+            $validated['elective_slot_id'] = null;
+        }
+
+        if ($this->isInformationTechnologyProgram($program)) {
+            if (empty($validated['track_id'])) {
+                return response()->json([
+                    'message' => 'Track is required for IT elective subjects.',
+                    'errors' => ['track_id' => ['Track is required for IT elective subjects.']],
+                ], 422);
+            }
+        } else {
+            $validated['track_id'] = null;
+        }
+
         $elective = ElectiveSubject::create($validated);
-        $elective->load(['track', 'subject']);
+        $elective->load(['department', 'program', 'track', 'subject', 'electiveSlot']);
 
         return response()->json($elective, 201);
     }
@@ -1161,13 +1351,47 @@ class LookupDataController extends Controller
         $elective = ElectiveSubject::findOrFail($id);
 
         $validated = $request->validate([
-            'track_id' => 'required|exists:tbl_track,track_id',
+            'department_id' => 'required|exists:tbl_departments,department_id',
+            'program_id' => 'required|exists:tbl_program,program_id',
+            'track_id' => 'nullable|exists:tbl_track,track_id',
             'subject_id' => 'required|exists:tbl_subjects,subject_id',
+            'elective_slot_id' => 'nullable|exists:tbl_elective_slot,elective_slot_id',
             'description' => 'nullable|string',
         ]);
 
+        $program = Program::findOrFail($validated['program_id']);
+        if ((int) $program->department_id !== (int) $validated['department_id']) {
+            return response()->json([
+                'message' => 'The selected program does not belong to the selected department.',
+                'errors' => ['program_id' => ['The selected program does not belong to the selected department.']],
+            ], 422);
+        }
+
+        if (! empty($validated['elective_slot_id'])) {
+            $slot = ElectiveSlot::findOrFail($validated['elective_slot_id']);
+            if ((int) $slot->program_id !== (int) $validated['program_id']) {
+                return response()->json([
+                    'message' => 'The selected elective slot does not belong to the selected program.',
+                    'errors' => ['elective_slot_id' => ['The selected elective slot does not belong to the selected program.']],
+                ], 422);
+            }
+        } else {
+            $validated['elective_slot_id'] = null;
+        }
+
+        if ($this->isInformationTechnologyProgram($program)) {
+            if (empty($validated['track_id'])) {
+                return response()->json([
+                    'message' => 'Track is required for IT elective subjects.',
+                    'errors' => ['track_id' => ['Track is required for IT elective subjects.']],
+                ], 422);
+            }
+        } else {
+            $validated['track_id'] = null;
+        }
+
         $elective->update($validated);
-        $elective->load(['track', 'subject']);
+        $elective->load(['department', 'program', 'track', 'subject', 'electiveSlot']);
 
         return response()->json($elective);
     }

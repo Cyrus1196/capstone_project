@@ -43,9 +43,11 @@ const StudentManagement = () => {
         {section === 'list' && <UserManagement userScope="students" />}
         {section === 'import' && (
           <CsvImport
-            restrictToImportKeys={['sis_mixed']}
+            restrictToImportKeys={['sis_grade_deliberation']}
+            hideImportType
+            sisFileHeadersOnly
             pageTitle="Import from SIS (CSV)"
-            pageSubtitle="One CSV: set record_type on each row — student or account (login + profile; match by school ID, or by student email, or create with email + password), grade or subject (evaluations), prerequisite (catalog). Leave unused columns empty per row."
+            pageSubtitle="Upload a Grade Deliberation CSV or tab-delimited export. Your file’s first row should use the column headers below."
           />
         )}
       </div>

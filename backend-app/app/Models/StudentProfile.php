@@ -24,19 +24,27 @@ class StudentProfile extends Model
         'last_name',
         'address',
         'academic_status',
+        // Shiftee / Returnee / Transferee — set at account creation; not Regular/Irregular.
+        'student_entry_type',
         'Current_Program',
         'current_program',
+        'Previous_Program',
+        'previous_program',
         'year_level_id',
+        'semester_id',
+        'academic_year_id',
         'track_id',
         'promoted_next_sem_at',
         'promoted_next_sem_by',
         'promotion_evaluated_by',
         'promotion_target_year_level_id',
         'promotion_target_semester_id',
+        'standing_deferred_keys',
     ];
 
     protected $casts = [
         'promoted_next_sem_at' => 'datetime',
+        'standing_deferred_keys' => 'array',
     ];
 
     /** Alias for Current_Program so controllers can use current_program. */
@@ -50,6 +58,17 @@ class StudentProfile extends Model
     {
         $this->attributes['Current_Program'] = $value;
         unset($this->attributes['current_program']);
+    }
+
+    public function getPreviousProgramAttribute()
+    {
+        return $this->attributes['Previous_Program'] ?? $this->attributes['previous_program'] ?? null;
+    }
+
+    public function setPreviousProgramAttribute($value): void
+    {
+        $this->attributes['Previous_Program'] = $value;
+        unset($this->attributes['previous_program']);
     }
 
     /** Single attribute for either student_id_number or student_number column. */
@@ -90,9 +109,24 @@ class StudentProfile extends Model
         return $this->belongsTo(Program::class, 'Current_Program', 'program_id');
     }
 
+    public function previousProgram()
+    {
+        return $this->belongsTo(Program::class, 'Previous_Program', 'program_id');
+    }
+
     public function yearLevel()
     {
         return $this->belongsTo(YearLevel::class, 'year_level_id', 'year_level_id');
+    }
+
+    public function semester()
+    {
+        return $this->belongsTo(Semester::class, 'semester_id', 'semester_id');
+    }
+
+    public function academicYear()
+    {
+        return $this->belongsTo(AcademicYear::class, 'academic_year_id', 'academic_year_id');
     }
 
     public function track()

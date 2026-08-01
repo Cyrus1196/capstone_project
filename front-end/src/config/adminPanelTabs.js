@@ -26,8 +26,14 @@ export const USER_MANAGEMENT_TAB_PERMISSIONS = [
   'users.manage_roles',
 ];
 
-/** Student accounts + CSV student import — same gate as user management. */
-export const STUDENT_MANAGEMENT_TAB_PERMISSIONS = USER_MANAGEMENT_TAB_PERMISSIONS;
+/** Student accounts + CSV student import. */
+export const STUDENT_MANAGEMENT_TAB_PERMISSIONS = [
+  'Student Management',
+  'students.view',
+  'students.create',
+  'students.edit',
+  'students.enroll',
+];
 
 export const ROLE_SETTINGS_TAB_PERMISSIONS = [
   'Role Settings',
@@ -82,16 +88,13 @@ export const ACADEMIC_MANAGEMENT_TAB_PERMISSIONS = [
   'prerequisites.manage',
 ];
 
-export const ELECTIVE_SLOTS_TAB_PERMISSIONS = ['Elective Slots', 'electives.view', 'electives.manage'];
-
-export const CSV_IMPORT_TAB_PERMISSIONS = [
-  'User Management',
-  'Curriculum Management',
-  'Lookup Data',
-  'users.create',
-  'curriculum.create',
-  'lookup.manage',
+export const EVALUATION_REPORTS_TAB_PERMISSIONS = [
+  'Evaluation Reports',
+  'reports.view',
+  'reports.generate',
 ];
+
+export const ELECTIVE_SLOTS_TAB_PERMISSIONS = ['Elective Slots', 'electives.view', 'electives.manage'];
 
 export const SECURITY_TAB_PERMISSIONS = ['System Management', 'system.settings', 'system.backup'];
 
@@ -155,13 +158,6 @@ export const ADMIN_PANEL_TABS = [
     permissions: ACADEMIC_MANAGEMENT_TAB_PERMISSIONS,
     group: 'operations',
     icon: 'fa-solid fa-school',
-  },
-  {
-    id: 'csv-import',
-    label: 'CSV Import',
-    permissions: CSV_IMPORT_TAB_PERMISSIONS,
-    group: 'operations',
-    icon: 'fa-solid fa-file-csv',
   },
   {
     id: 'security',

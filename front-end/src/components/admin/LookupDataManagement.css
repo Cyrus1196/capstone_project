@@ -512,6 +512,33 @@
   background: #e0a800;
 }
 
+.activate-button,
+.deactivate-button {
+  color: white;
+  border: none;
+  padding: 0.4rem 0.8rem;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.8rem;
+  transition: background-color 0.3s ease;
+}
+
+.activate-button {
+  background: #28a745;
+}
+
+.activate-button:hover {
+  background: #218838;
+}
+
+.deactivate-button {
+  background: #dc3545;
+}
+
+.deactivate-button:hover {
+  background: #c82333;
+}
+
 .delete-button {
   background: #dc3545;
   color: white;
@@ -725,6 +752,8 @@
     font-size: 1.1rem;
   }
 
+  .activate-button,
+  .deactivate-button,
   .edit-button,
   .delete-button {
     padding: 0.3rem 0.6rem;

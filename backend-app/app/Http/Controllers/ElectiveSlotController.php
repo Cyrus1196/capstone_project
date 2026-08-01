@@ -35,7 +35,7 @@ class ElectiveSlotController extends Controller
     protected function denyUnlessElectiveSlots(Request $request): ?\Illuminate\Http\JsonResponse
     {
         $user = $request->user();
-        if (!$user || !$user->hasPermission('Elective Slots')) {
+        if (!$user || !$user->hasAnyPermission(['Elective Slots', 'electives.manage', 'Curriculum Management', 'curriculum.edit'])) {
             return response()->json(['message' => 'Unauthorized'], 403);
         }
 
@@ -48,7 +48,7 @@ class ElectiveSlotController extends Controller
             return response()->json(['message' => 'Unauthorized'], 403);
         }
         try {
-            $slots = ElectiveSlot::with(['program', 'semester', 'yearLevel', 'electiveSubjects.subject', 'electiveSubjects.track'])
+            $slots = ElectiveSlot::with(['program', 'semester', 'yearLevel', 'prerequisiteSlot', 'electiveSubjects.subject', 'electiveSubjects.track'])
                 ->get();
             
             // Transform to ensure camelCase for frontend
@@ -60,6 +60,8 @@ class ElectiveSlotController extends Controller
                     'year_level_id' => $slot->year_level_id,
                     'slot_name' => $slot->slot_name,
                     'status' => $slot->status,
+                    'prerequisite_slot_id' => $slot->prerequisite_slot_id,
+                    'prerequisiteSlot' => $slot->prerequisiteSlot,
                     'program' => $slot->program,
                     'semester' => $slot->semester,
                     'yearLevel' => $slot->yearLevel,
@@ -93,10 +95,11 @@ class ElectiveSlotController extends Controller
                 'year_level_id' => 'required|exists:year_level,year_level_id',
                 'slot_name' => 'required|string|max:100',
                 'status' => 'nullable|string|max:50',
+                'prerequisite_slot_id' => 'nullable|exists:tbl_elective_slot,elective_slot_id',
             ]);
 
             $slot = ElectiveSlot::create($validated);
-            $slot->load(['program', 'semester', 'yearLevel', 'electiveSubjects.subject', 'electiveSubjects.track']);
+            $slot->load(['program', 'semester', 'yearLevel', 'prerequisiteSlot', 'electiveSubjects.subject', 'electiveSubjects.track']);
             
             // Transform to ensure camelCase for frontend
             $transformed = [
@@ -106,6 +109,8 @@ class ElectiveSlotController extends Controller
                 'year_level_id' => $slot->year_level_id,
                 'slot_name' => $slot->slot_name,
                 'status' => $slot->status,
+                'prerequisite_slot_id' => $slot->prerequisite_slot_id,
+                'prerequisiteSlot' => $slot->prerequisiteSlot,
                 'program' => $slot->program,
                 'semester' => $slot->semester,
                 'yearLevel' => $slot->yearLevel,
@@ -134,7 +139,7 @@ class ElectiveSlotController extends Controller
             return $deny;
         }
         try {
-            $slot = ElectiveSlot::with(['program', 'semester', 'yearLevel', 'electiveSubjects.subject', 'electiveSubjects.track'])
+            $slot = ElectiveSlot::with(['program', 'semester', 'yearLevel', 'prerequisiteSlot', 'electiveSubjects.subject', 'electiveSubjects.track'])
                 ->findOrFail($id);
             
             // Transform to ensure camelCase for frontend
@@ -145,6 +150,8 @@ class ElectiveSlotController extends Controller
                 'year_level_id' => $slot->year_level_id,
                 'slot_name' => $slot->slot_name,
                 'status' => $slot->status,
+                'prerequisite_slot_id' => $slot->prerequisite_slot_id,
+                'prerequisiteSlot' => $slot->prerequisiteSlot,
                 'program' => $slot->program,
                 'semester' => $slot->semester,
                 'yearLevel' => $slot->yearLevel,
@@ -181,10 +188,11 @@ class ElectiveSlotController extends Controller
                 'year_level_id' => 'required|exists:year_level,year_level_id',
                 'slot_name' => 'required|string|max:100',
                 'status' => 'nullable|string|max:50',
+                'prerequisite_slot_id' => 'nullable|exists:tbl_elective_slot,elective_slot_id',
             ]);
 
             $slot->update($validated);
-            $slot->load(['program', 'semester', 'yearLevel', 'electiveSubjects.subject', 'electiveSubjects.track']);
+            $slot->load(['program', 'semester', 'yearLevel', 'prerequisiteSlot', 'electiveSubjects.subject', 'electiveSubjects.track']);
             
             // Transform to ensure camelCase for frontend
             $transformed = [
@@ -194,6 +202,8 @@ class ElectiveSlotController extends Controller
                 'year_level_id' => $slot->year_level_id,
                 'slot_name' => $slot->slot_name,
                 'status' => $slot->status,
+                'prerequisite_slot_id' => $slot->prerequisite_slot_id,
+                'prerequisiteSlot' => $slot->prerequisiteSlot,
                 'program' => $slot->program,
                 'semester' => $slot->semester,
                 'yearLevel' => $slot->yearLevel,
@@ -237,7 +247,7 @@ class ElectiveSlotController extends Controller
         }
         try {
             // Verify slot exists
-            $slot = ElectiveSlot::findOrFail($slotId);
+            $slot = ElectiveSlot::with('program')->findOrFail($slotId);
 
             // Validate subject_id first
             $validated = $request->validate([
@@ -273,6 +283,8 @@ class ElectiveSlotController extends Controller
             // Prepare data for creation
             $createData = [
                 'elective_slot_id' => (int)$slotId,
+                'department_id' => $slot->program?->department_id,
+                'program_id' => $slot->program_id,
                 'subject_id' => (int)$validated['subject_id'],
                 'description' => $validated['description'] ?? null,
             ];
@@ -288,7 +300,7 @@ class ElectiveSlotController extends Controller
             
             // Reload the slot with all relationships to return updated data
             $slot->refresh();
-            $slot->load(['program', 'semester', 'yearLevel', 'electiveSubjects.subject', 'electiveSubjects.track']);
+            $slot->load(['program', 'semester', 'yearLevel', 'prerequisiteSlot', 'electiveSubjects.subject', 'electiveSubjects.track']);
             
             // Transform slot to ensure camelCase for frontend
             $transformedSlot = [
@@ -298,6 +310,8 @@ class ElectiveSlotController extends Controller
                 'year_level_id' => $slot->year_level_id,
                 'slot_name' => $slot->slot_name,
                 'status' => $slot->status,
+                'prerequisite_slot_id' => $slot->prerequisite_slot_id,
+                'prerequisiteSlot' => $slot->prerequisiteSlot,
                 'program' => $slot->program,
                 'semester' => $slot->semester,
                 'yearLevel' => $slot->yearLevel,

@@ -224,4 +224,6 @@ export const userService = {
   },
 };
 
-export default { roleService, permissionService, userService };
+const rbacService = { roleService, permissionService, userService };
+
+export default rbacService;

@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\SecuritySetting;
 use App\Models\TblUser;
 use App\Services\AuthSecurity;
+use App\Services\UserSessionLogger;
 use Illuminate\Http\Request;
 use Illuminate\Validation\ValidationException;
 use Tymon\JWTAuth\Facades\JWTAuth;
@@ -21,6 +22,7 @@ class JwtAuthController extends Controller
         $user = TblUser::whereEmail($request->email)->first();
 
         if (! $user) {
+            UserSessionLogger::logFailedLogin($request, $request->email, 'User not found');
             return response()->json(['error' => 'Invalid credentials'], 401);
         }
 
@@ -28,6 +30,7 @@ class JwtAuthController extends Controller
             AuthSecurity::validateCredentialsForLogin($user, $request->password);
         } catch (ValidationException $e) {
             $msg = collect($e->errors())->flatten()->first() ?? 'Login failed';
+            UserSessionLogger::logFailedLogin($request, $request->email, $msg);
 
             return response()->json([
                 'error' => $msg,
@@ -36,6 +39,7 @@ class JwtAuthController extends Controller
         }
 
         $token = JWTAuth::fromUser($user);
+        UserSessionLogger::logSuccessfulLogin($request, $user, $token);
 
         return response()->json([
             'access_token' => $token,
@@ -109,9 +113,11 @@ class JwtAuthController extends Controller
         ]);
     }
 
-    public function logout()
+    public function logout(Request $request)
     {
         try {
+            $token = JWTAuth::getToken();
+            UserSessionLogger::logLogout($request, $request->user(), $token ? $token->get() : null);
             JWTAuth::parseToken()->invalidate(true);
         } catch (\Throwable) {
             //

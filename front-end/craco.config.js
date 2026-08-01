@@ -20,6 +20,14 @@ module.exports = {
             '.eslintcache'
           );
         }
+
+        if (
+          plugin &&
+          plugin.constructor?.name === 'MiniCssExtractPlugin' &&
+          plugin.options
+        ) {
+          plugin.options.ignoreOrder = true;
+        }
       }
 
       return config;

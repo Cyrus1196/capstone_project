@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\Evaluation;
 use App\Models\StudentProfile;
 use App\Models\Subject;
+use App\Services\GradeScaleHelper;
 use App\Services\StudentCurriculumEvaluationBuilder;
 use App\Models\AcademicYear;
 use App\Models\Semester;
@@ -24,6 +25,19 @@ class EvaluationController extends Controller
             }
 
             $query = Evaluation::with(['student', 'subject', 'academicYear', 'semester', 'section', 'evaluatedBy']);
+
+            if ($this->requiresAssignedProgramScope($user)) {
+                $assignedProgramId = $this->assignedEvaluationProgramId($user);
+                if (! $assignedProgramId) {
+                    return response()->json($query->whereRaw('1 = 0')->paginate($request->get('per_page', 15)));
+                }
+                $query->whereHas('student', function ($sq) use ($assignedProgramId) {
+                    $sq->where(function ($w) use ($assignedProgramId) {
+                        $w->where('Current_Program', $assignedProgramId)
+                            ->orWhere('current_program', $assignedProgramId);
+                    });
+                });
+            }
 
             // Apply filters
             if ($request->has('student_id')) {
@@ -62,20 +76,16 @@ class EvaluationController extends Controller
                 return response()->json(['message' => 'Unauthorized'], 401);
             }
 
-            if ($user->hasRole('Evaluator')) {
-                return response()->json([
-                    'message' => 'Evaluators cannot create or edit curriculum grades. Grades come from imported data; complete your review with “Store evaluation record” when the student may proceed.',
-                ], 403);
-            }
-
             $validated = $request->validate([
                 'student_id' => 'required|exists:tbl_student_profile,student_id',
                 'subject_id' => 'required|exists:tbl_subjects,subject_id',
+                'elective_slot_id' => 'nullable|exists:tbl_elective_slot,elective_slot_id',
                 'academic_year_id' => 'required|exists:tbl_academic_year,academic_year_id',
                 'semester_id' => 'required|exists:tbl_semester,semester_id',
                 'section_id' => 'nullable|exists:tbl_section,section_id',
-                'grade' => 'nullable|string|max:10',
-                'evaluation_status' => 'nullable|string|in:passed,failed,ongoing,dropped,incomplete,inc',
+                'elective_slot_id' => 'nullable|exists:tbl_elective_slot,elective_slot_id',
+                'grade' => 'nullable|string|max:20',
+                'evaluation_status' => 'nullable|string|in:passed,failed,ongoing,dropped,incomplete,inc,complete',
                 'evaluated_by' => 'nullable|exists:tbl_users,user_id',
                 'modality_id' => 'nullable|exists:tbl_modality,modality_id',
                 'evaluation_date' => 'nullable|date',
@@ -91,12 +101,23 @@ class EvaluationController extends Controller
                     'message' => 'You are not permitted to evaluate students in this year level.',
                 ], 403);
             }
+            if ($denied = $this->denyOutsideAssignedProgram($user, $studentProfile)) {
+                return $denied;
+            }
 
             DB::beginTransaction();
             $validated['evaluated_by'] = $validated['evaluated_by'] ?? $user->user_id;
+            if ($studentProfile->current_program !== null && $studentProfile->current_program !== '') {
+                $validated['graded_under_program_id'] = (int) $studentProfile->current_program;
+            }
             if (array_key_exists('evaluation_status', $validated)) {
                 $validated['evaluation_status'] = $this->normalizeEvaluationStatus($validated['evaluation_status']);
             }
+            app(GradeScaleHelper::class)->applyManualEvaluationNormalization(
+                $validated,
+                $studentProfile->current_program !== null ? (int) $studentProfile->current_program : null,
+                (int) $validated['subject_id']
+            );
             $this->assertPrerequisitesAllowGradeOutcome(
                 (int) $validated['student_id'],
                 (int) $validated['subject_id'],
@@ -148,6 +169,10 @@ class EvaluationController extends Controller
                 'semester'
             ])->findOrFail($id);
 
+            if ($evaluation->student && ($denied = $this->denyOutsideAssignedProgram($user, $evaluation->student))) {
+                return $denied;
+            }
+
             return response()->json($evaluation);
         } catch (\Exception $e) {
             return response()->json([
@@ -165,12 +190,6 @@ class EvaluationController extends Controller
                 return response()->json(['message' => 'Unauthorized'], 401);
             }
 
-            if ($user->hasRole('Evaluator')) {
-                return response()->json([
-                    'message' => 'Evaluators cannot create or edit curriculum grades. Grades come from imported data; complete your review with “Store evaluation record” when the student may proceed.',
-                ], 403);
-            }
-
             $evaluation = Evaluation::findOrFail($id);
 
             $studentProfile = StudentProfile::query()->find($evaluation->student_id);
@@ -181,11 +200,14 @@ class EvaluationController extends Controller
                     'message' => 'You are not permitted to evaluate students in this year level.',
                 ], 403);
             }
+            if ($denied = $this->denyOutsideAssignedProgram($user, $studentProfile)) {
+                return $denied;
+            }
 
             $validated = $request->validate([
                 'section_id' => 'nullable|exists:tbl_section,section_id',
-                'grade' => 'nullable|string|max:10',
-                'evaluation_status' => 'nullable|string|in:passed,failed,ongoing,dropped,incomplete,inc',
+                'grade' => 'nullable|string|max:20',
+                'evaluation_status' => 'nullable|string|in:passed,failed,ongoing,dropped,incomplete,inc,complete',
                 'evaluated_by' => 'nullable|exists:tbl_users,user_id',
                 'modality_id' => 'nullable|exists:tbl_modality,modality_id',
                 'evaluation_date' => 'nullable|date',
@@ -196,9 +218,17 @@ class EvaluationController extends Controller
             DB::beginTransaction();
 
             $validated['evaluated_by'] = $validated['evaluated_by'] ?? $user->user_id;
+            if ($studentProfile->current_program !== null && $studentProfile->current_program !== '') {
+                $validated['graded_under_program_id'] = (int) $studentProfile->current_program;
+            }
             if (array_key_exists('evaluation_status', $validated)) {
                 $validated['evaluation_status'] = $this->normalizeEvaluationStatus($validated['evaluation_status']);
             }
+            app(GradeScaleHelper::class)->applyManualEvaluationNormalization(
+                $validated,
+                $studentProfile->current_program !== null ? (int) $studentProfile->current_program : null,
+                (int) $evaluation->subject_id
+            );
             $this->rejectPastIncDeadlineOnUpdate($evaluation, $validated);
             $this->mergeIncComplianceDeadlineForUpdate($evaluation, $validated);
             $effectiveStatus = array_key_exists('evaluation_status', $validated)
@@ -542,5 +572,39 @@ class EvaluationController extends Controller
         if ($profile) {
             app(StudentCurriculumEvaluationBuilder::class)->syncStudentProfileFromCurriculumProgress($profile);
         }
+    }
+
+    private function requiresAssignedProgramScope($user): bool
+    {
+        return $user->isEvaluatorLike() || $user->hasRole('Program Head');
+    }
+
+    private function assignedEvaluationProgramId($user): ?int
+    {
+        if ($user->isEvaluatorLike()) {
+            $programId = $user->facultyProfile()->value('program_id');
+
+            return $programId ? (int) $programId : null;
+        }
+
+        if ($user->hasRole('Program Head')) {
+            return $user->program_id ? (int) $user->program_id : null;
+        }
+
+        return null;
+    }
+
+    private function denyOutsideAssignedProgram($user, StudentProfile $profile): ?\Illuminate\Http\JsonResponse
+    {
+        if (! $this->requiresAssignedProgramScope($user)) {
+            return null;
+        }
+
+        $assignedProgramId = $this->assignedEvaluationProgramId($user);
+        if (! $assignedProgramId || (int) $profile->current_program !== (int) $assignedProgramId) {
+            return response()->json(['message' => 'Student is not in your assigned program'], 403);
+        }
+
+        return null;
     }
 }

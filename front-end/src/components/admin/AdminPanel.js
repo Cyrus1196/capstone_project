@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { useNavigate } from 'react-router-dom';
 import UserManagement from './UserManagement';
@@ -7,7 +7,6 @@ import CurriculumManagement from './CurriculumManagement';
 import LookupDataManagement from './LookupDataManagement';
 import AcademicManagement from './AcademicManagement';
 import ElectiveSlotManagement from './ElectiveSlotManagement';
-import CsvImport from './CsvImport';
 import StudentManagement from './StudentManagement';
 import SecuritySettings from './SecuritySettings';
 import AuditLogsManagement from './AuditLogsManagement';
@@ -19,6 +18,25 @@ import {
 } from '../../config/lookupDataSidebarPanels';
 import PortalSidebar from '../common/PortalSidebar';
 import './AdminPanel.css';
+
+const ADMIN_ACTIVE_TAB_STORAGE_KEY = 'adminPortalActiveTab';
+const ADMIN_LOOKUP_SUB_PANEL_STORAGE_KEY = 'adminLookupSubPanel';
+
+function readStoredAdminTab() {
+  try {
+    return window.localStorage.getItem(ADMIN_ACTIVE_TAB_STORAGE_KEY) || 'lookup';
+  } catch {
+    return 'lookup';
+  }
+}
+
+function readStoredAdminLookupSubPanel() {
+  try {
+    return window.localStorage.getItem(ADMIN_LOOKUP_SUB_PANEL_STORAGE_KEY) || 'programs';
+  } catch {
+    return 'programs';
+  }
+}
 
 const homeRouteForUser = (user) => {
   if (!user?.role) return '/student';
@@ -35,11 +53,29 @@ const AdminPanel = () => {
   const { user, logout, isAdmin, isDean, isProgramHead, isSecretary, canAccessModule, hasPermission } =
     useAuth();
   const navigate = useNavigate();
-  const [activeTab, setActiveTab] = useState('lookup');
-  const [lookupSubPanel, setLookupSubPanel] = useState('programs');
+  const [activeTab, setActiveTabState] = useState(readStoredAdminTab);
+  const [lookupSubPanel, setLookupSubPanelState] = useState(readStoredAdminLookupSubPanel);
   const [academicMgmtRemountKey, setAcademicMgmtRemountKey] = useState(0);
 
   const canUseAdminShell = isAdmin || isDean || isProgramHead || isSecretary;
+
+  const setActiveTab = useCallback((tab) => {
+    setActiveTabState(tab);
+    try {
+      window.localStorage.setItem(ADMIN_ACTIVE_TAB_STORAGE_KEY, tab);
+    } catch {
+      // Ignore storage errors; tab navigation should still work.
+    }
+  }, []);
+
+  const setLookupSubPanel = useCallback((panelKey) => {
+    setLookupSubPanelState(panelKey);
+    try {
+      window.localStorage.setItem(ADMIN_LOOKUP_SUB_PANEL_STORAGE_KEY, panelKey);
+    } catch {
+      // Ignore storage errors; lookup navigation should still work.
+    }
+  }, []);
 
   const visibleTabs = useMemo(() => {
     return ADMIN_PANEL_TABS.filter((tab) => {
@@ -110,21 +146,21 @@ const AdminPanel = () => {
       window.removeEventListener('portal-open-credit-evaluation', openAcademicManagement);
       window.removeEventListener('portal-open-academic-management', openAcademicManagement);
     };
-  }, []);
+  }, [setActiveTab]);
 
   useEffect(() => {
     if (visibleTabs.length === 0) return;
     if (!visibleTabs.some((t) => t.id === activeTab)) {
       setActiveTab(visibleTabs[0].id);
     }
-  }, [visibleTabs, activeTab]);
+  }, [visibleTabs, activeTab, setActiveTab]);
 
   useEffect(() => {
     if (activeTab !== 'lookup' || visibleLookupPanels.length === 0) return;
     if (!visibleLookupPanels.some((p) => p.panelKey === lookupSubPanel)) {
       setLookupSubPanel(visibleLookupPanels[0].panelKey);
     }
-  }, [activeTab, lookupSubPanel, visibleLookupPanels]);
+  }, [activeTab, lookupSubPanel, visibleLookupPanels, setLookupSubPanel]);
 
   const handleAdminSidebarSelect = (id) => {
     const panelKey = parseLookupSidebarChildId(id);
@@ -140,6 +176,12 @@ const AdminPanel = () => {
     activeTab === 'lookup' ? lookupSidebarChildId(lookupSubPanel) : activeTab;
 
   const handleLogout = async () => {
+    try {
+      window.localStorage.removeItem(ADMIN_ACTIVE_TAB_STORAGE_KEY);
+      window.localStorage.removeItem(ADMIN_LOOKUP_SUB_PANEL_STORAGE_KEY);
+    } catch {
+      // Ignore storage errors; logout should still continue.
+    }
     await logout();
     navigate('/login');
   };
@@ -244,9 +286,6 @@ const AdminPanel = () => {
               <AcademicManagement key={academicMgmtRemountKey} remountKey={academicMgmtRemountKey} />
             )}
             {activeTab === 'elective-slots' && <ElectiveSlotManagement />}
-            {activeTab === 'csv-import' && (
-              <CsvImport excludeImportKeys={['students', 'grades', 'prerequisite_links', 'sis_mixed']} />
-            )}
             {activeTab === 'security' && <SecuritySettings />}
             {activeTab === 'audit-logs' && <AuditLogsManagement />}
           </div>

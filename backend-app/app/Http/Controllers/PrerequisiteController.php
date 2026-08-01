@@ -81,7 +81,14 @@ class PrerequisiteController extends Controller
                     ->first();
 
                 if ($existing) {
-                    return response()->json(['message' => 'This prerequisite already exists'], 422);
+                    Prerequisite::where('subject_id', $validated['subject_id'])
+                        ->where('requisite_type', 'prerequisite')
+                        ->where('requisites_subject_id', $validated['required_subject_id'])
+                        ->where('requisites_id', '!=', $existing->requisites_id)
+                        ->delete();
+
+                    $existing->load(['subject', 'requiredSubject']);
+                    return response()->json($existing);
                 }
 
                 // Create single prerequisite record
@@ -107,7 +114,8 @@ class PrerequisiteController extends Controller
                     })->where('requisite_type', 'corequisite')->first();
 
                 if ($existing) {
-                    return response()->json(['message' => 'This corequisite already exists'], 422);
+                    $existing->load(['subject', 'requiredSubject']);
+                    return response()->json($existing);
                 }
 
                 // Create bidirectional corequisite records

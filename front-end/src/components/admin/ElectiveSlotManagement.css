@@ -14,6 +14,96 @@
   color: #333;
 }
 
+.elective-slot-management .elective-slot-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  margin: 0 0 16px;
+  padding: 14px;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  background: linear-gradient(135deg, #ffffff 0%, #f8fafc 100%);
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.06);
+}
+
+.elective-slot-management .elective-slot-search {
+  position: relative;
+  flex: 1 1 auto;
+  min-width: 220px;
+}
+
+.elective-slot-management .elective-slot-search__input {
+  display: block;
+  width: 100% !important;
+  min-width: 0;
+  min-height: 44px;
+  box-sizing: border-box;
+  padding: 11px 16px 11px 44px;
+  border: 1px solid #cbd5e1;
+  border-radius: 999px;
+  font-size: 14px;
+  color: #0f172a;
+  background: #fff;
+  outline: none;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.elective-slot-management .elective-slot-search__input:focus {
+  border-color: #336699;
+  box-shadow: 0 0 0 4px rgba(51, 102, 153, 0.14);
+}
+
+.elective-slot-management .elective-slot-search__input::placeholder {
+  color: #94a3b8;
+}
+
+.elective-slot-management .elective-slot-search__icon {
+  position: absolute;
+  left: 16px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: #336699;
+  font-size: 14px;
+  pointer-events: none;
+}
+
+.elective-slot-management .elective-slot-toolbar__count {
+  flex: 0 0 auto;
+  color: #64748b;
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.elective-slot-management .elective-slot-search__clear {
+  flex: 0 0 auto;
+  padding: 10px 16px;
+  border: 1px solid #cbd5e1;
+  border-radius: 999px;
+  background: #f8fafc;
+  color: #334155;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 0.2s ease, border-color 0.2s ease;
+}
+
+.elective-slot-management .elective-slot-search__clear:hover {
+  border-color: #94a3b8;
+  background: #e2e8f0;
+}
+
+@media (max-width: 720px) {
+  .elective-slot-management .elective-slot-toolbar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .elective-slot-management .elective-slot-toolbar__count {
+    align-self: flex-start;
+  }
+}
+
 .add-button {
   padding: 10px 20px;
   background-color: #336699;

@@ -16,6 +16,8 @@ class Evaluation extends Model
     protected $fillable = [
         'student_id',
         'subject_id',
+        'graded_under_program_id',
+        'elective_slot_id',
         'academic_year_id',
         'semester_id',
         'section_id',
@@ -42,6 +44,11 @@ class Evaluation extends Model
     public function subject()
     {
         return $this->belongsTo(Subject::class, 'subject_id', 'subject_id');
+    }
+
+    public function electiveSlot()
+    {
+        return $this->belongsTo(ElectiveSlot::class, 'elective_slot_id', 'elective_slot_id');
     }
 
     public function academicYear()
@@ -76,15 +83,15 @@ class Evaluation extends Model
 
     public function getIsPassedAttribute()
     {
-        if ($this->evaluation_status && in_array(strtolower($this->evaluation_status), ['passed', 'pass', 'credit'])) {
+        if ($this->evaluation_status && in_array(strtolower($this->evaluation_status), ['passed', 'pass', 'credit', 'complete', 'completed'])) {
             return true;
         }
 
-        if ($this->grade !== null && is_numeric($this->grade)) {
-            return $this->grade >= 75; // Default passing grade
-        }
-
-        return false;
+        return app(GradeScaleHelper::class)->gradeIndicatesPass(
+            $this->grade,
+            50,
+            $this->evaluation_status
+        );
     }
 }
 

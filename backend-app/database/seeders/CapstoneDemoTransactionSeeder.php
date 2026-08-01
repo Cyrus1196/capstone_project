@@ -14,35 +14,37 @@ use App\Models\DeanProfile;
 
 /**
  * Seeds roles and demo accounts so capstone "core transactions" can be tested:
- * Admin, Student, Dean, Evaluator, Adviser, Program Head, Secretary — plus profiles where required.
+ * Admin, Student, Dean, Adviser, Program Head, Secretary — plus profiles where required.
+ * (Evaluator role was merged into Adviser and voided.)
  */
 class CapstoneDemoTransactionSeeder extends Seeder
 {
     public function run(): void
     {
         $roles = [
-            ['role_name' => 'Adviser', 'access_level' => 3, 'description' => 'Adviser — credit review & student guidance'],
-            ['role_name' => 'Evaluator', 'access_level' => 3, 'description' => 'Evaluator — student curriculum evaluation'],
-            ['role_name' => 'Dean', 'access_level' => 2, 'description' => 'Dean'],
+            ['role_name' => 'Adviser', 'access_level' => 8, 'description' => 'Adviser — student curriculum evaluation & guidance'],
+            ['role_name' => 'Dean', 'access_level' => 9, 'description' => 'Dean'],
             ['role_name' => 'Program Head', 'access_level' => 7, 'description' => 'Program head — curriculum oversight'],
             ['role_name' => 'Secretary', 'access_level' => 4, 'description' => 'Secretary — records and lookup'],
             ['role_name' => 'Student', 'access_level' => 5, 'description' => 'Student'],
-            ['role_name' => 'Admin', 'access_level' => 1, 'description' => 'Administrator'],
+            ['role_name' => 'Admin', 'access_level' => 10, 'description' => 'Administrator'],
         ];
 
         foreach ($roles as $r) {
-            Role::firstOrCreate(
+            Role::updateOrCreate(
                 ['role_name' => $r['role_name']],
                 ['access_level' => $r['access_level'], 'description' => $r['description']]
             );
         }
+
+        // Void legacy Evaluator role if a fresh seed still created it elsewhere.
+        Role::where('role_name', 'Evaluator')->delete();
 
         $program = Program::first();
         $department = Department::first();
 
         $accounts = [
             ['email' => 'adviser@example.com', 'password' => 'adviser123', 'role' => 'Adviser'],
-            ['email' => 'evaluator@example.com', 'password' => 'evaluator123', 'role' => 'Evaluator'],
             ['email' => 'dean@example.com', 'password' => 'dean123', 'role' => 'Dean'],
             ['email' => 'programhead@example.com', 'password' => 'programhead123', 'role' => 'Program Head'],
             ['email' => 'secretary@example.com', 'password' => 'secretary123', 'role' => 'Secretary'],
@@ -75,14 +77,14 @@ class CapstoneDemoTransactionSeeder extends Seeder
                 ]);
             }
 
-            if ($acc['role'] === 'Evaluator' || $acc['role'] === 'Adviser') {
+            if ($acc['role'] === 'Adviser') {
                 $existing = FacultyProfile::where('user_id', $user->user_id)->first();
                 if (!$existing && $department) {
                     FacultyProfile::create([
                         'user_id' => $user->user_id,
-                        'first_name' => $acc['role'] === 'Adviser' ? 'Alex' : 'Jamie',
-                        'last_name' => $acc['role'] === 'Adviser' ? 'Adviser' : 'Evaluator',
-                        'employee_id' => $acc['role'] === 'Adviser' ? 'EMP-ADV-001' : 'EMP-EVL-001',
+                        'first_name' => 'Alex',
+                        'last_name' => 'Adviser',
+                        'employee_id' => 'EMP-ADV-001',
                         'department_id' => $department->department_id,
                         'specialization' => 'Information Technology',
                     ]);
@@ -100,8 +102,17 @@ class CapstoneDemoTransactionSeeder extends Seeder
             }
         }
 
-        $this->command->info(
-            'Demo accounts: adviser@example.com / adviser123 | evaluator@example.com / evaluator123 | ' .
+        // Migrate any leftover evaluator@ demo user onto Adviser.
+        $adviserRole = Role::where('role_name', 'Adviser')->first();
+        $legacyEvaluator = TblUser::whereEmail('evaluator@example.com')->first();
+        if ($legacyEvaluator && $adviserRole) {
+            DB::table('tbl_users')->where('user_id', $legacyEvaluator->user_id)->update([
+                'role_id' => $adviserRole->role_id,
+            ]);
+        }
+
+        $this->command?->info(
+            'Demo accounts: adviser@example.com / adviser123 | ' .
             'dean@example.com / dean123 | programhead@example.com / programhead123 | secretary@example.com / secretary123'
         );
     }

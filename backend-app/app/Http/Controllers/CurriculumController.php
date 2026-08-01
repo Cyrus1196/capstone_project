@@ -29,6 +29,7 @@ class CurriculumController extends Controller
                 'subject', 
                 'semester', 
                 'yearLevel', 
+                'subject.prerequisites.requiredSubject',
                 'requisite.requiredSubject', 
                 'electiveSlot.electiveSubjects.subject',
                 'electiveSlot.electiveSubjects.track'
@@ -230,6 +231,12 @@ class CurriculumController extends Controller
                     'passing_grade' => $passingGrade,
                     'subject_type' => $subjectType,
                     'requisite_id' => $requisiteId,
+                    'number_of_units' => isset($subjectData['number_of_units']) && $subjectData['number_of_units'] !== '' && $subjectData['number_of_units'] !== null
+                        ? (int) $subjectData['number_of_units']
+                        : null,
+                    'number_of_hrs' => isset($subjectData['number_of_hrs']) && $subjectData['number_of_hrs'] !== '' && $subjectData['number_of_hrs'] !== null
+                        ? (int) $subjectData['number_of_hrs']
+                        : null,
                 ];
             }
             
@@ -289,6 +296,24 @@ class CurriculumController extends Controller
                             'subject_type' => $subjectType,
                             'requisite_id' => $requisiteId,
                         ]);
+                        if ($subjectId && (
+                            $subjectData['number_of_units'] !== null ||
+                            $subjectData['number_of_hrs'] !== null
+                        )) {
+                            $subject = Subject::find($subjectId);
+                            if ($subject) {
+                                $subjectPatch = [];
+                                if ($subjectData['number_of_units'] !== null) {
+                                    $subjectPatch['number_of_units'] = $subjectData['number_of_units'];
+                                }
+                                if ($subjectData['number_of_hrs'] !== null) {
+                                    $subjectPatch['number_of_hrs'] = $subjectData['number_of_hrs'];
+                                }
+                                if ($subjectPatch !== []) {
+                                    $subject->update($subjectPatch);
+                                }
+                            }
+                        }
                         $createdCount++;
                     } catch (\Illuminate\Database\QueryException $e) {
                         Log::error('Failed to create curriculum entry: ' . $e->getMessage(), [
@@ -393,6 +418,8 @@ class CurriculumController extends Controller
                 'passing_grade' => 'nullable',
                 'subject_type' => 'nullable|string|max:50',
                 'requisite_id' => 'nullable|integer|exists:tbl_prerequisite,requisites_id',
+                'number_of_units' => 'nullable|integer|min:0|max:30',
+                'number_of_hrs' => 'nullable|integer|min:0|max:60',
             ]);
 
             // Validate that either subject_id or elective_slot_id is provided (but not both)
@@ -438,6 +465,23 @@ class CurriculumController extends Controller
                 'subject_type' => $validated['subject_type'] ?? $curriculum->subject_type,
                 'requisite_id' => $validated['requisite_id'] ?? $curriculum->requisite_id,
             ]);
+
+            // Units/hours live on the subject catalog; allow editing them from curriculum modal.
+            if ($subjectId && (array_key_exists('number_of_units', $validated) || array_key_exists('number_of_hrs', $validated))) {
+                $subject = \App\Models\Subject::find($subjectId);
+                if ($subject) {
+                    $subjectPatch = [];
+                    if (array_key_exists('number_of_units', $validated) && $validated['number_of_units'] !== null) {
+                        $subjectPatch['number_of_units'] = (int) $validated['number_of_units'];
+                    }
+                    if (array_key_exists('number_of_hrs', $validated) && $validated['number_of_hrs'] !== null) {
+                        $subjectPatch['number_of_hrs'] = (int) $validated['number_of_hrs'];
+                    }
+                    if ($subjectPatch !== []) {
+                        $subject->update($subjectPatch);
+                    }
+                }
+            }
 
             $curriculum->load([
                 'program', 

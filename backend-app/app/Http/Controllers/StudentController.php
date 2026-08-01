@@ -21,6 +21,34 @@ use Illuminate\Support\Facades\Log;
 class StudentController extends Controller
 {
     /**
+     * Hardcoded IT elective prerequisite rules for presentation/demo clarity.
+     * This means: IT Electives 2 and IT Electives 3 require IT Electives 1.
+     */
+    private const HARDCODED_ELECTIVE_SLOT_PREREQUISITES = [
+        'IT Electives 2' => 'IT Electives 1',
+        'IT Electives 3' => 'IT Electives 1',
+    ];
+
+    private const PROGRAM_REQUISITE_SUPPRESSIONS = [
+        'BECED' => ['EDU011', 'EDU532'],
+        'BSEE' => ['BES024', 'ECO017', 'CPE036'],
+        'BSME' => ['BES024', 'ECO017', 'CPE036', 'ECE069', 'GEN006'],
+        'BSARCH' => ['BES025'],
+        'BSCE' => ['BES024', 'ECE069'],
+    ];
+
+    private const PROGRAM_SPECIFIC_REQUISITES = [
+        'BSME' => [
+            'ECE069' => [
+                ['subject_code' => 'BES 062', 'requisite_type' => 'prerequisite', 'rule_label' => null],
+            ],
+            'GEN006' => [
+                ['subject_code' => 'GEN 002', 'requisite_type' => 'prerequisite', 'rule_label' => null],
+            ],
+        ],
+    ];
+
+    /**
      * Program id for curriculum/eligibility (uses StudentProfile accessor; supports current_program column).
      */
     protected function getStudentProgramId(?StudentProfile $profile): ?int
@@ -36,6 +64,191 @@ class StudentController extends Controller
         return (int) $v;
     }
 
+    protected function shouldSuppressSharedSubjectRequisites(?string $programCode, ?string $subjectCode): bool
+    {
+        $programKey = strtoupper(trim((string) $programCode));
+        $subjectKey = strtoupper(str_replace(' ', '', trim((string) $subjectCode)));
+
+        return in_array($subjectKey, self::PROGRAM_REQUISITE_SUPPRESSIONS[$programKey] ?? [], true);
+    }
+
+    protected function programSpecificRequisiteRows(?string $programCode, ?string $subjectCode): array
+    {
+        $programKey = strtoupper(trim((string) $programCode));
+        $subjectKey = strtoupper(str_replace(' ', '', trim((string) $subjectCode)));
+        $rows = self::PROGRAM_SPECIFIC_REQUISITES[$programKey][$subjectKey] ?? [];
+
+        return array_map(static fn (array $row) => [
+            'subject_code' => $row['subject_code'],
+            'prereq_subject_code' => $row['subject_code'],
+            'requisite_type' => $row['requisite_type'] ?? 'prerequisite',
+            'rule_label' => $row['rule_label'] ?? null,
+        ], $rows);
+    }
+
+    protected function hasAllSubjectsPrerequisiteRule($requisites): bool
+    {
+        foreach ($requisites ?? [] as $edge) {
+            $type = strtolower((string) ($edge->requisite_type ?? 'prerequisite'));
+            $label = strtolower(trim((string) ($edge->rule_label ?? '')));
+            if ($type !== 'corequisite' && preg_match('/^all\s+subjects?$/', $label)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    protected function standingPrerequisiteRule($requisites): ?array
+    {
+        foreach ($requisites ?? [] as $edge) {
+            $type = strtolower((string) ($edge->requisite_type ?? 'prerequisite'));
+            $label = strtolower(trim((string) ($edge->rule_label ?? '')));
+            if ($type === 'corequisite' || $label === '') {
+                continue;
+            }
+
+            if (preg_match('/^(2|2nd|second|3|3rd|third|4|4th|fourth|5|5th|fifth)\s+year\s+standing$/', $label, $match)) {
+                $yearWords = [
+                    '2' => 2, '2nd' => 2, 'second' => 2,
+                    '3' => 3, '3rd' => 3, 'third' => 3,
+                    '4' => 4, '4th' => 4, 'fourth' => 4,
+                    '5' => 5, '5th' => 5, 'fifth' => 5,
+                ];
+                $standingYear = $yearWords[$match[1]] ?? null;
+                if ($standingYear) {
+                    return [
+                        'label' => "{$standingYear}" . match ($standingYear) {
+                            2 => 'nd',
+                            3 => 'rd',
+                            default => 'th',
+                        } . ' year standing',
+                        'max_year' => $standingYear - 1,
+                    ];
+                }
+            }
+        }
+
+        return null;
+    }
+
+    protected function isStandingPrerequisiteRuleLabel(?string $ruleLabel): bool
+    {
+        return preg_match(
+            '/^(2|2nd|second|3|3rd|third|4|4th|fourth|5|5th|fifth)\s+year\s+standing$/i',
+            trim((string) $ruleLabel)
+        ) === 1;
+    }
+
+    protected function programPreviousSubjectPrerequisiteRows($curriculumItem): array
+    {
+        if (! $curriculumItem?->program_id || ! $curriculumItem?->year_level || ! $curriculumItem?->semester_id) {
+            return [];
+        }
+
+        $currentOrder = ((int) $curriculumItem->year_level * 10)
+            + ((int) $curriculumItem->semester_id === 3 ? 0 : (int) $curriculumItem->semester_id);
+
+        return DB::table('curriculum as c')
+            ->join('tbl_subjects as s', 's.subject_id', '=', 'c.subject_id')
+            ->where('c.program_id', $curriculumItem->program_id)
+            ->whereNotNull('c.subject_id')
+            ->whereRaw('(c.year_level * 10 + CASE WHEN c.semester_id = 3 THEN 0 ELSE c.semester_id END) < ?', [$currentOrder])
+            ->orderBy('c.year_level')
+            ->orderByRaw('CASE WHEN c.semester_id = 3 THEN 0 ELSE c.semester_id END')
+            ->orderBy('c.curriculum_id')
+            ->get(['s.subject_code'])
+            ->map(fn ($row) => [
+                'subject_code' => trim((string) $row->subject_code),
+                'prereq_subject_code' => trim((string) $row->subject_code),
+                'requisite_type' => 'prerequisite',
+                'rule_label' => 'all subjects',
+            ])
+            ->all();
+    }
+
+    protected function programSubjectsThroughYearPrerequisiteRows($curriculumItem, int $maxYear, string $ruleLabel): array
+    {
+        if (! $curriculumItem?->program_id || $maxYear < 1) {
+            return [];
+        }
+
+        return DB::table('curriculum as c')
+            ->leftJoin('tbl_subjects as s', 's.subject_id', '=', 'c.subject_id')
+            ->leftJoin('tbl_elective_subject as es', 'es.elective_slot_id', '=', 'c.elective_slot_id')
+            ->leftJoin('tbl_subjects as choice', 'choice.subject_id', '=', 'es.subject_id')
+            ->where('c.program_id', $curriculumItem->program_id)
+            ->where('c.year_level', '<=', $maxYear)
+            ->where(function ($query) {
+                $query->whereNotNull('c.subject_id')
+                    ->orWhereNotNull('es.subject_id');
+            })
+            ->orderBy('c.year_level')
+            ->orderByRaw('CASE WHEN c.semester_id = 3 THEN 0 ELSE c.semester_id END')
+            ->orderBy('c.curriculum_id')
+            ->get([DB::raw('COALESCE(s.subject_code, choice.subject_code) as subject_code')])
+            ->map(fn ($row) => trim((string) $row->subject_code))
+            ->filter()
+            ->unique()
+            ->values()
+            ->map(fn ($code) => [
+                'subject_code' => $code,
+                'prereq_subject_code' => $code,
+                'requisite_type' => 'prerequisite',
+                'rule_label' => $ruleLabel,
+            ])
+            ->all();
+    }
+
+    protected function electiveSlotPrerequisiteRows($slot): array
+    {
+        if (! $slot) {
+            return [];
+        }
+
+        $currentSlotName = trim((string) ($slot->slot_name ?? ''));
+        $hardcodedPrerequisiteName = self::HARDCODED_ELECTIVE_SLOT_PREREQUISITES[$currentSlotName] ?? null;
+        $requiredSlot = $slot?->prerequisiteSlot;
+
+        if ($hardcodedPrerequisiteName) {
+            $slotName = $hardcodedPrerequisiteName;
+            $requiredSlotId = null;
+
+            if ($requiredSlot && trim((string) $requiredSlot->slot_name) === $slotName) {
+                $requiredSlotId = (int) $requiredSlot->elective_slot_id;
+            }
+
+            if (! $requiredSlotId && $slot->program_id) {
+                $requiredSlotId = DB::table('tbl_elective_slot')
+                    ->where('program_id', $slot->program_id)
+                    ->where('slot_name', $slotName)
+                    ->value('elective_slot_id');
+            }
+        } elseif ($requiredSlot) {
+            $slotName = trim((string) $requiredSlot->slot_name);
+            $requiredSlotId = (int) $requiredSlot->elective_slot_id;
+        } else {
+            return [];
+        }
+
+        if ($slotName === '') {
+            $slotName = 'Elective slot';
+        }
+
+        $row = [
+            'subject_code' => $slotName,
+            'prereq_subject_code' => $slotName,
+            'requisite_type' => 'prerequisite',
+            'elective_slot_name' => $slotName,
+        ];
+
+        if ($requiredSlotId) {
+            $row['elective_slot_id'] = (int) $requiredSlotId;
+        }
+
+        return [$row];
+    }
+
     /**
      * Get the authenticated student's profile or admin can get by user_id
      */
@@ -47,9 +260,9 @@ class StudentController extends Controller
                 return response()->json(['message' => 'Unauthorized'], 401);
             }
 
-            // Allow admin to get profile by user_id, otherwise use authenticated user
+            // Allow admin / student managers to get profile by user_id; otherwise use authenticated user
             $targetUserId = $request->query('user_id');
-            if ($targetUserId && $user->isAdmin()) {
+            if ($targetUserId && ($user->isAdmin() || $user->canManageStudents())) {
                 $userId = $targetUserId;
             } else {
                 $userId = $user->user_id;
@@ -114,6 +327,8 @@ class StudentController extends Controller
                 'contact_number' => 'nullable|string|max:20',
                 'address' => 'nullable|string',
                 'academic_status' => 'nullable|string|max:50',
+                // Distinct from academic_status (Regular/Irregular): set when creating the student account.
+                'student_entry_type' => 'nullable|string|in:Shiftee,Returnee,Transferee',
                 'year_level_id' => 'nullable|integer|exists:year_level,year_level_id',
                 'track_id' => 'nullable|integer|exists:tbl_track,track_id',
                 'current_program' => 'nullable|integer|exists:tbl_program,program_id',
@@ -129,13 +344,15 @@ class StudentController extends Controller
             // Determine which user_id to use
             $targetUserId = $validated['user_id'] ?? $user->user_id;
             
-            // If admin is creating for another user, check permissions
+            // Allow staff with Student Management to create/update another user's profile
             if ($validated['user_id'] && $targetUserId !== $user->user_id) {
-                if (!$user->isAdmin()) {
+                $canManageOther =
+                    $user->isAdmin()
+                    || $user->canCreateStudentUsers()
+                    || $user->canEditStudentUsers();
+                if (! $canManageOther) {
                     return response()->json(['message' => 'Unauthorized'], 403);
                 }
-                // For admin creating student profile, use the provided user_id
-                // Admin doesn't need to be the same as the target user
             }
 
             $profile = StudentProfile::where('user_id', $targetUserId)->first();
@@ -389,11 +606,12 @@ class StudentController extends Controller
                     'yearLevel',
                     'semester',
                     'program',
+                    'electiveSlot.prerequisiteSlot',
                     'electiveSlot.electiveSubjects.subject',
                     'electiveSlot.electiveSubjects.track'
                 ])
                 ->orderBy('year_level')
-                ->orderBy('semester_id')
+                ->orderByRaw('CASE WHEN semester_id = 3 THEN 0 ELSE semester_id END')
                 ->get();
 
             $studentEvaluations = Evaluation::where('student_id', $profile->student_id)
@@ -410,6 +628,7 @@ class StudentController extends Controller
                 $resolvedSubject = $item->subject;
                 $resolvedTrack = null;
                 $resolvedFromElective = false;
+                $slotPrerequisites = $this->electiveSlotPrerequisiteRows($item->electiveSlot);
 
                 if (! $resolvedSubject && $item->electiveSlot) {
                     $electiveSubjects = $item->electiveSlot->electiveSubjects ?? collect();
@@ -417,7 +636,9 @@ class StudentController extends Controller
                         $electiveSubjects,
                         $studentTrackId !== null ? (int) $studentTrackId : null,
                         $item->semester_id !== null ? (int) $item->semester_id : null,
-                        $studentEvaluations
+                        $studentEvaluations,
+                        $item->electiveSlot?->slot_name,
+                        $item->electiveSlot?->elective_slot_id !== null ? (int) $item->electiveSlot->elective_slot_id : null
                     );
                     if ($resolvedSubject) {
                         $resolvedFromElective = true;
@@ -431,9 +652,44 @@ class StudentController extends Controller
                 // Prerequisites and corequisites (tbl_prerequisite.requisite_type)
                 $prerequisites = [];
                 $corequisites = [];
-                if ($resolvedSubject && $resolvedSubject->prerequisites) {
+                $suppressSubjectRequisites = $this->shouldSuppressSharedSubjectRequisites(
+                    $item->program?->program_code,
+                    $resolvedSubject?->subject_code
+                );
+                $useProgramAllSubjectsRule = ! $suppressSubjectRequisites
+                    && $resolvedSubject
+                    && $this->hasAllSubjectsPrerequisiteRule($resolvedSubject->prerequisites ?? []);
+                $standingRule = ! $suppressSubjectRequisites && $resolvedSubject
+                    ? $this->standingPrerequisiteRule($resolvedSubject->prerequisites ?? [])
+                    : null;
+
+                if ($useProgramAllSubjectsRule) {
+                    $prerequisites = $this->programPreviousSubjectPrerequisiteRows($item);
+                } elseif ($standingRule) {
+                    $prerequisites = $this->programSubjectsThroughYearPrerequisiteRows(
+                        $item,
+                        (int) $standingRule['max_year'],
+                        (string) $standingRule['label']
+                    );
+                }
+
+                foreach ($this->programSpecificRequisiteRows($item->program?->program_code, $resolvedSubject?->subject_code) as $specificRequisite) {
+                    if (($specificRequisite['requisite_type'] ?? 'prerequisite') === 'corequisite') {
+                        $corequisites[] = $specificRequisite;
+                    } else {
+                        $prerequisites[] = $specificRequisite;
+                    }
+                }
+
+                if (! $suppressSubjectRequisites && $resolvedSubject && $resolvedSubject->prerequisites) {
                     foreach ($resolvedSubject->prerequisites as $edge) {
                         $type = strtolower((string) ($edge->requisite_type ?? 'prerequisite'));
+                        if ($useProgramAllSubjectsRule && $type !== 'corequisite') {
+                            continue;
+                        }
+                        if ($standingRule && $type !== 'corequisite' && $this->isStandingPrerequisiteRuleLabel($edge->rule_label ?? null)) {
+                            continue;
+                        }
                         $c = $edge->requiredSubject->subject_code ?? null;
                         if ($c === null || trim((string) $c) === '') {
                             continue;
@@ -443,6 +699,7 @@ class StudentController extends Controller
                             'subject_code' => $c,
                             'prereq_subject_code' => $c,
                             'requisite_type' => $type === 'corequisite' ? 'corequisite' : 'prerequisite',
+                            'rule_label' => trim((string) ($edge->rule_label ?? '')) ?: null,
                         ];
                         if ($type === 'corequisite') {
                             $corequisites[] = $requisiteRow;
@@ -482,7 +739,7 @@ class StudentController extends Controller
                             'resolved_track' => null,
                             'elective_unresolved' => true,
                             'elective_slot_name' => $slot->slot_name,
-                            'prerequisites' => [],
+                            'prerequisites' => $slotPrerequisites,
                             'corequisites' => [],
                             'passed_via_transfer_credit' => false,
                         ];
@@ -515,8 +772,10 @@ class StudentController extends Controller
                     'student_track_id' => $profile->track_id,
                     'student_track_name' => $profile->track->track_name ?? null,
                     'resolved_from_elective_slot' => $resolvedFromElective,
+                    'elective_slot_id' => $item->electiveSlot?->elective_slot_id,
+                    'elective_slot_name' => $item->electiveSlot?->slot_name,
                     'resolved_track' => $resolvedTrack,
-                    'prerequisites' => $prerequisites,
+                    'prerequisites' => array_merge($slotPrerequisites, $prerequisites),
                     'corequisites' => $corequisites,
                     'passed_via_transfer_credit' => $passedViaTransferCredit,
                 ];
@@ -539,12 +798,32 @@ class StudentController extends Controller
                 ]);
             }
 
+            $promotionTargetYearId = $profile->promotion_target_year_level_id;
+            $promotionTargetSemesterId = $profile->promotion_target_semester_id;
+            $currentYearId = $profile->year_level_id !== null ? (int) $profile->year_level_id : null;
+            if (
+                $currentYearId !== null
+                && (
+                    $promotionTargetYearId === null
+                    || (int) $promotionTargetYearId < $currentYearId
+                )
+            ) {
+                $promotionTargetYearId = $currentYearId;
+                $promotionTargetSemesterId = $curriculum
+                    ->where('year_level', $currentYearId)
+                    ->sortBy(fn ($row) => $this->semesterSortValue(
+                        (int) $row->semester_id,
+                        $row->semester?->semester_name
+                    ))
+                    ->first()?->semester_id;
+            }
+
             return response()->json([
                 'curriculum' => $transformed,
                 'promotion' => [
                     'promoted_at' => $profile->promoted_next_sem_at?->toIso8601String(),
-                    'target_year_level_id' => $profile->promotion_target_year_level_id,
-                    'target_semester_id' => $profile->promotion_target_semester_id,
+                    'target_year_level_id' => $promotionTargetYearId,
+                    'target_semester_id' => $promotionTargetSemesterId,
                 ],
             ]);
         } catch (\Exception $e) {
@@ -553,6 +832,16 @@ class StudentController extends Controller
                 'message' => $e->getMessage()
             ], 500);
         }
+    }
+
+    private function semesterSortValue(int $semesterId, ?string $semesterName = null): int
+    {
+        $name = strtolower(trim((string) $semesterName));
+        if (str_contains($name, 'summer') || $semesterId === 3) {
+            return 0;
+        }
+
+        return $semesterId;
     }
 
     /**

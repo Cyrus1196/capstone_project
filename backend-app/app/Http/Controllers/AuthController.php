@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\TblUser;
 use App\Services\AuthSecurity;
+use App\Services\UserSessionLogger;
 use Illuminate\Http\Request;
 use Illuminate\Validation\ValidationException;
 use Tymon\JWTAuth\Facades\JWTAuth;
@@ -21,7 +22,20 @@ class AuthController extends Controller
             'user_id' => $user->user_id,
             'role_id' => $user->role_id,
             'email' => $user->email,
+            'contact_number' => $user->contact_number,
             'role' => $user->role ? $user->role->role_name : null,
+            'department_id' => $user->department_id,
+            'department' => $user->department ? [
+                'department_id' => $user->department->department_id,
+                'department_name' => $user->department->department_name,
+                'department_code' => $user->department->department_code,
+            ] : null,
+            'program_id' => $user->program_id,
+            'program' => $user->program ? [
+                'program_id' => $user->program->program_id,
+                'program_name' => $user->program->program_name,
+                'program_code' => $user->program->program_code,
+            ] : null,
             'is_admin' => $user->isAdmin(),
             'permissions' => $permissionNames,
             /** null = all year levels; array of year_level_id = restricted (curriculum evaluation roster). */
@@ -39,14 +53,22 @@ class AuthController extends Controller
         $user = TblUser::whereEmail($request->email)->first();
 
         if (! $user) {
+            UserSessionLogger::logFailedLogin($request, $request->email, 'User not found');
             throw ValidationException::withMessages([
                 'email' => ['The provided credentials are incorrect.'],
             ]);
         }
 
-        AuthSecurity::validateCredentialsForLogin($user, $request->password);
+        try {
+            AuthSecurity::validateCredentialsForLogin($user, $request->password);
+        } catch (ValidationException $e) {
+            $reason = collect($e->errors())->flatten()->first() ?? 'Login failed';
+            UserSessionLogger::logFailedLogin($request, $request->email, $reason);
+            throw $e;
+        }
 
         $token = JWTAuth::fromUser($user);
+        UserSessionLogger::logSuccessfulLogin($request, $user, $token);
 
         return response()->json([
             'user' => self::userPayload($user),
@@ -58,9 +80,15 @@ class AuthController extends Controller
         ]);
     }
 
-    public function logout()
+    public function logout(Request $request)
     {
+        $tokenValue = null;
+        $user = $request->user();
+
         try {
+            $token = JWTAuth::getToken();
+            $tokenValue = $token ? $token->get() : null;
+            UserSessionLogger::logLogout($request, $user, $tokenValue);
             JWTAuth::parseToken()->invalidate(true);
         } catch (\Throwable) {
             // Token missing or already invalid

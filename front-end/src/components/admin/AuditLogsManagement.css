@@ -1,3 +1,29 @@
+.audit-tabs {
+  display: inline-flex;
+  gap: 0.35rem;
+  margin: 0.5rem 0 1rem;
+  padding: 0.25rem;
+  border: 1px solid #dbe4ef;
+  border-radius: 999px;
+  background: #f8fafc;
+}
+
+.audit-tab {
+  border: 0;
+  border-radius: 999px;
+  padding: 0.55rem 1rem;
+  background: transparent;
+  color: #475569;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.audit-tab.active {
+  background: #336699;
+  color: #fff;
+  box-shadow: 0 6px 14px rgba(51, 102, 153, 0.22);
+}
+
 .audit-logs-filters {
   display: flex;
   flex-wrap: wrap;
@@ -116,4 +142,50 @@
   background: #fafbfc;
   padding-top: 0;
   padding-bottom: 1rem;
+}
+
+.audit-session-user,
+.audit-session-device {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.audit-session-user span,
+.audit-session-device span {
+  color: #64748b;
+  font-size: 0.78rem;
+}
+
+.audit-session-status {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 5.5rem;
+  padding: 0.25rem 0.6rem;
+  border-radius: 999px;
+  font-size: 0.78rem;
+  font-weight: 800;
+}
+
+.audit-session-status--active {
+  background: #dcfce7;
+  color: #166534;
+}
+
+.audit-session-status--logged-out {
+  background: #e0f2fe;
+  color: #075985;
+}
+
+.audit-session-status--failed {
+  background: #fee2e2;
+  color: #991b1b;
+}
+
+.audit-session-table code {
+  color: #334155;
+  background: #f1f5f9;
+  border-radius: 5px;
+  padding: 0.15rem 0.35rem;
 }

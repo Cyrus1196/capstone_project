@@ -1,4 +1,9 @@
 import axios from 'axios';
+import {
+  beginRequestLoading,
+  endRequestLoading,
+  shouldTrackRequestLoading,
+} from './requestLoading';
 
 const API_BASE_URL = process.env.REACT_APP_API_URL || 'http://localhost:8000/api';
 
@@ -23,6 +28,10 @@ api.interceptors.request.use(
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
     }
+    if (shouldTrackRequestLoading(config)) {
+      config.__trackLoading = true;
+      beginRequestLoading();
+    }
     if (
       process.env.NODE_ENV === 'development' &&
       process.env.REACT_APP_DEBUG_API === 'true' &&
@@ -38,15 +47,37 @@ api.interceptors.request.use(
   }
 );
 
+function finishTrackedLoading(config) {
+  if (config?.__trackLoading) {
+    config.__trackLoading = false;
+    endRequestLoading();
+  }
+}
+
 // Success: count as activity (resets idle timer). Errors: JWT refresh then retry once.
 api.interceptors.response.use(
   (response) => {
+    finishTrackedLoading(response.config);
     window.dispatchEvent(new CustomEvent('app-activity'));
     return response;
   },
   async (error) => {
     const config = error.config;
     const status = error.response?.status;
+
+    // Do not end loading yet on 401 retry path — the retried call finishes it.
+    const willRetryAuth =
+      status === 401 &&
+      config &&
+      !config.silent &&
+      !config._jwtRetry &&
+      !(config.url || '').includes('/jwt/refresh') &&
+      !(config.url || '').endsWith('/login') &&
+      !!getToken();
+
+    if (!willRetryAuth) {
+      finishTrackedLoading(config);
+    }
 
     if (status !== 401 || config?.silent) {
       return Promise.reject(error);
@@ -91,6 +122,7 @@ api.interceptors.response.use(
       config.headers.Authorization = `Bearer ${newToken || token}`;
       return api(config);
     } catch (refreshErr) {
+      finishTrackedLoading(config);
       removeToken();
       window.location.href = '/login';
       return Promise.reject(refreshErr);
