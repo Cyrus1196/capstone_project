@@ -16,12 +16,18 @@ class CurriculumHeader extends Model
     protected $fillable = [
         'program_id',
         'Effective_Year',
+        'academic_year_id',
         'description',
     ];
 
     public function program()
     {
         return $this->belongsTo(Program::class, 'program_id', 'program_id');
+    }
+
+    public function academicYear()
+    {
+        return $this->belongsTo(AcademicYear::class, 'academic_year_id', 'academic_year_id');
     }
 
     public function curricula()

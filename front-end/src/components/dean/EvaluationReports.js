@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { swalInfo } from '../../utils/swal';
 import './EvaluationReports.css';
 
 const EvaluationReports = () => {
@@ -117,7 +118,10 @@ const EvaluationReports = () => {
             if (response.ok) {
                 // You could open a modal or navigate to a detailed student report view
                 console.log('Student report data:', data);
-                alert('Student report data loaded. Check console for details.');
+                await swalInfo(
+                    'Student report',
+                    'Report data loaded. Open the browser console (F12) to inspect the full payload.'
+                );
             } else {
                 setError(data.message || 'Failed to fetch student report');
             }
@@ -143,7 +147,10 @@ const EvaluationReports = () => {
 
             if (response.ok) {
                 console.log('Subject report data:', data);
-                alert('Subject report data loaded. Check console for details.');
+                await swalInfo(
+                    'Subject report',
+                    'Report data loaded. Open the browser console (F12) to inspect the full payload.'
+                );
             } else {
                 setError(data.message || 'Failed to fetch subject report');
             }

@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import api from '../../api/axios';
+import { swalConfirm, swalToast, swalError } from '../../utils/swal';
 import './DeanPanel.css';
 
 const DeanDepartmentManagement = () => {
@@ -73,15 +74,21 @@ const DeanDepartmentManagement = () => {
   };
 
   const handleDelete = async (id) => {
-    if (!window.confirm('Are you sure you want to delete this department?')) {
-      return;
-    }
+    const ok = await swalConfirm({
+      title: 'Delete department?',
+      text: 'Are you sure you want to delete this department?',
+      confirmButtonText: 'Delete',
+    });
+    if (!ok) return;
 
     try {
       await api.delete(`/lookup/departments/${id}`);
       fetchDepartments();
+      swalToast('success', 'Department deleted');
     } catch (error) {
-      setError(error.response?.data?.message || 'Failed to delete department');
+      const msg = error.response?.data?.message || 'Failed to delete department';
+      setError(msg);
+      await swalError('Delete failed', msg);
     }
   };
 
@@ -97,8 +104,11 @@ const DeanDepartmentManagement = () => {
       }
       setShowModal(false);
       fetchDepartments();
+      swalToast('success', editingDepartment ? 'Department updated' : 'Department created');
     } catch (error) {
-      setError(error.response?.data?.message || 'Failed to save department');
+      const msg = error.response?.data?.message || 'Failed to save department';
+      setError(msg);
+      await swalError('Save failed', msg);
     }
   };
 

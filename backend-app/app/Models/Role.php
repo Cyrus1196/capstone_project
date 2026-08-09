@@ -17,11 +17,29 @@ class Role extends Model
         'role_name',
         'access_level',
         'description',
+        'evaluation_year_level_ids',
     ];
+
+    protected function casts(): array
+    {
+        return [
+            'evaluation_year_level_ids' => 'array',
+        ];
+    }
 
     public function users()
     {
         return $this->hasMany(TblUser::class, 'role_id', 'role_id');
+    }
+
+    public function permissions()
+    {
+        return $this->belongsToMany(Permission::class, 'tbl_role_permissions', 'role_id', 'permission_id');
+    }
+
+    public function rolePermissions()
+    {
+        return $this->hasMany(RolePermission::class, 'role_id', 'role_id');
     }
 }
 

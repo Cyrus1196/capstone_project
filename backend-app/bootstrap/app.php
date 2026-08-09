@@ -12,17 +12,16 @@ return Application::configure(basePath: dirname(__DIR__))
         health: '/up',
     )
     ->withMiddleware(function (Middleware $middleware): void {
-        $middleware->api(prepend: [
-            \Illuminate\Session\Middleware\StartSession::class,
-        ]);
-        
         $middleware->validateCsrfTokens(except: [
             'api/*',
         ]);
 
-        // Register evaluation access middleware
+        // Register evaluation access middleware, RBAC, and tymon/jwt-auth (Laravel 11+ router has no aliasMiddleware)
         $middleware->alias([
             'evaluation.access' => \App\Http\Middleware\EvaluationAccessMiddleware::class,
+            'permission' => \App\Http\Middleware\CheckPermission::class,
+            'jwt.auth' => \Tymon\JWTAuth\Http\Middleware\Authenticate::class,
+            'jwt.refresh' => \Tymon\JWTAuth\Http\Middleware\RefreshToken::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {

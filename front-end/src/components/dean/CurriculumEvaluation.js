@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import './CurriculumEvaluation.css';
+import '../admin/CurriculumManagement.css';
 
 const CurriculumEvaluation = () => {
     const [students, setStudents] = useState([]);
@@ -107,7 +108,7 @@ const CurriculumEvaluation = () => {
 
     const handleStudentSelect = (student) => {
         setSelectedStudent(student);
-        fetchStudentCurriculum(student.student_id);
+        fetchStudentCurriculum(student.student_id_number || student.student_id);
         setEditMode(false);
     };
 
@@ -199,7 +200,7 @@ const CurriculumEvaluation = () => {
 
             setSuccess('Evaluations saved successfully!');
             setEditMode(false);
-            fetchStudentCurriculum(selectedStudent.student_id);
+            fetchStudentCurriculum(selectedStudent.student_id_number || selectedStudent.student_id);
         } catch (err) {
             setError('Failed to save evaluations');
         } finally {
@@ -347,63 +348,84 @@ const CurriculumEvaluation = () => {
                                 {Object.entries(semesters).map(([semester, subjects]) => (
                                     <div key={semester} className="semester-section">
                                         <h5>{semester}</h5>
-                                        <table>
-                                            <thead>
-                                                <tr>
-                                                    <th>PEN CODE</th>
-                                                    <th>Courses/Subjects</th>
-                                                    <th>No. of Units</th>
-                                                    <th>PRE REQ</th>
-                                                    <th>Co-req</th>
-                                                    <th>Status</th>
-                                                    <th>Grade</th>
-                                                </tr>
-                                            </thead>
-                                            <tbody>
-                                                {subjects.map(subject => {
+                                        <div
+                                            className="curriculum-data-grid eval-curriculum-grid"
+                                            style={{ '--curriculum-data-cols': 7 }}
+                                            role="table"
+                                            aria-label="Curriculum evaluation subjects"
+                                        >
+                                            <div className="curriculum-data-grid__head" role="row">
+                                                {['PEN CODE', 'Courses/Subjects', 'No. of Units', 'PRE REQ', 'Co-req', 'Status', 'Grade'].map((label) => (
+                                                    <div key={label} className="curriculum-data-grid__th" role="columnheader">
+                                                        {label}
+                                                    </div>
+                                                ))}
+                                            </div>
+                                            <div className="curriculum-data-grid__body" role="rowgroup">
+                                                {subjects.map((subject) => {
                                                     const evaluation = evaluationData.evaluations[subject.subject_id] || {};
                                                     return (
-                                                        <tr key={subject.subject_id}>
-                                                            <td>{subject.subject_code}</td>
-                                                            <td>{subject.subject_name}</td>
-                                                            <td>{subject.units}</td>
-                                                            <td>{subject.prerequisite || 'None'}</td>
-                                                            <td>{subject.corequisite || 'None'}</td>
-                                                            <td>
-                                                                {editMode ? (
-                                                                    <select 
-                                                                        value={evaluation.status || ''}
-                                                                        onChange={(e) => handleStatusChange(subject.subject_id, e.target.value)}
-                                                                        className="status-select"
-                                                                    >
-                                                                        <option value="">Select Status</option>
-                                                                        <option value="passed">Passed</option>
-                                                                        <option value="failed">Failed</option>
-                                                                        <option value="inc">INC</option>
-                                                                        <option value="ongoing">Ongoing</option>
-                                                                    </select>
-                                                                ) : (
-                                                                    getStatusBadge(evaluation.status)
-                                                                )}
-                                                            </td>
-                                                            <td>
-                                                                {editMode ? (
-                                                                    <input 
-                                                                        type="text"
-                                                                        value={evaluation.grade || ''}
-                                                                        onChange={(e) => handleGradeChange(subject.subject_id, e.target.value)}
-                                                                        placeholder="Grade"
-                                                                        className="grade-input"
-                                                                    />
-                                                                ) : (
-                                                                    evaluation.grade || '-'
-                                                                )}
-                                                            </td>
-                                                        </tr>
+                                                        <div key={subject.subject_id} className="curriculum-data-grid__row" role="row">
+                                                            <div className="curriculum-data-grid__cell" role="cell">
+                                                                <span className="curriculum-data-grid__mobile-label">PEN CODE</span>
+                                                                <span className="curriculum-data-grid__cell-value">{subject.subject_code}</span>
+                                                            </div>
+                                                            <div className="curriculum-data-grid__cell" role="cell">
+                                                                <span className="curriculum-data-grid__mobile-label">Courses/Subjects</span>
+                                                                <span className="curriculum-data-grid__cell-value">{subject.subject_name}</span>
+                                                            </div>
+                                                            <div className="curriculum-data-grid__cell" role="cell">
+                                                                <span className="curriculum-data-grid__mobile-label">No. of Units</span>
+                                                                <span className="curriculum-data-grid__cell-value">{subject.units}</span>
+                                                            </div>
+                                                            <div className="curriculum-data-grid__cell" role="cell">
+                                                                <span className="curriculum-data-grid__mobile-label">PRE REQ</span>
+                                                                <span className="curriculum-data-grid__cell-value">{subject.prerequisite || 'None'}</span>
+                                                            </div>
+                                                            <div className="curriculum-data-grid__cell" role="cell">
+                                                                <span className="curriculum-data-grid__mobile-label">Co-req</span>
+                                                                <span className="curriculum-data-grid__cell-value">{subject.corequisite || 'None'}</span>
+                                                            </div>
+                                                            <div className="curriculum-data-grid__cell" role="cell">
+                                                                <span className="curriculum-data-grid__mobile-label">Status</span>
+                                                                <span className="curriculum-data-grid__cell-value">
+                                                                    {editMode ? (
+                                                                        <select
+                                                                            value={evaluation.status || ''}
+                                                                            onChange={(e) => handleStatusChange(subject.subject_id, e.target.value)}
+                                                                            className="status-select"
+                                                                        >
+                                                                            <option value="">Select Status</option>
+                                                                            <option value="passed">Passed</option>
+                                                                            <option value="failed">Failed</option>
+                                                                            <option value="ongoing">Ongoing</option>
+                                                                        </select>
+                                                                    ) : (
+                                                                        getStatusBadge(evaluation.status)
+                                                                    )}
+                                                                </span>
+                                                            </div>
+                                                            <div className="curriculum-data-grid__cell" role="cell">
+                                                                <span className="curriculum-data-grid__mobile-label">Grade</span>
+                                                                <span className="curriculum-data-grid__cell-value">
+                                                                    {editMode ? (
+                                                                        <input
+                                                                            type="text"
+                                                                            value={evaluation.grade || ''}
+                                                                            onChange={(e) => handleGradeChange(subject.subject_id, e.target.value)}
+                                                                            placeholder="Grade"
+                                                                            className="grade-input"
+                                                                        />
+                                                                    ) : (
+                                                                        evaluation.grade || '-'
+                                                                    )}
+                                                                </span>
+                                                            </div>
+                                                        </div>
                                                     );
                                                 })}
-                                            </tbody>
-                                        </table>
+                                            </div>
+                                        </div>
                                     </div>
                                 ))}
                             </div>

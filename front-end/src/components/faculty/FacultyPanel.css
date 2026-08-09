@@ -1,22 +1,104 @@
-.faculty-panel {
-  min-height: 100vh;
-  background-color: #f5f5f5;
-}
-
 .faculty-header {
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  position: relative;
+  overflow: hidden;
+  background: linear-gradient(125deg, #336699 0%, #2a5580 38%, #254a6e 68%, #1e3a5f 100%);
   color: white;
-  padding: 1.5rem 2rem;
+  padding: 1.35rem 2rem;
   display: flex;
   justify-content: space-between;
   align-items: center;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  box-shadow: 0 8px 32px rgba(51, 102, 153, 0.28);
+}
+
+.faculty-header--evaluator {
+  background: #fff;
+  color: #1a1a1a;
+  box-shadow: 0 1px 0 rgba(0, 0, 0, 0.06), 0 8px 24px rgba(0, 0, 0, 0.06);
+  padding: 0.85rem 1.75rem;
+  border-bottom: 1px solid #e5e5e5;
+}
+
+.faculty-header__brand {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  min-width: 0;
+}
+
+.faculty-header__college {
+  font-weight: 700;
+  font-size: 1.05rem;
+  color: #336699;
+  letter-spacing: 0.02em;
+}
+
+.faculty-header__sub {
+  font-size: 0.72rem;
+  color: #6b7280;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.faculty-header__actions {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.faculty-header__role-chip {
+  padding: 0.35rem 0.85rem;
+  border-radius: 999px;
+  background: #336699;
+  color: #fff;
+  font-size: 0.8rem;
+  font-weight: 700;
+}
+
+.faculty-header__welcome--compact {
+  font-size: 0.82rem;
+  color: #64748b;
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.faculty-header__logout.logout-button {
+  background: #f3f4f6;
+  color: #374151;
+  border: 1px solid #d1d5db;
+  border-radius: 10px;
+  padding: 0.45rem 1rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.faculty-header__logout.logout-button:hover {
+  background: #e5e7eb;
+}
+
+.faculty-header::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(ellipse 65% 100% at 100% 20%, rgba(255, 255, 255, 0.12) 0%, transparent 52%);
+  pointer-events: none;
+}
+
+.faculty-header h1,
+.faculty-header .header-info {
+  position: relative;
+  z-index: 1;
 }
 
 .faculty-header h1 {
   margin: 0;
-  font-size: 1.8rem;
-  font-weight: 600;
+  font-size: 1.65rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  text-shadow: 0 2px 12px rgba(0, 0, 0, 0.15);
 }
 
 .header-info {
@@ -27,6 +109,22 @@
 
 .header-info span {
   font-size: 1rem;
+}
+
+.faculty-link-admin {
+  background-color: rgba(255, 255, 255, 0.15);
+  color: white;
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  padding: 0.45rem 1rem;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.85rem;
+  font-weight: 500;
+  transition: background-color 0.2s;
+}
+
+.faculty-link-admin:hover {
+  background-color: rgba(255, 255, 255, 0.28);
 }
 
 .logout-button {
@@ -44,45 +142,26 @@
   background-color: rgba(255, 255, 255, 0.3);
 }
 
-.faculty-tabs {
-  background-color: white;
-  border-bottom: 2px solid #e0e0e0;
-  display: flex;
-  padding: 0 2rem;
-  gap: 0;
-}
-
-.faculty-tabs .tab {
-  padding: 1rem 2rem;
-  border: none;
-  background: none;
-  cursor: pointer;
-  font-size: 1rem;
-  color: #666;
-  border-bottom: 3px solid transparent;
-  transition: all 0.3s;
-}
-
-.faculty-tabs .tab:hover {
-  background-color: #f5f5f5;
-  color: #667eea;
-}
-
-.faculty-tabs .tab.active {
-  color: #667eea;
-  border-bottom-color: #667eea;
-  font-weight: 600;
-}
-
 .faculty-content {
-  padding: 2rem;
+  padding: 0;
+}
+
+.faculty-panel--evaluator-ui .faculty-content {
+  padding: 1.25rem 1.5rem 2rem;
+}
+
+@media (max-width: 600px) {
+  .faculty-header__welcome {
+    display: none;
+  }
 }
 
 .faculty-section {
   background-color: white;
-  border-radius: 8px;
+  border-radius: 12px;
   padding: 2rem;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  border: 1px solid rgba(51, 102, 153, 0.1);
+  box-shadow: 0 2px 12px rgba(51, 102, 153, 0.08);
 }
 
 .section-header {
@@ -146,7 +225,7 @@
 .form-group input:focus,
 .form-group select:focus {
   outline: none;
-  border-color: #667eea;
+  border-color: #336699;
 }
 
 .form-group input:disabled {
@@ -171,12 +250,12 @@
 }
 
 .button-primary {
-  background-color: #667eea;
+  background-color: #336699;
   color: white;
 }
 
 .button-primary:hover:not(:disabled) {
-  background-color: #5568d3;
+  background-color: #254a6e;
 }
 
 .button-secondary {
@@ -308,15 +387,6 @@
     align-items: flex-start;
   }
 
-  .faculty-tabs {
-    flex-wrap: wrap;
-    padding: 0 1rem;
-  }
-
-  .faculty-content {
-    padding: 1rem;
-  }
-
   .form-row {
     grid-template-columns: 1fr;
   }
@@ -332,6 +402,31 @@
   .data-table th,
   .data-table td {
     padding: 0.75rem 0.5rem;
+  }
+}
+
+@media (max-width: 640px) {
+  .faculty-header--evaluator {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.75rem;
+    padding: 0.75rem 1rem;
+  }
+
+  .faculty-header--evaluator .faculty-header__actions {
+    justify-content: flex-start;
+    flex-wrap: wrap;
+    width: 100%;
+  }
+
+  .faculty-header--evaluator .faculty-header__welcome--compact {
+    max-width: none;
+    flex: 1;
+    min-width: 0;
+  }
+
+  .faculty-panel--evaluator-ui .faculty-content {
+    padding: 1rem 0.75rem 1.5rem;
   }
 }
 

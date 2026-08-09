@@ -17,11 +17,6 @@ class Campus extends Model
         'campus_name',
     ];
 
-    public function programs()
-    {
-        return $this->hasMany(Program::class, 'campus_id', 'campus_id');
-    }
-
     public function departments()
     {
         return $this->hasMany(Department::class, 'campus_id', 'campus_id');

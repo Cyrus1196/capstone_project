@@ -1,20 +1,28 @@
+﻿param(
+    [switch]$Setup
+)
+
 Write-Host "Starting Capstone Project..." -ForegroundColor Green
 Write-Host ""
 
-Set-Location backend-app
+Set-Location $PSScriptRoot\backend-app
 
-Write-Host "Running database setup..." -ForegroundColor Yellow
-php setup.php
+if ($Setup) {
+    Write-Host "Running database setup (migrate + seed)..." -ForegroundColor Yellow
+    php setup.php
 
-if ($LASTEXITCODE -ne 0) {
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host ""
+        Write-Host "Setup failed! Please check the errors above." -ForegroundColor Red
+        Read-Host "Press Enter to exit"
+        exit $LASTEXITCODE
+    }
     Write-Host ""
-    Write-Host "Setup failed! Please check the errors above." -ForegroundColor Red
-    Read-Host "Press Enter to exit"
-    exit $LASTEXITCODE
+} else {
+    Write-Host "Skipping DB setup (fast start). Use .\start.ps1 -Setup if needed." -ForegroundColor DarkGray
+    Write-Host ""
 }
 
-Write-Host ""
 Write-Host "Starting Laravel development server..." -ForegroundColor Green
 Write-Host ""
 php artisan serve
-

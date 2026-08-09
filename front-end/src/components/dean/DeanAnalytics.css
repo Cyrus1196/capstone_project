@@ -1,0 +1,369 @@
+/* Dean analytics — tabs, metric cards, charts */
+.dean-analytics {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 1.25rem 1.5rem 2rem;
+}
+
+.dean-analytics__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.dean-analytics__title {
+  margin: 0;
+  font-size: 1.45rem;
+  font-weight: 800;
+  color: #0f172a;
+}
+
+.dean-analytics__sem-picker {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.45rem 0.85rem;
+  border-radius: 12px;
+  background: linear-gradient(90deg, #d1e7dd 0%, #e8f5ee 100%);
+  border: 1px solid #a3cfbb;
+}
+
+.dean-analytics__sem-picker label {
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #0f5132;
+}
+
+.dean-analytics__sem-picker select {
+  border: 1px solid #86c5a8;
+  border-radius: 8px;
+  padding: 0.35rem 0.5rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #14532d;
+  background: #fff;
+}
+
+.dean-analytics__tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-bottom: 1.25rem;
+}
+
+.dean-analytics__tab {
+  padding: 0.5rem 1.1rem;
+  border-radius: 999px;
+  border: 1px solid #d1d5db;
+  background: #f3f4f6;
+  font-weight: 700;
+  font-size: 0.85rem;
+  color: #374151;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s, border-color 0.15s;
+}
+
+.dean-analytics__tab:hover {
+  background: #e5e7eb;
+}
+
+.dean-analytics__tab--active {
+  background: #336699;
+  color: #fff;
+  border-color: #336699;
+}
+
+.dean-analytics__metrics {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 1rem;
+  margin-bottom: 1.25rem;
+}
+
+.dean-metric-card {
+  background: #fff;
+  border-radius: 16px;
+  padding: 1rem 1.1rem;
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.06);
+  border: 1px solid rgba(0, 0, 0, 0.05);
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.dean-metric-card__icon {
+  width: 2.5rem;
+  height: 2.5rem;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #ecfdf5;
+  color: #336699;
+  font-size: 1.1rem;
+}
+
+.dean-metric-card__body {
+  min-width: 0;
+}
+
+.dean-metric-card__label {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: #64748b;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.dean-metric-card__value {
+  font-size: 1.35rem;
+  font-weight: 800;
+  color: #0f172a;
+  line-height: 1.2;
+}
+
+.dean-analytics__insight {
+  font-size: 0.88rem;
+  color: #475569;
+  line-height: 1.5;
+  margin: 0 0 1rem;
+  padding: 0.75rem 1rem;
+  background: #f8fafc;
+  border-radius: 12px;
+  border-left: 4px solid #336699;
+}
+
+.dean-analytics__two-col {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1.25rem;
+  align-items: start;
+}
+
+@media (max-width: 900px) {
+  .dean-analytics__two-col {
+    grid-template-columns: 1fr;
+  }
+}
+
+.dean-chart-card {
+  background: #fff;
+  border-radius: 16px;
+  padding: 1rem 1.1rem;
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.06);
+  border: 1px solid rgba(0, 0, 0, 0.05);
+}
+
+.dean-chart-card__title {
+  margin: 0 0 1rem;
+  font-size: 0.95rem;
+  font-weight: 800;
+  color: #0f172a;
+}
+
+.dean-donut-wrap {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 1.25rem;
+}
+
+.dean-donut {
+  width: 160px;
+  height: 160px;
+  border-radius: 50%;
+  position: relative;
+  flex-shrink: 0;
+}
+
+.dean-donut__hole {
+  position: absolute;
+  inset: 28%;
+  border-radius: 50%;
+  background: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  text-align: center;
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: #64748b;
+  line-height: 1.2;
+}
+
+.dean-donut__hole strong {
+  display: block;
+  font-size: 0.95rem;
+  color: #336699;
+}
+
+.dean-donut-legend {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  font-size: 0.85rem;
+}
+
+.dean-donut-legend__row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.dean-donut-legend__dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.dean-donut-legend__dot--pass {
+  background: #22c55e;
+}
+
+.dean-donut-legend__dot--fail {
+  background: #ef4444;
+}
+
+.dean-bar-chart__title {
+  margin: 0 0 0.75rem;
+  font-size: 0.9rem;
+  font-weight: 800;
+  color: #0f172a;
+}
+
+.dean-bar-row {
+  display: grid;
+  grid-template-columns: 52px 1fr 40px;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.45rem;
+  font-size: 0.78rem;
+}
+
+.dean-bar-row__label {
+  font-weight: 700;
+  color: #334155;
+  text-align: right;
+}
+
+.dean-bar-row__track {
+  height: 22px;
+  background: #f1f5f9;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.dean-bar-row__fill {
+  height: 100%;
+  border-radius: 8px;
+  background: linear-gradient(90deg, #336699, #5b8fc7);
+  min-width: 4px;
+  transition: width 0.4s ease;
+}
+
+.dean-bar-row__fill--fail {
+  background: linear-gradient(90deg, #f87171, #ef4444);
+}
+
+.dean-bar-row__n {
+  font-weight: 800;
+  color: #0f172a;
+  text-align: right;
+}
+
+.dean-avg-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.65rem 1.25rem;
+}
+
+@media (max-width: 600px) {
+  .dean-avg-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.dean-risk-table-wrap {
+  background: #fff;
+  border-radius: 16px;
+  padding: 1rem 1.1rem;
+  box-shadow: 0 4px 18px rgba(0, 0, 0, 0.06);
+  overflow-x: auto;
+}
+
+.dean-risk-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.86rem;
+}
+
+.dean-risk-table th {
+  text-align: left;
+  padding: 0.65rem 0.5rem;
+  background: #1e293b;
+  color: #fff;
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.dean-risk-table td {
+  padding: 0.55rem 0.5rem;
+  border-bottom: 1px solid #f1f5f9;
+  color: #334155;
+}
+
+.dean-risk-pill {
+  display: inline-block;
+  padding: 0.2rem 0.55rem;
+  border-radius: 8px;
+  font-weight: 800;
+  font-size: 0.78rem;
+  background: #fee2e2;
+  color: #b91c1c;
+}
+
+.dean-analytics__toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.75rem;
+}
+
+.dean-analytics__search {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.35rem 0.75rem;
+  border-radius: 999px;
+  border: 1px solid #e2e8f0;
+  background: #fff;
+}
+
+.dean-analytics__search input {
+  border: none;
+  font-size: 0.85rem;
+  min-width: 160px;
+}
+
+.dean-analytics__search input:focus {
+  outline: none;
+}
+
+.dean-analytics__empty {
+  margin: 0;
+  padding: 1.5rem;
+  text-align: center;
+  color: #64748b;
+  font-size: 0.9rem;
+}

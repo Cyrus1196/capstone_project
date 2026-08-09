@@ -1,0 +1,2 @@
+student_id_number,subject_code,academic_year_id,semester_id,section_id,grade,evaluation_status,enrolled_date,evaluation_date,modality_id,inc_compliance_deadline
+2026-PERSONAL-001,ITE 101,1,1,,1.25,passed,2025-08-15,2025-12-15,,

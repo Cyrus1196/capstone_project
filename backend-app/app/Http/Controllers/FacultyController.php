@@ -30,7 +30,7 @@ class FacultyController extends Controller
             }
 
             $profile = FacultyProfile::where('user_id', $userId)
-                ->with('department')
+                ->with(['department', 'program'])
                 ->first();
 
             if (!$profile) {
@@ -62,7 +62,6 @@ class FacultyController extends Controller
                 'middle_name' => 'nullable|string|max:50',
                 'last_name' => 'nullable|string|max:50',
                 'employee_id' => 'nullable|string|max:50',
-                'department_id' => 'nullable|integer|exists:tbl_departments,department_id',
                 'specialization' => 'nullable|string|max:255',
             ]);
 
@@ -75,7 +74,7 @@ class FacultyController extends Controller
                 $profile = FacultyProfile::create($validated);
             }
 
-            $profile->load('department');
+            $profile->load(['department', 'program']);
 
             return response()->json($profile);
         } catch (\Exception $e) {
@@ -221,6 +220,11 @@ class FacultyController extends Controller
             // In a full implementation, verify that the faculty is assigned to this class
             // For now, allow update if the evaluation exists
 
+            $studentProfile = $evaluation->student;
+            if ($studentProfile && $studentProfile->current_program !== null && $studentProfile->current_program !== '') {
+                $validated['graded_under_program_id'] = (int) $studentProfile->current_program;
+            }
+
             $evaluation->update($validated);
 
             $evaluation->load(['student', 'subject', 'section', 'academicYear', 'semester']);
@@ -231,6 +235,12 @@ class FacultyController extends Controller
             $response['status'] = $evaluation->evaluation_status;
 
             return response()->json($response);
+        } catch (ValidationException $e) {
+            return response()->json([
+                'error' => 'Validation failed',
+                'message' => $e->getMessage(),
+                'errors' => $e->errors(),
+            ], 422);
         } catch (\Exception $e) {
             return response()->json([
                 'error' => 'Failed to update grade',

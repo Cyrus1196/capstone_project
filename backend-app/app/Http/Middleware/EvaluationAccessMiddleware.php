@@ -4,9 +4,7 @@ namespace App\Http\Middleware;
 
 use Closure;
 use Illuminate\Http\Request;
-use App\Models\TblUser;
 use App\Models\DeanProfile;
-use App\Models\FacultyProfile;
 
 class EvaluationAccessMiddleware
 {
@@ -26,34 +24,25 @@ class EvaluationAccessMiddleware
         }
 
         // Check if user has required role for evaluation access
-        $hasAccess = $user->isAdmin() || $user->hasRole('Dean') || $user->hasRole('Faculty');
+        $hasAccess = $user->canWorkOnStudentEvaluations();
         
         if (!$hasAccess) {
             return response()->json(['message' => 'Forbidden - Insufficient privileges for evaluation access'], 403);
         }
 
         // Additional checks for specific evaluation operations
-        $route = $request->route();
         $method = $request->method();
         
-        // For DELETE operations, only Admin and Dean can delete
         if ($method === 'DELETE') {
-            if (!$user->isAdmin() && !$user->hasRole('Dean')) {
-                return response()->json(['message' => 'Forbidden - Only Admin and Dean can delete evaluations'], 403);
+            if (! $user->canDeleteEvaluationsOrDeanAcademicRecords()) {
+                return response()->json([
+                    'message' => 'Forbidden — only administrators or users with Dean academic approvals may delete evaluations',
+                ], 403);
             }
         }
 
-        // For faculty users, check if they have access to the specific subject/evaluation
-        if ($user->hasRole('Faculty') && in_array($method, ['POST', 'PUT', 'PATCH'])) {
-            $facultyProfile = FacultyProfile::where('user_id', $user->user_id)->first();
-            
-            if (!$facultyProfile) {
-                return response()->json(['message' => 'Forbidden - Faculty profile not found'], 403);
-            }
-
-            // You can add additional logic here to check if faculty has access to specific subjects
-            // For now, we'll allow all faculty to manage evaluations
-        }
+        // Evaluator / adviser writes are allowed when canWorkOnStudentEvaluations() is true.
+        // A tbl_faculty_profile row is optional (used by My Profile / faculty roster), not required to save grades.
 
         // For dean users, check if they have access to their assigned program's evaluations
         if ($user->hasRole('Dean')) {

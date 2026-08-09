@@ -19,8 +19,15 @@
   margin: 0;
 }
 
+.lookup-active-panel-label {
+  margin: -1rem 0 1.25rem;
+  font-size: 1.05rem;
+  font-weight: 600;
+  color: #475569;
+}
+
 .refresh-button {
-  background: #007bff;
+  background: #336699;
   color: white;
   border: none;
   padding: 0.75rem 1.5rem;
@@ -31,7 +38,7 @@
 }
 
 .refresh-button:hover {
-  background: #0056b3;
+  background: #254a6e;
 }
 
 .error-message {
@@ -90,8 +97,8 @@
 }
 
 .sub-tab.active {
-  color: #007bff;
-  border-bottom-color: #007bff;
+  color: #336699;
+  border-bottom-color: #336699;
 }
 
 .lookup-tabs .tab:hover {
@@ -100,8 +107,8 @@
 }
 
 .lookup-tabs .tab.active {
-  color: #007bff;
-  border-bottom-color: #007bff;
+  color: #336699;
+  border-bottom-color: #336699;
   background: rgba(0, 123, 255, 0.1);
 }
 
@@ -155,33 +162,153 @@
   background: #218838;
 }
 
-.table-container {
-  overflow-x: auto;
+.lookup-table-search-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  padding: 0.75rem 1.5rem 1rem;
+  background: #fff;
+  border-bottom: 1px solid #e8e8e8;
 }
 
-.data-table {
-  width: 100%;
-  border-collapse: collapse;
-  margin: 0;
-}
-
-.data-table th {
-  background: #f8f9fa;
-  padding: 1rem;
-  text-align: left;
+.lookup-table-search-label {
+  font-size: 0.8rem;
   font-weight: 600;
-  color: #495057;
-  border-bottom: 2px solid #e0e0e0;
+  color: #555;
 }
 
-.data-table td {
+.lookup-table-search {
+  width: 100%;
+  max-width: 28rem;
+  box-sizing: border-box;
+  padding: 0.5rem 0.75rem;
+  font-size: 0.95rem;
+  border: 1px solid #ced4da;
+  border-radius: 6px;
+  background: #fff;
+  color: #333;
+}
+
+.lookup-table-search:focus {
+  outline: none;
+  border-color: #336699;
+  box-shadow: 0 0 0 2px rgba(51, 102, 153, 0.2);
+}
+
+.lookup-table-search::placeholder {
+  color: #888;
+}
+
+.lookup-data-grid__empty--filter {
+  color: #666;
+  font-style: italic;
+}
+
+.lookup-data-management .table-container {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-x: contain;
+  max-width: 100%;
+  padding: 0 0 1rem;
+}
+
+/* Breathing room between search row and scrollable grid */
+.lookup-data-management .lookup-table-search-wrap + .table-container,
+.lookup-data-management .lookup-subjects-filters + .table-container {
+  padding-top: 1rem;
+}
+
+/* Subjects: search + Core/GE filter on one row when space allows */
+.lookup-subjects-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem 1.5rem;
+  align-items: flex-end;
+  padding: 0.75rem 1.5rem 1rem;
+  background: #fff;
+  border-bottom: 1px solid #e8e8e8;
+}
+
+.lookup-subjects-filters > .lookup-table-search-wrap {
+  padding: 0;
+  border-bottom: none;
+  background: transparent;
+  flex: 1 1 min(100%, 20rem);
+  max-width: 28rem;
+}
+
+/* Div-based responsive data grid (replaces <table> for small screens) */
+.lookup-data-grid {
+  --lookup-data-cols: 3;
+  width: 100%;
+}
+
+.lookup-data-grid__head {
+  display: none;
+}
+
+.lookup-data-grid__body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.lookup-data-grid__row {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
   padding: 1rem;
-  border-bottom: 1px solid #e0e0e0;
-  vertical-align: top;
+  background: #fff;
+  border: 1px solid #e0e0e0;
+  border-radius: 8px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.06);
 }
 
-.data-table tr:hover {
+.lookup-data-grid__row:hover {
+  border-color: #ced4da;
+}
+
+.lookup-data-grid__cell {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.2rem;
+  padding: 0;
+  border: 0;
+  min-width: 0;
+}
+
+.lookup-data-grid__mobile-label {
+  font-size: 0.72rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: #64748b;
+}
+
+.lookup-data-grid__cell-value {
+  font-size: 0.95rem;
+  color: #212529;
+  word-break: break-word;
+  width: 100%;
+}
+
+.lookup-data-grid__cell--actions .actions {
+  width: 100%;
+  flex-direction: row;
+  flex-wrap: wrap;
+}
+
+.lookup-data-grid__empty {
+  text-align: center;
+  padding: 2rem 1rem;
+  border: 1px dashed #dee2e6;
+  border-radius: 8px;
   background: #f8f9fa;
+}
+
+.lookup-data-grid__empty > div {
+  width: 100%;
 }
 
 .no-data {
@@ -189,6 +316,180 @@
   color: #6c757d;
   font-style: italic;
   padding: 2rem !important;
+}
+
+@media (min-width: 768px) {
+  .lookup-data-grid__head {
+    display: grid;
+    grid-template-columns: repeat(var(--lookup-data-cols), minmax(0, 1fr));
+    background: #f8f9fa;
+    border-bottom: 2px solid #e0e0e0;
+    font-weight: 600;
+    color: #495057;
+  }
+
+  .lookup-data-grid--with-actions .lookup-data-grid__head {
+    grid-template-columns: repeat(var(--lookup-data-cols), minmax(0, 1fr)) minmax(140px, auto);
+  }
+
+  .lookup-data-grid__th {
+    padding: 1rem;
+    text-align: left;
+    border-bottom: 2px solid #e0e0e0;
+  }
+
+  .lookup-data-grid__th--actions {
+    text-align: right;
+  }
+
+  .lookup-data-grid__body {
+    display: block;
+    gap: 0;
+  }
+
+  .lookup-data-grid__row {
+    display: grid;
+    grid-template-columns: repeat(var(--lookup-data-cols), minmax(0, 1fr));
+    align-items: start;
+    padding: 0;
+    border: none;
+    border-radius: 0;
+    box-shadow: none;
+    border-bottom: 1px solid #e0e0e0;
+    gap: 0;
+  }
+
+  .lookup-data-grid--with-actions .lookup-data-grid__row {
+    grid-template-columns: repeat(var(--lookup-data-cols), minmax(0, 1fr)) minmax(140px, auto);
+  }
+
+  .lookup-data-grid__row:hover {
+    background: #f8f9fa;
+  }
+
+  .lookup-data-grid__cell {
+    padding: 1rem;
+    display: block;
+  }
+
+  .lookup-data-grid__mobile-label {
+    display: none;
+  }
+
+  .lookup-data-grid__cell--actions {
+    text-align: right;
+  }
+
+  .lookup-data-grid__cell--actions .actions {
+    justify-content: flex-end;
+    width: auto;
+  }
+
+  .lookup-data-grid__empty {
+    border-radius: 0;
+    border-left: none;
+    border-right: none;
+    border-bottom: 1px solid #e0e0e0;
+  }
+}
+
+/* Scrollable div-table at all widths (departments, programs, etc. on narrow viewports). */
+.lookup-data-grid.lookup-data-grid--scroll-table {
+  min-width: var(--lookup-scroll-min-width, 720px);
+  width: 100%;
+  border: 1px solid #e0e0e0;
+  border-radius: 8px;
+  overflow: hidden;
+  background: #fff;
+  box-sizing: border-box;
+}
+
+.lookup-data-grid.lookup-data-grid--scroll-table .lookup-data-grid__head {
+  display: grid;
+  grid-template-columns: repeat(var(--lookup-data-cols), minmax(0, 1fr));
+  background: #f8f9fa;
+  border-bottom: 2px solid #e0e0e0;
+  font-weight: 600;
+  font-size: 11px;
+  color: #495057;
+  letter-spacing: 0.03em;
+}
+
+.lookup-data-grid.lookup-data-grid--scroll-table.lookup-data-grid--with-actions .lookup-data-grid__head {
+  grid-template-columns: repeat(var(--lookup-data-cols), minmax(0, 1fr)) minmax(120px, auto);
+}
+
+.lookup-data-grid.lookup-data-grid--scroll-table .lookup-data-grid__th {
+  padding: 8px 10px;
+  text-align: left;
+  border-bottom: 2px solid #e0e0e0;
+}
+
+.lookup-data-grid.lookup-data-grid--scroll-table .lookup-data-grid__th--actions {
+  text-align: right;
+}
+
+.lookup-data-grid.lookup-data-grid--scroll-table .lookup-data-grid__body {
+  display: block;
+}
+
+.lookup-data-grid.lookup-data-grid--scroll-table .lookup-data-grid__row {
+  display: grid;
+  grid-template-columns: repeat(var(--lookup-data-cols), minmax(0, 1fr));
+  align-items: start;
+  padding: 0;
+  border: none;
+  border-radius: 0;
+  box-shadow: none;
+  border-bottom: 1px solid #e0e0e0;
+  gap: 0;
+}
+
+.lookup-data-grid.lookup-data-grid--scroll-table.lookup-data-grid--with-actions .lookup-data-grid__row {
+  grid-template-columns: repeat(var(--lookup-data-cols), minmax(0, 1fr)) minmax(120px, auto);
+}
+
+.lookup-data-grid.lookup-data-grid--scroll-table .lookup-data-grid__row:hover {
+  background: #f8f9fa;
+}
+
+.lookup-data-grid.lookup-data-grid--scroll-table .lookup-data-grid__cell {
+  padding: 8px 10px;
+  display: block;
+  font-size: 12px;
+  min-width: 0;
+}
+
+.lookup-data-grid.lookup-data-grid--scroll-table .lookup-data-grid__mobile-label {
+  display: none;
+}
+
+.lookup-data-grid.lookup-data-grid--scroll-table .lookup-data-grid__cell--actions {
+  text-align: right;
+}
+
+.lookup-data-grid.lookup-data-grid--scroll-table .lookup-data-grid__cell--actions .actions {
+  justify-content: flex-end;
+  width: auto;
+  flex-wrap: nowrap;
+}
+
+.lookup-data-grid.lookup-data-grid--scroll-table .lookup-data-grid__empty {
+  border-radius: 0;
+  border: none;
+  border-bottom: 1px solid #e0e0e0;
+}
+
+@media (min-width: 768px) {
+  .lookup-data-grid.lookup-data-grid--scroll-table .lookup-data-grid__th {
+    padding: 1rem;
+    font-size: 12px;
+  }
+
+  .lookup-data-grid.lookup-data-grid--scroll-table .lookup-data-grid__cell {
+    padding: 1rem;
+    font-size: 14px;
+  }
 }
 
 .actions {
@@ -209,6 +510,33 @@
 
 .edit-button:hover {
   background: #e0a800;
+}
+
+.activate-button,
+.deactivate-button {
+  color: white;
+  border: none;
+  padding: 0.4rem 0.8rem;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 0.8rem;
+  transition: background-color 0.3s ease;
+}
+
+.activate-button {
+  background: #28a745;
+}
+
+.activate-button:hover {
+  background: #218838;
+}
+
+.deactivate-button {
+  background: #dc3545;
+}
+
+.deactivate-button:hover {
+  background: #c82333;
 }
 
 .delete-button {
@@ -315,7 +643,7 @@
 .form-group textarea:focus,
 .form-group select:focus {
   outline: none;
-  border-color: #007bff;
+  border-color: #336699;
   box-shadow: 0 0 0 2px rgba(0, 123, 255, 0.25);
 }
 
@@ -353,7 +681,7 @@
 }
 
 .submit-button {
-  background: #007bff;
+  background: #336699;
   color: white;
   border: none;
   padding: 0.75rem 1.5rem;
@@ -364,7 +692,7 @@
 }
 
 .submit-button:hover {
-  background: #0056b3;
+  background: #254a6e;
 }
 
 /* Responsive Design */
@@ -409,15 +737,6 @@
   .form-actions {
     flex-direction: column;
   }
-
-  .data-table {
-    font-size: 0.9rem;
-  }
-
-  .data-table th,
-  .data-table td {
-    padding: 0.5rem;
-  }
 }
 
 @media (max-width: 480px) {
@@ -433,15 +752,8 @@
     font-size: 1.1rem;
   }
 
-  .data-table {
-    font-size: 0.8rem;
-  }
-
-  .data-table th,
-  .data-table td {
-    padding: 0.4rem;
-  }
-
+  .activate-button,
+  .deactivate-button,
   .edit-button,
   .delete-button {
     padding: 0.3rem 0.6rem;

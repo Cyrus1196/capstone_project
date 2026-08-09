@@ -1,15 +1,34 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { useNavigate } from 'react-router-dom';
 import StudentProfile from './StudentProfile';
-import StudentEnrollments from './StudentEnrollments';
 import StudentCurriculum from './StudentCurriculum';
+import StudentDashboard from './StudentDashboard';
 import './StudentPanel.css';
+
+const STUDENT_ACTIVE_TAB_STORAGE_KEY = 'studentPortalActiveTab';
+
+function readStoredStudentTab() {
+  try {
+    return window.localStorage.getItem(STUDENT_ACTIVE_TAB_STORAGE_KEY) || 'dashboard';
+  } catch {
+    return 'dashboard';
+  }
+}
 
 const StudentPanel = () => {
   const { user, logout, isAdmin } = useAuth();
   const navigate = useNavigate();
-  const [activeTab, setActiveTab] = useState('profile');
+  const [activeTab, setActiveTabState] = useState(readStoredStudentTab);
+
+  const setActiveTab = useCallback((tab) => {
+    setActiveTabState(tab);
+    try {
+      window.localStorage.setItem(STUDENT_ACTIVE_TAB_STORAGE_KEY, tab);
+    } catch {
+      // Ignore storage errors; tab navigation should still work.
+    }
+  }, []);
 
   useEffect(() => {
     if (!user) {
@@ -21,6 +40,11 @@ const StudentPanel = () => {
   }, [user, isAdmin, navigate]);
 
   const handleLogout = async () => {
+    try {
+      window.localStorage.removeItem(STUDENT_ACTIVE_TAB_STORAGE_KEY);
+    } catch {
+      // Ignore storage errors; logout should still continue.
+    }
     await logout();
     navigate('/login');
   };
@@ -43,16 +67,16 @@ const StudentPanel = () => {
 
       <div className="student-tabs">
         <button
+          className={activeTab === 'dashboard' ? 'tab active' : 'tab'}
+          onClick={() => setActiveTab('dashboard')}
+        >
+          Dashboard
+        </button>
+        <button
           className={activeTab === 'profile' ? 'tab active' : 'tab'}
           onClick={() => setActiveTab('profile')}
         >
           My Profile
-        </button>
-        <button
-          className={activeTab === 'enrollments' ? 'tab active' : 'tab'}
-          onClick={() => setActiveTab('enrollments')}
-        >
-          My Enrollments
         </button>
         <button
           className={activeTab === 'curriculum' ? 'tab active' : 'tab'}
@@ -63,8 +87,8 @@ const StudentPanel = () => {
       </div>
 
       <div className="student-content">
+        {activeTab === 'dashboard' && <StudentDashboard onNavigate={setActiveTab} />}
         {activeTab === 'profile' && <StudentProfile />}
-        {activeTab === 'enrollments' && <StudentEnrollments />}
         {activeTab === 'curriculum' && <StudentCurriculum />}
       </div>
     </div>

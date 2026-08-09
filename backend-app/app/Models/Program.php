@@ -26,11 +26,6 @@ class Program extends Model
         return $this->belongsTo(Department::class, 'department_id', 'department_id');
     }
 
-    public function campus()
-    {
-        return $this->belongsTo(Campus::class, 'campus_id', 'campus_id');
-    }
-
     public function curricula()
     {
         return $this->hasMany(Curriculum::class, 'program_id', 'program_id');

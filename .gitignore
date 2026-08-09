@@ -1,0 +1,31 @@
+﻿# Local / bulky
+db_backups/
+.cache/
+.tools/
+.vscode/
+
+# Secrets
+.env
+.env.*
+!.env.example
+backend-app/.env
+backend-app/.env.*
+!backend-app/.env.example
+
+# Dependencies
+node_modules/
+front-end/node_modules/
+backend-app/vendor/
+
+# Build / runtime
+front-end/build/
+front-end/dist/
+backend-app/storage/logs/*
+!backend-app/storage/logs/.gitignore
+backend-app/bootstrap/cache/*.php
+!backend-app/bootstrap/cache/.gitignore
+
+# OS / editor
+.DS_Store
+Thumbs.db
+*.log

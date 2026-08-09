@@ -60,12 +60,12 @@
 }
 
 .btn-primary {
-    background-color: #007bff;
+    background-color: #336699;
     color: white;
 }
 
 .btn-primary:hover {
-    background-color: #0056b3;
+    background-color: #254a6e;
 }
 
 .btn-success {
@@ -153,12 +153,12 @@
 }
 
 .student-card:hover {
-    border-color: #007bff;
+    border-color: #336699;
     box-shadow: 0 2px 8px rgba(0, 123, 255, 0.15);
 }
 
 .student-card.selected {
-    border-color: #007bff;
+    border-color: #336699;
     background-color: #f8f9ff;
     box-shadow: 0 2px 8px rgba(0, 123, 255, 0.25);
 }
@@ -188,7 +188,7 @@
     justify-content: space-between;
     align-items: center;
     padding: 20px 25px;
-    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    background: linear-gradient(135deg, #336699 0%, #254a6e 100%);
     color: white;
 }
 
@@ -259,42 +259,28 @@
     font-weight: 500;
     margin: 0 0 15px 0;
     padding-left: 15px;
-    border-left: 3px solid #007bff;
+    border-left: 3px solid #336699;
 }
 
-/* Table Styles */
-.semester-section table {
+/* Div-based curriculum grid (shared .curriculum-data-grid from CurriculumManagement.css) */
+.semester-section .eval-curriculum-grid {
     width: 100%;
-    border-collapse: collapse;
     background: white;
     border: 1px solid #dee2e6;
     border-radius: 6px;
     overflow: hidden;
 }
 
-.semester-section th,
-.semester-section td {
-    padding: 12px;
-    text-align: left;
-    border-bottom: 1px solid #dee2e6;
-    font-size: 14px;
+.eval-curriculum-grid .status-select,
+.eval-curriculum-grid .grade-input {
+    max-width: 100%;
+    box-sizing: border-box;
 }
 
-.semester-section th {
-    background-color: #f8f9fa;
-    font-weight: 600;
-    color: #495057;
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-    font-size: 12px;
-}
-
-.semester-section tbody tr:hover {
-    background-color: #f8f9fa;
-}
-
-.semester-section tbody tr:last-child td {
-    border-bottom: none;
+@media (min-width: 768px) {
+    .semester-section .eval-curriculum-grid .curriculum-data-grid__row:last-child {
+        border-bottom: none;
+    }
 }
 
 /* Status Badge */
@@ -419,14 +405,6 @@
         padding: 15px;
     }
     
-    .semester-section table {
-        font-size: 12px;
-    }
-    
-    .semester-section th,
-    .semester-section td {
-        padding: 8px;
-    }
 }
 
 @media (max-width: 480px) {
@@ -448,15 +426,6 @@
     
     .curriculum-table {
         padding: 10px;
-    }
-    
-    .semester-section table {
-        font-size: 11px;
-    }
-    
-    .semester-section th,
-    .semester-section td {
-        padding: 6px;
     }
     
     .status-badge {

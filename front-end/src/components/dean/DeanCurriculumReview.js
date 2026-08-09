@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import api from '../../api/axios';
 import './DeanPanel.css';
+import '../admin/CurriculumManagement.css';
 
 const DeanCurriculumReview = ({ deanProfile }) => {
   const [curricula, setCurricula] = useState([]);
@@ -298,157 +299,56 @@ const DeanCurriculumReview = ({ deanProfile }) => {
                     </div>
 
                     <div className="table-container">
-                      <table
-                        className="table"
-                        style={{
-                          width: '100%',
-                          borderCollapse: 'collapse',
-                        }}
+                      <div
+                        className="curriculum-data-grid dean-curriculum-review-grid"
+                        style={{ '--curriculum-data-cols': 7 }}
+                        role="table"
+                        aria-label="Curriculum subjects"
                       >
-                        <thead>
-                          <tr style={{ background: '#f8f9fa' }}>
-                            <th
-                              style={{
-                                padding: '0.75rem',
-                                textAlign: 'left',
-                                fontWeight: '600',
-                                color: '#555',
-                                borderBottom: '2px solid #e0e0e0',
-                              }}
-                            >
-                              Subject Code
-                            </th>
-                            <th
-                              style={{
-                                padding: '0.75rem',
-                                textAlign: 'left',
-                                fontWeight: '600',
-                                color: '#555',
-                                borderBottom: '2px solid #e0e0e0',
-                              }}
-                            >
-                              Pre/Co-requisite
-                            </th>
-                            <th
-                              style={{
-                                padding: '0.75rem',
-                                textAlign: 'left',
-                                fontWeight: '600',
-                                color: '#555',
-                                borderBottom: '2px solid #e0e0e0',
-                              }}
-                            >
-                              Description
-                            </th>
-                            <th
-                              style={{
-                                padding: '0.75rem',
-                                textAlign: 'center',
-                                fontWeight: '600',
-                                color: '#555',
-                                borderBottom: '2px solid #e0e0e0',
-                              }}
-                            >
-                              Units
-                            </th>
-                            <th
-                              style={{
-                                padding: '0.75rem',
-                                textAlign: 'center',
-                                fontWeight: '600',
-                                color: '#555',
-                                borderBottom: '2px solid #e0e0e0',
-                              }}
-                            >
-                              Hours
-                            </th>
-                            <th
-                              style={{
-                                padding: '0.75rem',
-                                textAlign: 'center',
-                                fontWeight: '600',
-                                color: '#555',
-                                borderBottom: '2px solid #e0e0e0',
-                              }}
-                            >
-                              Passing Grade
-                            </th>
-                            <th
-                              style={{
-                                padding: '0.75rem',
-                                textAlign: 'center',
-                                fontWeight: '600',
-                                color: '#555',
-                                borderBottom: '2px solid #e0e0e0',
-                              }}
-                            >
-                              Type
-                            </th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {semester.curricula.map((curr) => (
-                            <tr
-                              key={curr.curriculum_id}
-                              style={{
-                                borderBottom: '1px solid #e0e0e0',
-                              }}
-                            >
-                              <td
-                                style={{
-                                  padding: '0.75rem',
-                                  fontWeight: '500',
-                                  color: '#333',
-                                }}
-                              >
-                                {curr.subject?.subject_code || 'N/A'}
-                              </td>
-                              <td style={{ padding: '0.75rem', color: '#666' }}>
-                                {resolveRequisiteLabel(curr)}
-                              </td>
-                              <td style={{ padding: '0.75rem', color: '#666' }}>
-                                {curr.subject?.subject_name || 'N/A'}
-                              </td>
-                              <td
-                                style={{
-                                  padding: '0.75rem',
-                                  textAlign: 'center',
-                                  color: '#666',
-                                }}
-                              >
-                                {curr.number_of_units || '-'}
-                              </td>
-                              <td
-                                style={{
-                                  padding: '0.75rem',
-                                  textAlign: 'center',
-                                  color: '#666',
-                                }}
-                              >
-                                {curr.number_of_hrs || '-'}
-                              </td>
-                              <td
-                                style={{
-                                  padding: '0.75rem',
-                                  textAlign: 'center',
-                                  color: '#666',
-                                }}
-                              >
-                                {curr.passing_grade || '-'}
-                              </td>
-                              <td
-                                style={{
-                                  padding: '0.75rem',
-                                  textAlign: 'center',
-                                  color: '#666',
-                                }}
-                              >
-                                {curr.subject_type || '-'}
-                              </td>
-                            </tr>
+                        <div className="curriculum-data-grid__head" role="row">
+                          {['Subject Code', 'Pre/Co-requisite', 'Description', 'Units', 'Hours', 'Passing Grade', 'Type'].map((label) => (
+                            <div key={label} className="curriculum-data-grid__th" role="columnheader">
+                              {label}
+                            </div>
                           ))}
-                        </tbody>
-                      </table>
+                        </div>
+                        <div className="curriculum-data-grid__body" role="rowgroup">
+                          {semester.curricula.map((curr) => (
+                            <div key={curr.curriculum_id} className="curriculum-data-grid__row" role="row">
+                              <div className="curriculum-data-grid__cell" role="cell">
+                                <span className="curriculum-data-grid__mobile-label">Subject Code</span>
+                                <span className="curriculum-data-grid__cell-value" style={{ fontWeight: 500 }}>
+                                  {curr.subject?.subject_code || 'N/A'}
+                                </span>
+                              </div>
+                              <div className="curriculum-data-grid__cell" role="cell">
+                                <span className="curriculum-data-grid__mobile-label">Pre/Co-requisite</span>
+                                <span className="curriculum-data-grid__cell-value">{resolveRequisiteLabel(curr)}</span>
+                              </div>
+                              <div className="curriculum-data-grid__cell" role="cell">
+                                <span className="curriculum-data-grid__mobile-label">Description</span>
+                                <span className="curriculum-data-grid__cell-value">{curr.subject?.subject_name || 'N/A'}</span>
+                              </div>
+                              <div className="curriculum-data-grid__cell" role="cell">
+                                <span className="curriculum-data-grid__mobile-label">Units</span>
+                                <span className="curriculum-data-grid__cell-value">{curr.number_of_units || '-'}</span>
+                              </div>
+                              <div className="curriculum-data-grid__cell" role="cell">
+                                <span className="curriculum-data-grid__mobile-label">Hours</span>
+                                <span className="curriculum-data-grid__cell-value">{curr.number_of_hrs || '-'}</span>
+                              </div>
+                              <div className="curriculum-data-grid__cell" role="cell">
+                                <span className="curriculum-data-grid__mobile-label">Passing Grade</span>
+                                <span className="curriculum-data-grid__cell-value">{curr.passing_grade || '-'}</span>
+                              </div>
+                              <div className="curriculum-data-grid__cell" role="cell">
+                                <span className="curriculum-data-grid__mobile-label">Type</span>
+                                <span className="curriculum-data-grid__cell-value">{curr.subject_type || '-'}</span>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
                     </div>
                   </div>
                 );

@@ -1,28 +1,69 @@
-/* Student Panel Styles */
+/* Student portal — Academic Evaluation Portal palette */
 .student-panel {
   min-height: 100vh;
-  background-color: #f5f5f5;
+  position: relative;
+  width: 100%;
+  max-width: 100%;
+  overflow-x: hidden;
+  box-sizing: border-box;
+  background-color: #eef3f8;
+  background-image: radial-gradient(circle at 1px 1px, rgba(51, 102, 153, 0.07) 1px, transparent 0);
+  background-size: 28px 28px;
+  font-family:
+    "DM Sans",
+    system-ui,
+    -apple-system,
+    "Segoe UI",
+    Roboto,
+    sans-serif;
+  color: #2c3540;
+}
+
+.student-panel::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  background: radial-gradient(ellipse 90% 55% at 50% -25%, rgba(51, 102, 153, 0.06), transparent 55%);
+  pointer-events: none;
+}
+
+.student-panel > * {
+  position: relative;
+  z-index: 1;
 }
 
 .student-header {
-  background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+  background: linear-gradient(125deg, #336699 0%, #254a6e 100%);
   color: white;
   padding: 1.5rem 2rem;
   display: flex;
   justify-content: space-between;
   align-items: center;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  flex-wrap: wrap;
+  gap: 0.75rem 1rem;
+  box-shadow: 0 8px 24px rgba(51, 102, 153, 0.2);
+  max-width: 100%;
+  box-sizing: border-box;
 }
 
 .student-header h1 {
   margin: 0;
   font-size: 1.5rem;
+  min-width: 0;
 }
 
 .header-info {
   display: flex;
   align-items: center;
   gap: 1rem;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+
+.header-info span {
+  min-width: 0;
+  word-break: break-word;
 }
 
 .logout-button {
@@ -41,77 +82,110 @@
 
 .student-tabs {
   display: flex;
+  flex-wrap: nowrap;
   background: white;
-  border-bottom: 2px solid #e0e0e0;
-  padding: 0 2rem;
+  border-bottom: 1px solid rgba(51, 102, 153, 0.12);
+  padding: 0 0.75rem;
+  box-shadow: 0 1px 0 rgba(51, 102, 153, 0.04);
+  max-width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-x: contain;
+  box-sizing: border-box;
 }
 
 .tab {
-  padding: 1rem 2rem;
+  flex: 0 0 auto;
+  padding: 0.85rem 1rem;
   background: none;
   border: none;
   border-bottom: 3px solid transparent;
   cursor: pointer;
-  font-size: 1rem;
-  color: #666;
+  font-size: 0.95rem;
+  font-family: inherit;
+  color: #64748b;
+  white-space: nowrap;
   transition: color 0.2s, border-color 0.2s;
 }
 
 .tab:hover {
-  color: #4facfe;
+  color: #336699;
 }
 
 .tab.active {
-  color: #4facfe;
-  border-bottom-color: #4facfe;
+  color: #336699;
+  border-bottom-color: #336699;
   font-weight: 600;
 }
 
 .student-content {
   padding: 2rem;
+  max-width: 100%;
+  box-sizing: border-box;
+  min-width: 0;
 }
 
-/* Student Profile Styles */
+@media (max-width: 640px) {
+  .student-header {
+    padding: 1rem 1rem;
+  }
+
+  .student-header h1 {
+    font-size: 1.2rem;
+    flex: 1 1 100%;
+  }
+
+  .header-info {
+    flex: 1 1 100%;
+    justify-content: space-between;
+  }
+
+  .header-info span {
+    font-size: 0.8rem;
+    line-height: 1.3;
+  }
+
+  .student-content {
+    padding: 1rem;
+  }
+
+  .student-tabs {
+    padding: 0 0.5rem;
+  }
+
+  .tab {
+    padding: 0.75rem 0.85rem;
+    font-size: 0.88rem;
+  }
+}
+
+/* Student profile shell — detail layout lives in StudentProfile.css */
 .student-profile {
-  background: white;
-  border-radius: 8px;
-  padding: 2rem;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-}
-
-.profile-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 2rem;
-}
-
-.profile-header h2 {
-  margin: 0;
-  color: #333;
+  background: transparent;
+  border: none;
+  box-shadow: none;
+  padding: 0;
 }
 
 .edit-button {
   padding: 0.5rem 1.5rem;
-  background: #4facfe;
+  background: #336699;
   color: white;
   border: none;
-  border-radius: 5px;
+  border-radius: 8px;
   cursor: pointer;
   font-size: 0.9rem;
+  font-family: inherit;
+  font-weight: 600;
   transition: background 0.2s;
 }
 
 .edit-button:hover {
-  background: #00f2fe;
+  background: #254a6e;
 }
 
-.profile-form {
-  display: flex;
-  flex-direction: column;
-  gap: 1.5rem;
-}
-
+/* Shared form primitives (student profile uses StudentProfile.css for layout) */
 .form-group {
   display: flex;
   flex-direction: column;
@@ -153,17 +227,18 @@
 
 .save-button {
   padding: 0.75rem 2rem;
-  background: #28a745;
+  background: #336699;
   color: white;
   border: none;
-  border-radius: 5px;
+  border-radius: 8px;
   cursor: pointer;
   font-size: 1rem;
+  font-weight: 600;
   transition: background 0.2s;
 }
 
 .save-button:hover {
-  background: #218838;
+  background: #254a6e;
 }
 
 .cancel-button {
@@ -204,9 +279,10 @@
 /* Student Enrollments Styles */
 .student-enrollments {
   background: white;
-  border-radius: 8px;
+  border-radius: 12px;
   padding: 2rem;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+  border: 1px solid rgba(51, 102, 153, 0.1);
+  box-shadow: 0 4px 16px rgba(51, 102, 153, 0.08);
 }
 
 .enrollments-header {
@@ -265,12 +341,12 @@
 }
 
 .apply-button {
-  background: #4facfe;
+  background: #336699;
   color: white;
 }
 
 .apply-button:hover {
-  background: #00f2fe;
+  background: #254a6e;
 }
 
 .clear-button {
@@ -335,150 +411,3 @@
   background: #f8d7da;
   color: #721c24;
 }
-
-/* Student Curriculum Styles */
-.student-curriculum {
-  background: white;
-  border-radius: 8px;
-  padding: 2rem;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
-}
-
-.curriculum-header {
-  margin-bottom: 2rem;
-}
-
-.curriculum-header h2 {
-  margin: 0 0 1rem 0;
-  color: #333;
-}
-
-.year-level-tabs {
-  display: flex;
-  gap: 0.5rem;
-  margin-bottom: 2rem;
-  border-bottom: 2px solid #e0e0e0;
-}
-
-.year-tab {
-  padding: 0.75rem 1.5rem;
-  background: none;
-  border: none;
-  border-bottom: 3px solid transparent;
-  cursor: pointer;
-  font-size: 1rem;
-  color: #666;
-  transition: color 0.2s, border-color 0.2s;
-}
-
-.year-tab:hover {
-  color: #4facfe;
-}
-
-.year-tab.active {
-  color: #4facfe;
-  border-bottom-color: #4facfe;
-  font-weight: 600;
-}
-
-.curriculum-content {
-  display: flex;
-  flex-direction: column;
-  gap: 2rem;
-}
-
-.semester-section {
-  margin-bottom: 2rem;
-}
-
-.semester-title {
-  color: #333;
-  margin-bottom: 1rem;
-  padding-bottom: 0.5rem;
-  border-bottom: 2px solid #4facfe;
-}
-
-.subjects-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
-  gap: 1rem;
-}
-
-.subject-card {
-  border: 2px solid #e0e0e0;
-  border-radius: 8px;
-  padding: 1rem;
-  transition: all 0.2s;
-  background: white;
-}
-
-.subject-card:hover {
-  box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
-  transform: translateY(-2px);
-}
-
-.subject-card.enrolled {
-  border-color: #4facfe;
-  background: #f0f9ff;
-}
-
-.subject-card.completed {
-  border-color: #28a745;
-  background: #f0fff4;
-}
-
-.subject-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 0.5rem;
-}
-
-.subject-code {
-  font-weight: 600;
-  font-size: 1.1rem;
-  color: #4facfe;
-}
-
-.subject-units {
-  font-size: 0.85rem;
-  color: #666;
-  background: #f0f0f0;
-  padding: 0.25rem 0.5rem;
-  border-radius: 4px;
-}
-
-.subject-name {
-  font-weight: 500;
-  color: #333;
-  margin-bottom: 0.75rem;
-}
-
-.subject-details {
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-  font-size: 0.9rem;
-}
-
-.detail-row {
-  display: flex;
-  gap: 0.5rem;
-}
-
-.detail-label {
-  font-weight: 600;
-  color: #666;
-  min-width: 100px;
-}
-
-.prerequisites {
-  color: #555;
-  font-style: italic;
-}
-
-.grade-badge {
-  font-weight: 600;
-  color: #28a745;
-}
-

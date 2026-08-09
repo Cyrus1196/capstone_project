@@ -49,8 +49,8 @@
 }
 
 .tab-btn.active {
-    color: #007bff;
-    border-bottom-color: #007bff;
+    color: #336699;
+    border-bottom-color: #336699;
     background-color: #f8f9fa;
 }
 
@@ -124,12 +124,12 @@
 }
 
 .btn-primary {
-    background-color: #007bff;
+    background-color: #336699;
     color: white;
 }
 
 .btn-primary:hover {
-    background-color: #0056b3;
+    background-color: #254a6e;
 }
 
 .btn-secondary {
