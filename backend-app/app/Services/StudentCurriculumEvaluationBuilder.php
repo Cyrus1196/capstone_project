@@ -452,6 +452,7 @@ class StudentCurriculumEvaluationBuilder
                     'prerequisite_subject_codes' => $slotPrerequisiteNames,
                     'corequisite_subject_codes' => [],
                     'prerequisite_elective_slots' => $slotPrerequisites,
+                    'subject_type' => $item->subject_type ?? null,
                     'evaluation_id' => null,
                     'academic_year_id' => $defaultAcademicYearId,
                     'evaluated_by' => null,
@@ -604,6 +605,7 @@ class StudentCurriculumEvaluationBuilder
                 'prerequisite_rule_labels' => array_values(array_unique($prereqRuleLabels)),
                 'corequisite_rule_labels' => array_values(array_unique($coreqRuleLabels)),
                 'prerequisite_elective_slots' => $slotPrerequisites,
+                'subject_type' => $item->subject_type ?? null,
                 'resolved_from_elective_slot' => (bool) $slot,
                 'elective_pending' => false,
                 'elective_slot_id' => $slot?->elective_slot_id,
@@ -1082,8 +1084,19 @@ class StudentCurriculumEvaluationBuilder
      * @param  list<array<string, mixed>>  $allRows
      * @param  array<string, mixed>  $targetRow
      */
-    public function rowPrerequisitesMet(array $allRows, array $targetRow): bool
+    public function rowPrerequisitesMet(array $allRows, array $targetRow, array $overrideKeys = []): bool
     {
+        $overrideKeys = array_values(array_filter(array_map(
+            static fn ($k) => trim((string) $k),
+            $overrideKeys
+        ), static fn ($k) => $k !== ''));
+        if ($overrideKeys !== []) {
+            $key = $this->evaluationRowKeyForPayload($targetRow);
+            if ($key !== '' && in_array($key, $overrideKeys, true)) {
+                return true;
+            }
+        }
+
         /** @var list<string> $codes */
         $codes = array_values(array_unique($targetRow['prerequisite_subject_codes'] ?? []));
         $slotPrerequisites = $targetRow['prerequisite_elective_slots'] ?? [];
@@ -1251,6 +1264,97 @@ class StudentCurriculumEvaluationBuilder
             'standing_term_load' => is_array($profile->standing_term_load)
                 ? $profile->standing_term_load
                 : null,
+            'major_standing_override_keys' => array_values(array_filter(array_map(
+                static fn ($k) => is_string($k) || is_numeric($k) ? (string) $k : null,
+                is_array($profile->major_standing_override_keys) ? $profile->major_standing_override_keys : []
+            ))),
+            'is_simulation' => (bool) ($profile->is_simulation ?? false),
         ];
+    }
+
+    /**
+     * Stable evaluation row key (matches front-end getEvaluationRowKey).
+     *
+     * @param  array<string, mixed>  $row
+     */
+    public function evaluationRowKeyForPayload(array $row): string
+    {
+        if (($row['curriculum_id'] ?? null) !== null && $row['curriculum_id'] !== '') {
+            return 'cur-'.$row['curriculum_id'];
+        }
+        if (! empty($row['evaluation_id'])) {
+            return 'eval-'.$row['evaluation_id'];
+        }
+        $sid = $row['subject_id'] ?? 'x';
+        $ay = $row['academic_year_id'] ?? 'x';
+        $sem = $row['semester_id'] ?? 'x';
+
+        return "new-{$sid}-{$ay}-{$sem}";
+    }
+
+    /**
+     * Professional / major curriculum row (not GE / NSTP / PED / SSP).
+     *
+     * @param  array<string, mixed>  $row
+     */
+    public function isMajorEvaluationRow(array $row): bool
+    {
+        // Pending elective slot (no concrete subject yet) is not a graded major.
+        if (($row['subject_id'] ?? null) === null || $row['subject_id'] === '') {
+            return false;
+        }
+        $type = strtolower(trim((string) ($row['subject_type'] ?? '')));
+        if (in_array($type, ['core', 'major'], true)) {
+            return true;
+        }
+        if (in_array($type, ['minor', 'ge', 'general education', 'elective subject', 'elective'], true)) {
+            return false;
+        }
+        $code = strtoupper(trim((string) ($row['subject_code'] ?? '')));
+        if ($code === '') {
+            return false;
+        }
+        if (preg_match('/^(GEN|PED|NST|SSP|MAT|ART|HIS|ETH|UTS|STS|RZL|CWTS|ROTC)\b/', $code)) {
+            return false;
+        }
+        if (preg_match('/^IT\s*ELECTIVES?\b/', $code)) {
+            return false;
+        }
+        // Program majors typically use professional prefixes (ITE, NUR, etc.).
+        if (preg_match('/^(ITE|IT|CS|NUR|HES|BIO|MLS|ACC|BA|TM|HM)\b/', $code)) {
+            return true;
+        }
+
+        return $type === '' ? false : true;
+    }
+
+    /**
+     * Whether every major subject in years strictly below $maxYearLevelId is passed/credited.
+     *
+     * @param  list<array<string, mixed>>  $rows
+     */
+    public function lowerYearMajorsComplete(array $rows, $maxYearLevelId): bool
+    {
+        $maxY = (int) $maxYearLevelId;
+        if ($maxY <= 1) {
+            return true;
+        }
+        foreach ($rows as $row) {
+            if (! empty($row['previous_program_only'])) {
+                continue;
+            }
+            if (! $this->isMajorEvaluationRow($row)) {
+                continue;
+            }
+            $y = (int) ($row['year_level_id'] ?? 0);
+            if ($y <= 0 || $y >= $maxY) {
+                continue;
+            }
+            if (! $this->curriculumRowIndicatesPassed($row)) {
+                return false;
+            }
+        }
+
+        return true;
     }
 }

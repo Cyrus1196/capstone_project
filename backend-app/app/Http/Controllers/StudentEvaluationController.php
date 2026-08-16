@@ -5,13 +5,17 @@ namespace App\Http\Controllers;
 use App\Models\AcademicRecordEvaluationComplete;
 use App\Models\Curriculum;
 use App\Models\Evaluation;
+use App\Models\Program;
+use App\Models\Role;
 use App\Models\StudentProfile;
 use App\Models\DeanProfile;
 use App\Models\TblUser;
 use App\Models\YearLevel;
+use App\Services\AuthUnitHelpers;
 use App\Services\GradeScaleHelper;
 use App\Services\StudentCurriculumEvaluationBuilder;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Http\Request;
 
 class StudentEvaluationController extends Controller
@@ -267,7 +271,8 @@ class StudentEvaluationController extends Controller
             $limit = (int) $request->query('limit', $defaultLimit);
             $limit = max(1, min(300, $limit > 0 ? $limit : $defaultLimit));
 
-            $students = $query->orderBy('last_name')
+            $students = $query->orderByDesc('is_simulation')
+                ->orderBy('last_name')
                 ->orderBy('first_name')
                 ->limit($limit)
                 ->get();
@@ -331,6 +336,7 @@ class StudentEvaluationController extends Controller
                     'year_level_name' => $effectiveYearLevelName,
                     'academic_record_completed_at' => $lastAt,
                     'academic_record_evaluated' => $lastAt !== null,
+                    'is_simulation' => (bool) ($student->is_simulation ?? false),
                 ];
             });
 
@@ -576,6 +582,10 @@ class StudentEvaluationController extends Controller
     /**
      * Persist student standing: year level + semester.
      * Academic year is taken from the bound Curriculum header (not a separate filter).
+     *
+     * Dean / Program Head / Admin may freely promote or demote Irregular students
+     * via Year + Semester (sets profile standing + promotion targets).
+     * Regular students keep the anti-demote guard after an explicit Promote.
      */
     public function updateStudentStanding(Request $request)
     {
@@ -599,46 +609,76 @@ class StudentEvaluationController extends Controller
                 return $denied;
             }
 
-            $profile->year_level_id = (int) $validated['year_level_id'];
-            $profile->semester_id = (int) $validated['semester_id'];
+            $builder = app(StudentCurriculumEvaluationBuilder::class);
+            $built = $builder->buildPayload($profile);
+            $computedStatus = strtolower(trim((string) ($built['computed_academic_status'] ?? '')));
+            $storedStatus = strtolower(trim((string) ($profile->academic_status ?? '')));
+            $isIrregular = $computedStatus === 'irregular' || $storedStatus === 'irregular';
+
+            $canManualIrregularStanding =
+                $user->hasRole('Admin')
+                || $user->hasRole('Dean')
+                || $user->hasRole('Program Head');
+
+            $newY = (int) $validated['year_level_id'];
+            $newS = (int) $validated['semester_id'];
+            $oldY = $profile->year_level_id !== null ? (int) $profile->year_level_id : null;
+            $oldS = $profile->semester_id !== null ? (int) $profile->semester_id : null;
 
             // Academic year comes from Curriculum ↔ Academic Year binding on the header.
-            $header = app(StudentCurriculumEvaluationBuilder::class)
-                ->resolveCurriculumHeaderForStudent($profile);
+            $header = $builder->resolveCurriculumHeaderForStudent($profile);
             if ($header && $header->academic_year_id) {
                 $profile->academic_year_id = (int) $header->academic_year_id;
             }
 
-            // Align promotion targets with standing when advancing or when none set.
-            // Never move promotion targets (or standing) backward after an explicit Promote.
-            $newY = (int) $validated['year_level_id'];
-            $newS = (int) $validated['semester_id'];
-            $curY = $profile->getOriginal('promotion_target_year_level_id');
-            $curS = $profile->getOriginal('promotion_target_semester_id');
-            $curY = $curY !== null ? (int) $curY : null;
-            $curS = $curS !== null ? (int) $curS : null;
-            $shouldUpdateTargets = true;
-            if ($profile->promoted_next_sem_at && $curY !== null && $curS !== null) {
-                if ($newY < $curY || ($newY === $curY && $newS < $curS)) {
-                    $shouldUpdateTargets = false;
-                    $profile->year_level_id = $curY;
-                    $profile->semester_id = $curS;
-                }
-            }
-            if ($shouldUpdateTargets) {
+            if ($canManualIrregularStanding && $isIrregular) {
+                $profile->year_level_id = $newY;
+                $profile->semester_id = $newS;
                 $profile->promotion_target_year_level_id = $newY;
                 $profile->promotion_target_semester_id = $newS;
-            }
-            $profile->save();
+                $profile->promoted_next_sem_at = $profile->promoted_next_sem_at ?? now();
+                $profile->promoted_next_sem_by = $profile->promoted_next_sem_by ?? $user->user_id;
+                // Standing moved — clear term load plan for the previous standing.
+                if ($oldY !== $newY || $oldS !== $newS) {
+                    $profile->standing_term_load = null;
+                    $profile->standing_deferred_keys = [];
+                }
+                $profile->save();
+            } else {
+                $profile->year_level_id = $newY;
+                $profile->semester_id = $newS;
 
-            $builder = app(StudentCurriculumEvaluationBuilder::class);
+                // Align promotion targets with standing when advancing or when none set.
+                // Never move promotion targets (or standing) backward after an explicit Promote
+                // for Regular (or non-manual) students.
+                $curY = $profile->getOriginal('promotion_target_year_level_id');
+                $curS = $profile->getOriginal('promotion_target_semester_id');
+                $curY = $curY !== null ? (int) $curY : null;
+                $curS = $curS !== null ? (int) $curS : null;
+                $shouldUpdateTargets = true;
+                if ($profile->promoted_next_sem_at && $curY !== null && $curS !== null) {
+                    if ($newY < $curY || ($newY === $curY && $newS < $curS)) {
+                        $shouldUpdateTargets = false;
+                        $profile->year_level_id = $curY;
+                        $profile->semester_id = $curS;
+                    }
+                }
+                if ($shouldUpdateTargets) {
+                    $profile->promotion_target_year_level_id = $newY;
+                    $profile->promotion_target_semester_id = $newS;
+                }
+                $profile->save();
+            }
+
             $fresh = StudentProfile::where('student_id', $profile->student_id)
                 ->with(['program', 'track', 'previousProgram', 'yearLevel', 'semester', 'academicYear'])
                 ->firstOrFail();
             $payload = $builder->buildPayload($fresh);
 
             return response()->json([
-                'message' => 'Student standing updated.',
+                'message' => ($canManualIrregularStanding && $isIrregular)
+                    ? 'Irregular student standing updated (promote/demote).'
+                    : 'Student standing updated.',
                 'student' => $payload['student'],
                 'curriculum' => $payload['curriculum'] ?? null,
             ]);
@@ -744,6 +784,439 @@ class StudentEvaluationController extends Controller
         } catch (\Exception $e) {
             return response()->json([
                 'error' => 'Failed to update standing load plan',
+                'message' => $e->getMessage(),
+            ], 500);
+        }
+    }
+
+    /**
+     * Create a practice / simulation student for Dean / PH / Admin
+     * so evaluation flows can be tested without altering real students.
+     */
+    public function createSimulationDummy(Request $request)
+    {
+        try {
+            $user = $request->user();
+            if (! $user) {
+                return response()->json(['message' => 'Unauthorized'], 401);
+            }
+
+            if (
+                ! $user->hasRole('Admin')
+                && ! $user->hasRole('Dean')
+                && ! $user->hasRole('Program Head')
+            ) {
+                return response()->json([
+                    'message' => 'Only Dean, Program Head, or Admin may create simulation dummies.',
+                ], 403);
+            }
+
+            if (! Schema::hasColumn('tbl_student_profile', 'is_simulation')) {
+                return response()->json([
+                    'message' => 'Simulation support is not installed. Run migrations first.',
+                ], 500);
+            }
+
+            $validated = $request->validate([
+                'program_id' => 'nullable|integer|exists:tbl_program,program_id',
+                'year_level_id' => 'nullable|integer|exists:year_level,year_level_id',
+                'semester_id' => 'nullable|integer|exists:tbl_semester,semester_id',
+            ]);
+
+            $programId = isset($validated['program_id']) ? (int) $validated['program_id'] : null;
+
+            if (! $programId && $user->hasRole('Dean')) {
+                $dean = DeanProfile::where('user_id', $user->user_id)->first();
+                if ($dean?->program_id) {
+                    $programId = (int) $dean->program_id;
+                } elseif ($dean?->department_id) {
+                    $programId = (int) (Program::where('department_id', $dean->department_id)
+                        ->orderBy('program_id')
+                        ->value('program_id') ?: 0) ?: null;
+                }
+            }
+
+            if (! $programId && $this->requiresAssignedProgramScope($user)) {
+                $programId = $this->assignedEvaluationProgramId($user);
+            }
+
+            if (! $programId) {
+                $programId = (int) (Program::query()->orderBy('program_id')->value('program_id') ?: 0) ?: null;
+            }
+
+            if (! $programId) {
+                return response()->json(['message' => 'No program available to attach the simulation student.'], 422);
+            }
+
+            // Re-check dean/PH scope against chosen program.
+            $probe = new StudentProfile([
+                'Current_Program' => $programId,
+                'year_level_id' => $validated['year_level_id'] ?? 1,
+            ]);
+            $probe->setRelation('program', Program::find($programId));
+            if ($denied = $this->gateStaffStudentEvaluation($user, $probe, null, true)) {
+                return $denied;
+            }
+
+            $studentRoleId = Role::query()->where('role_name', 'Student')->value('role_id');
+            if (! $studentRoleId) {
+                return response()->json(['message' => 'Student role is missing from the system.'], 500);
+            }
+
+            $seq = (int) StudentProfile::query()->where('is_simulation', true)->count() + 1;
+            $stamp = now()->format('ymdHis');
+            $studentIdNumber = sprintf('SIM-%s-%02d', $stamp, $seq % 100);
+            $email = strtolower(sprintf('sim.dummy.%s.%02d@simulation.local', $stamp, $seq % 100));
+
+            while (DB::table('tbl_users')->where(function ($q) use ($email) {
+                $q->where('email', $email)->orWhere('Email', $email);
+            })->exists()) {
+                $stamp = now()->format('ymdHis').random_int(10, 99);
+                $email = strtolower(sprintf('sim.dummy.%s@simulation.local', $stamp));
+                $studentIdNumber = sprintf('SIM-%s', $stamp);
+            }
+
+            $yearLevelId = isset($validated['year_level_id'])
+                ? (int) $validated['year_level_id']
+                : (int) (YearLevel::query()->orderBy('year_level_id')->value('year_level_id') ?: 1);
+            $semesterId = isset($validated['semester_id'])
+                ? (int) $validated['semester_id']
+                : 1;
+
+            $created = null;
+            DB::transaction(function () use (
+                $email,
+                $studentRoleId,
+                $studentIdNumber,
+                $seq,
+                $programId,
+                $yearLevelId,
+                $semesterId,
+                &$created
+            ) {
+                $simUser = TblUser::create([
+                    'email' => $email,
+                    'password' => AuthUnitHelpers::hashUserPassword('SimDummy!Practice'),
+                    'role_id' => $studentRoleId,
+                    'status' => 'active',
+                    'password_changed_at' => now(),
+                ]);
+
+                $profileData = [
+                    'user_id' => $simUser->user_id,
+                    'first_name' => 'Dummy '.$seq,
+                    'last_name' => 'SIMULATION',
+                    'middle_name' => null,
+                    'academic_status' => null,
+                    'student_entry_type' => null,
+                    'Current_Program' => $programId,
+                    'year_level_id' => $yearLevelId,
+                    'semester_id' => $semesterId,
+                    'is_simulation' => true,
+                    'standing_deferred_keys' => [],
+                    'standing_term_load' => null,
+                    'major_standing_override_keys' => [],
+                ];
+
+                if (Schema::hasColumn('tbl_student_profile', 'student_id_number')) {
+                    $profileData['student_id_number'] = $studentIdNumber;
+                }
+                if (Schema::hasColumn('tbl_student_profile', 'student_number')) {
+                    $profileData['student_number'] = preg_replace('/\D+/', '', $studentIdNumber) ?: (string) random_int(100000000, 999999999);
+                }
+
+                $created = StudentProfile::create($profileData);
+            });
+
+            $fresh = StudentProfile::where('student_id', $created->student_id)
+                ->with(['program', 'track', 'previousProgram', 'yearLevel', 'semester', 'academicYear'])
+                ->firstOrFail();
+
+            $fullName = trim(
+                ($fresh->last_name ? $fresh->last_name.', ' : '').
+                ($fresh->first_name ?? '')
+            );
+
+            return response()->json([
+                'message' => 'Simulation dummy created. Practice on this account — real students stay untouched.',
+                'student' => [
+                    'student_id' => $fresh->student_id,
+                    'student_id_number' => $fresh->student_id_number,
+                    'first_name' => $fresh->first_name,
+                    'last_name' => $fresh->last_name,
+                    'full_name' => $fullName ?: 'SIMULATION Dummy',
+                    'program' => $fresh->program,
+                    'program_name' => $fresh->program->program_name ?? null,
+                    'year_level_id' => $fresh->year_level_id,
+                    'year_level_name' => $fresh->yearLevel?->year_level,
+                    'is_simulation' => true,
+                ],
+            ], 201);
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            throw $e;
+        } catch (\Exception $e) {
+            return response()->json([
+                'error' => 'Failed to create simulation dummy',
+                'message' => $e->getMessage(),
+            ], 500);
+        }
+    }
+
+    /**
+     * Rename a simulation dummy (practice account only).
+     */
+    public function updateSimulationDummyProfile(Request $request)
+    {
+        try {
+            $user = $request->user();
+            if (! $user) {
+                return response()->json(['message' => 'Unauthorized'], 401);
+            }
+
+            if (
+                ! $user->hasRole('Admin')
+                && ! $user->hasRole('Dean')
+                && ! $user->hasRole('Program Head')
+            ) {
+                return response()->json([
+                    'message' => 'Only Dean, Program Head, or Admin may edit simulation dummies.',
+                ], 403);
+            }
+
+            $validated = $request->validate([
+                'student_id' => 'required|integer|exists:tbl_student_profile,student_id',
+                'first_name' => 'required|string|max:50',
+                'last_name' => 'required|string|max:50',
+                'middle_name' => 'nullable|string|max:50',
+            ]);
+
+            $profile = StudentProfile::where('student_id', $validated['student_id'])->firstOrFail();
+            if (! ($profile->is_simulation ?? false)) {
+                return response()->json([
+                    'message' => 'Only simulation dummy names can be edited here.',
+                ], 422);
+            }
+
+            if ($denied = $this->gateStaffStudentEvaluation($user, $profile, null, true)) {
+                return $denied;
+            }
+
+            $profile->first_name = trim((string) $validated['first_name']);
+            $profile->last_name = trim((string) $validated['last_name']);
+            $middle = trim((string) ($validated['middle_name'] ?? ''));
+            $profile->middle_name = $middle !== '' ? $middle : null;
+            $profile->save();
+
+            $builder = app(StudentCurriculumEvaluationBuilder::class);
+            $fresh = StudentProfile::where('student_id', $profile->student_id)
+                ->with(['program', 'track', 'previousProgram', 'yearLevel', 'semester', 'academicYear'])
+                ->firstOrFail();
+            $payload = $builder->buildPayload($fresh);
+
+            return response()->json([
+                'message' => 'Simulation dummy name saved.',
+                'student' => $payload['student'],
+            ]);
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            throw $e;
+        } catch (\Exception $e) {
+            return response()->json([
+                'error' => 'Failed to update simulation dummy',
+                'message' => $e->getMessage(),
+            ], 500);
+        }
+    }
+
+    /**
+     * Remove a simulation dummy and its practice evaluation rows.
+     */
+    public function deleteSimulationDummy(Request $request, int $studentId)
+    {
+        try {
+            $user = $request->user();
+            if (! $user) {
+                return response()->json(['message' => 'Unauthorized'], 401);
+            }
+
+            if (
+                ! $user->hasRole('Admin')
+                && ! $user->hasRole('Dean')
+                && ! $user->hasRole('Program Head')
+            ) {
+                return response()->json([
+                    'message' => 'Only Dean, Program Head, or Admin may delete simulation dummies.',
+                ], 403);
+            }
+
+            $profile = StudentProfile::where('student_id', $studentId)->firstOrFail();
+            if (! ($profile->is_simulation ?? false)) {
+                return response()->json([
+                    'message' => 'Only simulation dummy accounts can be deleted from here.',
+                ], 422);
+            }
+
+            if ($denied = $this->gateStaffStudentEvaluation($user, $profile, null, true)) {
+                return $denied;
+            }
+
+            $userId = $profile->user_id;
+            DB::transaction(function () use ($profile, $userId) {
+                Evaluation::where('student_id', $profile->student_id)->delete();
+                AcademicRecordEvaluationComplete::where('student_id', $profile->student_id)->delete();
+                $profile->delete();
+                if ($userId) {
+                    TblUser::where('user_id', $userId)->delete();
+                }
+            });
+
+            return response()->json([
+                'message' => 'Simulation dummy removed.',
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'error' => 'Failed to delete simulation dummy',
+                'message' => $e->getMessage(),
+            ], 500);
+        }
+    }
+
+    /**
+     * Dean / Program Head prerogative: unlock a major subject blocked by year-standing
+     * when lower-year majors are already complete (even if earned units are short).
+     */
+    public function updateMajorStandingOverride(Request $request)
+    {
+        try {
+            $user = $request->user();
+            if (! $user) {
+                return response()->json(['message' => 'Unauthorized'], 401);
+            }
+
+            if (
+                ! $user->hasRole('Admin')
+                && ! $user->hasRole('Dean')
+                && ! $user->hasRole('Program Head')
+            ) {
+                return response()->json([
+                    'message' => 'Only Dean, Program Head, or Admin may grant major standing overrides.',
+                ], 403);
+            }
+
+            $validated = $request->validate([
+                'student_id' => 'required|integer|exists:tbl_student_profile,student_id',
+                'row_key' => 'required|string|max:80',
+                'enabled' => 'required|boolean',
+                'acknowledge_units_short' => 'sometimes|boolean',
+            ]);
+
+            $profile = StudentProfile::where('student_id', $validated['student_id'])
+                ->with(['program', 'track', 'previousProgram', 'yearLevel', 'semester', 'academicYear'])
+                ->firstOrFail();
+
+            if ($denied = $this->gateStaffStudentEvaluation($user, $profile, null, true)) {
+                return $denied;
+            }
+
+            $builder = app(StudentCurriculumEvaluationBuilder::class);
+            $built = $builder->buildPayload($profile);
+            $rows = $built['rows'] ?? [];
+            $rowKey = trim((string) $validated['row_key']);
+            $target = null;
+            foreach ($rows as $r) {
+                if ($builder->evaluationRowKeyForPayload($r) === $rowKey) {
+                    $target = $r;
+                    break;
+                }
+            }
+            if ($target === null) {
+                return response()->json([
+                    'message' => 'Curriculum subject row not found for this student.',
+                ], 422);
+            }
+
+            $keys = array_values(array_filter(array_map(
+                static fn ($k) => trim((string) $k),
+                is_array($profile->major_standing_override_keys) ? $profile->major_standing_override_keys : []
+            ), static fn ($k) => $k !== ''));
+
+            if (! $validated['enabled']) {
+                $keys = array_values(array_filter($keys, static fn ($k) => $k !== $rowKey));
+                $profile->major_standing_override_keys = $keys;
+                $profile->save();
+
+                $fresh = StudentProfile::where('student_id', $profile->student_id)
+                    ->with(['program', 'track', 'previousProgram', 'yearLevel', 'semester', 'academicYear'])
+                    ->firstOrFail();
+                $payload = $builder->buildPayload($fresh);
+
+                return response()->json([
+                    'message' => 'Major standing override cleared.',
+                    'student' => $payload['student'],
+                ]);
+            }
+
+            if (! $builder->isMajorEvaluationRow($target)) {
+                return response()->json([
+                    'message' => 'Override applies only to major / professional subjects (not GE).',
+                ], 422);
+            }
+
+            $targetYearId = (int) ($target['year_level_id'] ?? 0);
+            if (! $builder->lowerYearMajorsComplete($rows, $targetYearId)) {
+                return response()->json([
+                    'message' => 'Lower-year major subjects are not all complete. Finish those majors before unlocking this subject.',
+                ], 422);
+            }
+
+            $earned = (float) ($built['summary']['total_units_earned'] ?? 0);
+            $unitsStanding = 1;
+            if ($earned >= 132) {
+                $unitsStanding = 4;
+            } elseif ($earned >= 94) {
+                $unitsStanding = 3;
+            } elseif ($earned >= 46) {
+                $unitsStanding = 2;
+            }
+            // Approximate year ordinal from year_level_id when ids are 1..4; otherwise use name.
+            $targetYearOrd = $targetYearId;
+            $ylName = strtolower((string) ($target['year_level_name'] ?? ''));
+            if (preg_match('/(\d)/', $ylName, $m)) {
+                $targetYearOrd = (int) $m[1];
+            }
+            $unitsShort = $targetYearOrd > $unitsStanding;
+            if ($unitsShort && empty($validated['acknowledge_units_short'])) {
+                return response()->json([
+                    'message' => 'Student earned units are short for this subject’s year standing. Confirm to proceed.',
+                    'requires_units_ack' => true,
+                    'earned_units' => $earned,
+                    'units_year_standing' => $unitsStanding,
+                    'subject_year_standing' => $targetYearOrd,
+                    'lower_year_majors_ok' => true,
+                ], 422);
+            }
+
+            if (! in_array($rowKey, $keys, true)) {
+                $keys[] = $rowKey;
+            }
+            $profile->major_standing_override_keys = array_values($keys);
+            $profile->save();
+
+            $fresh = StudentProfile::where('student_id', $profile->student_id)
+                ->with(['program', 'track', 'previousProgram', 'yearLevel', 'semester', 'academicYear'])
+                ->firstOrFail();
+            $payload = $builder->buildPayload($fresh);
+
+            return response()->json([
+                'message' => $unitsShort
+                    ? 'Major standing override granted (units short acknowledged; lower-year majors OK).'
+                    : 'Major standing override granted.',
+                'student' => $payload['student'],
+            ]);
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            throw $e;
+        } catch (\Exception $e) {
+            return response()->json([
+                'error' => 'Failed to update major standing override',
                 'message' => $e->getMessage(),
             ], 500);
         }

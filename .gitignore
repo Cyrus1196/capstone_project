@@ -1,31 +1,12 @@
-﻿# Local / bulky
+# Local / bulky (keep repo clone-friendly)
 db_backups/
 .cache/
+# Local tooling (PHP runtime, etc.)
 .tools/
-.vscode/
 
-# Secrets
-.env
-.env.*
-!.env.example
+
+# Secrets / deps
 backend-app/.env
-backend-app/.env.*
-!backend-app/.env.example
-
-# Dependencies
-node_modules/
 front-end/node_modules/
 backend-app/vendor/
 
-# Build / runtime
-front-end/build/
-front-end/dist/
-backend-app/storage/logs/*
-!backend-app/storage/logs/.gitignore
-backend-app/bootstrap/cache/*.php
-!backend-app/bootstrap/cache/.gitignore
-
-# OS / editor
-.DS_Store
-Thumbs.db
-*.log

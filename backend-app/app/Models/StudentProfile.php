@@ -41,12 +41,16 @@ class StudentProfile extends Model
         'promotion_target_semester_id',
         'standing_deferred_keys',
         'standing_term_load',
+        'major_standing_override_keys',
+        'is_simulation',
     ];
 
     protected $casts = [
         'promoted_next_sem_at' => 'datetime',
         'standing_deferred_keys' => 'array',
         'standing_term_load' => 'array',
+        'major_standing_override_keys' => 'array',
+        'is_simulation' => 'boolean',
     ];
 
     /** Alias for Current_Program so controllers can use current_program. */

@@ -304,6 +304,10 @@ Route::middleware('auth:api')->group(function () {
             Route::post('/student/promote-next-semester', [StudentEvaluationController::class, 'promoteNextSemester']);
             Route::post('/student/standing', [StudentEvaluationController::class, 'updateStudentStanding']);
             Route::post('/student/standing-load', [StudentEvaluationController::class, 'updateStudentStandingLoad']);
+            Route::post('/student/major-standing-override', [StudentEvaluationController::class, 'updateMajorStandingOverride']);
+            Route::post('/student/simulation-dummy', [StudentEvaluationController::class, 'createSimulationDummy']);
+            Route::put('/student/simulation-dummy/profile', [StudentEvaluationController::class, 'updateSimulationDummyProfile']);
+            Route::delete('/student/simulation-dummy/{studentId}', [StudentEvaluationController::class, 'deleteSimulationDummy']);
             Route::post('/student/track', [StudentEvaluationController::class, 'setStudentTrack']);
             Route::post('/student/change-program', [StudentEvaluationController::class, 'changeStudentProgram']);
             Route::post('/academic-record/complete', [StudentEvaluationController::class, 'markAcademicRecordComplete']);

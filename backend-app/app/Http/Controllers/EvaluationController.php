@@ -557,7 +557,10 @@ class EvaluationController extends Controller
         if ($slot === null) {
             return;
         }
-        if (! $builder->rowPrerequisitesMet($rows, $slot)) {
+        $overrideKeys = is_array($profile->major_standing_override_keys)
+            ? $profile->major_standing_override_keys
+            : [];
+        if (! $builder->rowPrerequisitesMet($rows, $slot, $overrideKeys)) {
             throw ValidationException::withMessages([
                 'evaluation_status' => [
                     'Prerequisites for this subject are not satisfied. Pass or credit required subjects first, or clear this row.',

@@ -1300,15 +1300,39 @@ const GUEST_MAX_UNITS_BY_YEAR = {
   2: 24,
   3: 19,
   4: 12,
-  5: 12,
 };
+/** Extended study years (5th+) use the same per-semester cap as 4th year. */
+const GUEST_EXTENDED_SEM_UNIT_CAP = 12;
+const GUEST_EXTENDED_MAX_YEAR = 10;
 
 /** Max enrollable units for Summer / mid-year term. */
 const GUEST_MAX_UNITS_SUMMER = 9;
 
 function getMaxUnitsForYearIndex(yearIndex) {
-  const idx = Math.max(1, Math.min(Number(yearIndex) || 1, 5));
+  const idx = Math.max(1, Number(yearIndex) || 1);
+  if (idx >= 4) return GUEST_EXTENDED_SEM_UNIT_CAP;
   return GUEST_MAX_UNITS_BY_YEAR[idx] ?? 19;
+}
+
+function guestOrdinalYearLabel(n) {
+  const num = Number(n);
+  if (!Number.isFinite(num) || num < 1) return `Year ${n}`;
+  const mod100 = num % 100;
+  const mod10 = num % 10;
+  let suffix = 'th';
+  if (mod100 < 11 || mod100 > 13) {
+    if (mod10 === 1) suffix = 'st';
+    else if (mod10 === 2) suffix = 'nd';
+    else if (mod10 === 3) suffix = 'rd';
+  }
+  return `${num}${suffix} Year`;
+}
+
+function guestExtendedYearEntry(yearId, yearLevels) {
+  const yid = String(yearId);
+  const fromLookup = (yearLevels || []).find((y) => String(y.year_level_id) === yid);
+  if (fromLookup) return fromLookup;
+  return { year_level_id: yid, year_level: guestOrdinalYearLabel(yid) };
 }
 
 /** Per-slot load limit: Summer is always 9; regular terms use year caps. */
@@ -1428,6 +1452,9 @@ function groupGuestSections(rows, yearLevels, semesters) {
 }
 
 function yearStandingIndex(yearLevels, yearId) {
+  // year_level_id is 1-based standing (1st Year = 1, …, 5th+ extended).
+  const n = Number(yearId);
+  if (Number.isFinite(n) && n >= 1 && n <= GUEST_EXTENDED_MAX_YEAR) return n;
   const order = orderInList(yearLevels, yearId, 'year_level_id');
   return order === 100000 ? 1 : order + 1;
 }
@@ -1462,6 +1489,8 @@ export default function GuestPanel() {
   /** curriculum_id → { yearId, semId } placement overrides for the planner. */
   const [plannerPlacements, setPlannerPlacements] = useState({});
   const [plannerDragId, setPlannerDragId] = useState(null);
+  /** Extra years beyond the curriculum (5th, 6th, …) for longer guest simulations. */
+  const [extendedYearIds, setExtendedYearIds] = useState([]);
   /** Semester slot key with inline insert dropdown open, e.g. "1|2". */
   const [plannerOpenInsertSlotKey, setPlannerOpenInsertSlotKey] = useState(null);
   /** slotId → trackId so each elective can use a different track (e.g. SysDev 1–3, Digi Arts 4). */
@@ -1477,6 +1506,7 @@ export default function GuestPanel() {
     setPlannerPlacements({});
     setPlannerDragId(null);
     setPlannerOpenInsertSlotKey(null);
+    setExtendedYearIds([]);
   }, [programFilter, headerFilter, yearFilter, semesterFilter]);
 
   useEffect(() => {
@@ -1592,6 +1622,73 @@ export default function GuestPanel() {
     if (yearIds.size === 0) return yearLevels;
     return yearLevels.filter((y) => yearIds.has(String(y.year_level_id)));
   }, [creditScopeRows, yearLevels]);
+
+  const curriculumMaxYearId = useMemo(() => {
+    let max = 0;
+    activeYearLevels.forEach((y) => {
+      const n = Number(y.year_level_id);
+      if (Number.isFinite(n) && n > max) max = n;
+    });
+    return max > 0 ? max : 4;
+  }, [activeYearLevels]);
+
+  /** Curriculum years + guest-added extended study years for the planner. */
+  const plannerYearLevels = useMemo(() => {
+    const base = [...activeYearLevels];
+    const seen = new Set(base.map((y) => String(y.year_level_id)));
+    extendedYearIds.forEach((yid) => {
+      const id = String(yid);
+      if (seen.has(id)) return;
+      seen.add(id);
+      base.push(guestExtendedYearEntry(id, yearLevels));
+    });
+    return base.sort(
+      (a, b) => Number(a.year_level_id) - Number(b.year_level_id)
+    );
+  }, [activeYearLevels, extendedYearIds, yearLevels]);
+
+  const nextExtendedYearId = useMemo(() => {
+    const maxExt = extendedYearIds.reduce(
+      (m, y) => Math.max(m, Number(y) || 0),
+      curriculumMaxYearId
+    );
+    const next = maxExt + 1;
+    return next <= GUEST_EXTENDED_MAX_YEAR ? String(next) : null;
+  }, [extendedYearIds, curriculumMaxYearId]);
+
+  const addGuestExtendedYear = useCallback(() => {
+    if (!nextExtendedYearId) {
+      swalToast('info', `Extended study supports up to ${GUEST_EXTENDED_MAX_YEAR}th year.`);
+      return;
+    }
+    setExtendedYearIds((prev) =>
+      [...new Set([...prev.map(String), nextExtendedYearId])].sort(
+        (a, b) => Number(a) - Number(b)
+      )
+    );
+    swalToast(
+      'success',
+      `${guestOrdinalYearLabel(nextExtendedYearId)} added — move unfinished subjects there (max ${GUEST_EXTENDED_SEM_UNIT_CAP}u / semester).`
+    );
+  }, [nextExtendedYearId]);
+
+  const removeGuestExtendedYear = useCallback(
+    (yearId) => {
+      const yid = String(yearId);
+      setExtendedYearIds((prev) => prev.filter((y) => String(y) !== yid));
+      setPlannerPlacements((prev) => {
+        const next = { ...prev };
+        Object.keys(next).forEach((cid) => {
+          if (String(next[cid]?.yearId) === yid) {
+            delete next[cid];
+          }
+        });
+        return next;
+      });
+      swalToast('info', `${guestOrdinalYearLabel(yid)} removed.`);
+    },
+    []
+  );
 
   useEffect(() => {
     if (!yearFilter) return;
@@ -1923,9 +2020,27 @@ export default function GuestPanel() {
     remarks,
   ]);
 
+  /** Put a moved subject back on its curriculum home year/semester. */
+  const resetPlannerSubjectToHome = useCallback(
+    (curriculumId) => {
+      const row = remainingSubjectRows.find(
+        (r) => String(r.curriculum_id) === String(curriculumId),
+      );
+      if (!row) return;
+      const homeYearId = getYearLevelId(row);
+      const homeSemId = getSemesterId(row);
+      setPlannerPlacements((prev) => ({
+        ...prev,
+        [String(curriculumId)]: { yearId: homeYearId, semId: homeSemId },
+      }));
+      swalToast('info', 'Subject returned to its curriculum term.');
+    },
+    [remainingSubjectRows]
+  );
+
   const plannerSlotOptions = useMemo(() => {
     const slots = [];
-    activeYearLevels.forEach((y) => {
+    plannerYearLevels.forEach((y) => {
       semesters.forEach((s) => {
         slots.push({
           key: `${y.year_level_id}|${s.semester_id}`,
@@ -1939,15 +2054,15 @@ export default function GuestPanel() {
     });
     return slots.sort((a, b) => {
       const yOrder =
-        orderInList(yearLevels, a.yearId, 'year_level_id') -
-        orderInList(yearLevels, b.yearId, 'year_level_id');
+        orderInList(plannerYearLevels, a.yearId, 'year_level_id') -
+        orderInList(plannerYearLevels, b.yearId, 'year_level_id');
       if (yOrder !== 0) return yOrder;
       return (
         guestSemesterKindSortOrder(a.semId, semesters) -
         guestSemesterKindSortOrder(b.semId, semesters)
       );
     });
-  }, [activeYearLevels, yearLevels, semesters]);
+  }, [plannerYearLevels, semesters]);
 
   const plannerSubjectOptions = useMemo(() => {
     return remainingSubjectRows.map((row) => {
@@ -2089,17 +2204,20 @@ export default function GuestPanel() {
             guestSemesterKindSortOrder(a.semId, semesters) -
             guestSemesterKindSortOrder(b.semId, semesters),
         ),
+        isExtended: extendedYearIds.some((y) => String(y) === String(year.yearId)),
       }))
       .sort(
         (a, b) =>
-          orderInList(yearLevels, a.yearId, 'year_level_id') -
-          orderInList(yearLevels, b.yearId, 'year_level_id'),
+          orderInList(plannerYearLevels, a.yearId, 'year_level_id') -
+          orderInList(plannerYearLevels, b.yearId, 'year_level_id'),
       );
   }, [
     plannerSlotOptions,
     remainingSubjectRows,
     plannerPlacements,
     yearLevels,
+    plannerYearLevels,
+    extendedYearIds,
     semesters,
   ]);
 
@@ -2113,8 +2231,8 @@ export default function GuestPanel() {
     let unitsLeft = remainingUnits;
     let estimatedYears = 0;
     let estimatedSemesters = 0;
-    const yearCount = Math.max(studyMap.length, activeYearLevels.length, 1);
-    for (let yi = 0; yi < yearCount && unitsLeft > 0; yi++) {
+    // Keep projecting past curriculum years (5th+) at the 4th-year load cap until units fit.
+    for (let yi = 0; unitsLeft > 0 && yi < GUEST_EXTENDED_MAX_YEAR; yi++) {
       const cap = getMaxUnitsForYearIndex(yi + 1);
       let usedThisYear = false;
       for (let s = 0; s < 2 && unitsLeft > 0; s++) {
@@ -2157,7 +2275,6 @@ export default function GuestPanel() {
     programs,
     simulationStats.standingLabel,
     plannerYears,
-    studyMap.length,
     yearLevels,
   ]);
 
@@ -2935,7 +3052,7 @@ export default function GuestPanel() {
                     <div className="guest-planner-estimate guest-sim-stat">
                       <span className="guest-planner-estimate-label guest-sim-stat-label">Load limits</span>
                       <span className="guest-planner-estimate-value guest-sim-stat-value guest-planner-estimate-value--limits">
-                        23 / 24 / 19 / 12 · Summer 9
+                        23 / 24 / 19 / 12 · Ext. 12 · Summer 9
                       </span>
                     </div>
                   </div>
@@ -2943,7 +3060,8 @@ export default function GuestPanel() {
                 <p className="guest-planner-note">
                   Standing: <strong>{plannerStats.standingLabel}</strong>
                   {' · '}
-                  Unit limit by year: 1st = 23, 2nd = 24, 3rd = 19, 4th = 12 (per semester). Summer = 9.
+                  Unit limit by year: 1st = 23, 2nd = 24, 3rd = 19, 4th = 12 (per semester).
+                  Extended years (5th+) = 12. Summer = 9.
                   {plannerStats.overloadedSlots > 0
                     ? ` ${plannerStats.overloadedSlots} semester slot(s) are over the allowed load.`
                     : ''}
@@ -2953,11 +3071,29 @@ export default function GuestPanel() {
               {remainingSubjectRows.length === 0 ? (
                 <div className="guest-sim-empty">All subjects in this curriculum are credited.</div>
               ) : (
+                <>
                 <div className="guest-planner-years">
                   {plannerYears.map((yearGroup) => (
-                    <section key={yearGroup.key} className="guest-sim-year-card">
+                    <section
+                      key={yearGroup.key}
+                      className={`guest-sim-year-card${yearGroup.isExtended ? ' guest-sim-year-card--extended' : ''}`}
+                    >
                       <div className="guest-sim-year-heading">
-                        <span>{String(yearGroup.yearLabel || 'Unknown year').toUpperCase()}</span>
+                        <span className="guest-sim-year-heading__title">
+                          {String(yearGroup.yearLabel || 'Unknown year').toUpperCase()}
+                          {yearGroup.isExtended ? (
+                            <span className="guest-extended-year-tag">Extended study</span>
+                          ) : null}
+                        </span>
+                        {yearGroup.isExtended ? (
+                          <button
+                            type="button"
+                            className="guest-extended-year-remove"
+                            onClick={() => removeGuestExtendedYear(yearGroup.yearId)}
+                          >
+                            Remove year
+                          </button>
+                        ) : null}
                       </div>
                       <div className="guest-planner-term-layout">
                         {yearGroup.sections.map((section) => {
@@ -3126,6 +3262,11 @@ export default function GuestPanel() {
                                       yearId: section.yearId,
                                       semId: section.semId,
                                     };
+                                    const homeYearId = getYearLevelId(row);
+                                    const homeSemId = getSemesterId(row);
+                                    const isMovedFromHome =
+                                      String(placement.yearId ?? '') !== String(homeYearId ?? '') ||
+                                      String(placement.semId ?? '') !== String(homeSemId ?? '');
                                     const currentKey = `${placement.yearId ?? ''}|${placement.semId ?? ''}`;
                                     const moveOptions = getPlannerMoveOptionsForRow(row, currentKey);
                                     const moveNotes = buildGuestPlannerMoveNotes(row, {
@@ -3139,7 +3280,7 @@ export default function GuestPanel() {
                                     return (
                                       <li
                                         key={id}
-                                        className={`guest-planner-item${plannerDragId === id ? ' guest-planner-item--dragging' : ''}`}
+                                        className={`guest-planner-item${plannerDragId === id ? ' guest-planner-item--dragging' : ''}${isMovedFromHome ? ' guest-planner-item--moved' : ''}`}
                                         draggable
                                         onDragStart={(e) => {
                                           setPlannerDragId(id);
@@ -3167,6 +3308,21 @@ export default function GuestPanel() {
                                           </div>
                                           <span className="guest-planner-item-title">{titleLabel}</span>
                                           <span className="guest-units-pill">{units}</span>
+                                          {isMovedFromHome ? (
+                                            <button
+                                              type="button"
+                                              className="guest-planner-reset-btn"
+                                              title="Return to curriculum term"
+                                              aria-label={`Return ${parts[0] || titleLabel} to its curriculum term`}
+                                              onClick={(e) => {
+                                                e.preventDefault();
+                                                e.stopPropagation();
+                                                resetPlannerSubjectToHome(id);
+                                              }}
+                                            >
+                                              ×
+                                            </button>
+                                          ) : null}
                                         </div>
                                         <label className="guest-planner-move">
                                           <span className="guest-planner-move-label">Move to</span>
@@ -3283,6 +3439,23 @@ export default function GuestPanel() {
                     </section>
                   ))}
                 </div>
+                {nextExtendedYearId ? (
+                  <div className="guest-extended-year-cta">
+                    <button
+                      type="button"
+                      className="guest-extended-year-cta__btn"
+                      onClick={addGuestExtendedYear}
+                    >
+                      + Add extended year ({guestOrdinalYearLabel(nextExtendedYearId)})
+                    </button>
+                    <p className="guest-extended-year-cta__hint">
+                      For students who need longer than the normal curriculum — add 5th, 6th, 7th…
+                      as needed (up to {GUEST_EXTENDED_MAX_YEAR}th year). Cap {GUEST_EXTENDED_SEM_UNIT_CAP}{' '}
+                      units per semester.
+                    </p>
+                  </div>
+                ) : null}
+                </>
               )}
             </section>
               </div>

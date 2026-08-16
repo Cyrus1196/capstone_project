@@ -236,7 +236,26 @@ const EVAL_YEAR_UNIT_CAPS = {
   2: 24,
   3: 19,
   4: 12,
+  5: 12,
+  6: 12,
+  7: 12,
+  8: 12,
+  9: 12,
+  10: 12,
 };
+/** Per-semester load cap for extended study years (same as 4th year). */
+const EXTENDED_STUDY_SEM_UNIT_CAP = 12;
+const EXTENDED_STUDY_MAX_YEAR = 10;
+
+function extendedYearDisplayLabel(yearId) {
+  const n = Number(yearId);
+  if (!Number.isFinite(n) || n < 1) return `Year ${yearId}`;
+  return `${ordinalYearLabel(n)} Year`;
+}
+
+function emptyExtendedSemLoad() {
+  return { '1': [], '2': [] };
+}
 
 function evalPlacementTermRank(yearId, semId, semName = '') {
   const y = Number(yearId);
@@ -330,8 +349,12 @@ function evalPlacementPrereqMoveGate(
  * Current-subjects load: cannot TAKE a subject whose prerequisite is not yet passed.
  * (Taking the prereq in the same load does not unlock it — finish the prereq first.)
  */
-function standingLoadBlockedByPrereq(row, allRows) {
+function standingLoadBlockedByPrereq(row, allRows, overrideKeys = null) {
   if (!row) return null;
+  if (overrideKeys && typeof overrideKeys.has === 'function') {
+    const key = getEvaluationRowKey(row);
+    if (key && overrideKeys.has(String(key))) return null;
+  }
   const preCodes = Array.isArray(row?.prerequisite_subject_codes)
     ? row.prerequisite_subject_codes
     : [];
@@ -493,21 +516,28 @@ function yearStandingFromEarnedUnits(earnedUnits) {
 }
 
 /**
- * Calendar school year for standing display.
- * Curriculum Effective SY stays fixed (subject map); school year advances with year level:
- * Effective 2023 + 1st year → 2023-2024, 2nd year → 2024-2025, etc.
+ * School year for standing banners = student's curriculum Effective SY
+ * (does not advance with year level — that SY identifies which curriculum they are under).
  */
-function schoolYearLabelForStanding(curriculumEffectiveYearOrLabel, yearLevelNumber) {
-  let base = Number(curriculumEffectiveYearOrLabel);
-  if (!Number.isFinite(base) || base <= 0) {
-    const m = String(curriculumEffectiveYearOrLabel || '').match(/(\d{4})/);
-    base = m ? Number(m[1]) : NaN;
+function schoolYearLabelForStanding(curriculumEffectiveYearOrLabel) {
+  const raw = String(curriculumEffectiveYearOrLabel || '').trim();
+  if (!raw) return null;
+  const range = raw.match(/(\d{4})\s*[-–]\s*(\d{2,4})/);
+  if (range) {
+    const start = Number(range[1]);
+    if (!Number.isFinite(start) || start <= 0) return raw;
+    const endRaw = range[2];
+    const end =
+      endRaw.length <= 2 ? start + 1 : Number(endRaw.length === 2 ? `20${endRaw}` : endRaw);
+    if (Number.isFinite(end) && end > start) return `${start}-${end}`;
+    return `${start}-${start + 1}`;
   }
-  if (!Number.isFinite(base) || base <= 0) return null;
-  const y = Number(yearLevelNumber);
-  const offset = Number.isFinite(y) && y >= 1 ? y - 1 : 0;
-  const start = base + offset;
-  return `${start}-${start + 1}`;
+  const yearOnly = raw.match(/(\d{4})/);
+  if (yearOnly) {
+    const start = Number(yearOnly[1]);
+    if (Number.isFinite(start) && start > 0) return `${start}-${start + 1}`;
+  }
+  return raw;
 }
 
 function isRegularAcademicStatus(status) {
@@ -587,6 +617,68 @@ function isStandingOrBulkPrerequisiteRule(label) {
   if (/year\s+standing$/i.test(formatEvalRequisiteRuleLabel(raw))) return true;
   if (/^all\s+subjects?/i.test(raw)) return true;
   return false;
+}
+
+/** Major / professional subject (not GE / NSTP / PED / SSP). */
+function isMajorEvalRow(row) {
+  // Pending elective slot (no concrete subject yet) is not a graded major.
+  if (row?.subject_id == null || row?.subject_id === '') return false;
+  const type = String(row?.subject_type || '')
+    .trim()
+    .toLowerCase();
+  if (type === 'core' || type === 'major') return true;
+  if (
+    type === 'minor' ||
+    type === 'ge' ||
+    type === 'general education' ||
+    type === 'elective' ||
+    type === 'elective subject'
+  ) {
+    return false;
+  }
+  const code = String(row?.subject_code || '')
+    .trim()
+    .toUpperCase();
+  if (!code) return false;
+  if (/^(GEN|PED|NST|SSP|MAT|ART|HIS|ETH|UTS|STS|RZL|CWTS|ROTC)\b/.test(code)) {
+    return false;
+  }
+  if (/^IT\s*ELECTIVES?\b/.test(code)) return false;
+  if (/^(ITE|IT|CS|NUR|HES|BIO|MLS|ACC|BA|TM|HM)\b/.test(code)) {
+    return true;
+  }
+  return false;
+}
+
+function yearOrdinalFromEvalRow(row, parseYearNumber) {
+  if (typeof parseYearNumber === 'function') {
+    const n = parseYearNumber(row?.year_level_name, row?.year_level_id);
+    if (n != null && Number.isFinite(Number(n))) return Number(n);
+  }
+  const fromName = String(row?.year_level_name || '').match(/(\d)/);
+  if (fromName) return Number(fromName[1]);
+  const id = Number(row?.year_level_id);
+  return Number.isFinite(id) ? id : 0;
+}
+
+/** Every major in years below the target subject's year is passed/credited. */
+function lowerYearMajorsComplete(allRows, targetRow, parseYearNumber) {
+  const maxY = yearOrdinalFromEvalRow(targetRow, parseYearNumber);
+  if (!maxY || maxY <= 1) return true;
+  return (allRows || []).every((row) => {
+    if (row?.previous_program_only === true) return true;
+    if (!isMajorEvalRow(row)) return true;
+    const y = yearOrdinalFromEvalRow(row, parseYearNumber);
+    if (!y || y >= maxY) return true;
+    return evalPrerequisiteRowPassed(row);
+  });
+}
+
+function rowHasStandingPrerequisiteRule(row) {
+  const labels = Array.isArray(row?.prerequisite_rule_labels)
+    ? row.prerequisite_rule_labels
+    : [];
+  return labels.some((label) => isStandingOrBulkPrerequisiteRule(label));
 }
 
 /**
@@ -815,14 +907,22 @@ const StudentEvaluationView = ({
   listScope: listScopeProp,
   variant = 'default',
 }) => {
-  const { user, isAdmin, isFaculty, isProgramHead, hasAnyPermission } = useAuth();
+  const { user, isAdmin, isFaculty, isProgramHead, isDean, hasAnyPermission } = useAuth();
   const canEdit = !!(isAdmin || isFaculty || isProgramHead || hasAnyPermission(EVALUATION_WORK_PERMS));
   /** Former Evaluator role is now Adviser (Evaluator voided). */
   const isEvaluatorOnly = false;
   const canEditEvaluationRows = canEdit && !isEvaluatorOnly;
   const canEditNumericGrades = canEditEvaluationRows;
   const canManageSubjectEquivalences = isAdmin || hasAnyPermission(SUBJECT_EQUIV_MUTATE_PERMS);
+  /** Dean / PH / Admin may unlock major subjects blocked by year-standing. */
+  const canGrantMajorStandingOverride = !!(isAdmin || isDean || isProgramHead);
   const isEvaluatedModule = listMode === 'already-evaluated';
+  /** Practice accounts for Dean-side testing without touching real students. */
+  const canManageSimulationDummy = !!(
+    (isAdmin || isDean || isProgramHead) &&
+    canEditEvaluationRows &&
+    !isEvaluatedModule
+  );
   const isCurriculumTracking = variant === 'curriculumTracking';
   /** Need-evaluation tab loads the full roster (`all`) so students stay visible after a completion is logged; Evaluated tab still filters to `completed`. */
   const resolvedListScope =
@@ -851,6 +951,10 @@ const StudentEvaluationView = ({
   const [promoteSaving, setPromoteSaving] = useState(false);
   const [electiveTrackSaving, setElectiveTrackSaving] = useState(false);
   const [pendingProgramId, setPendingProgramId] = useState(null);
+  /** Editable name draft for simulation dummies only. */
+  const [pendingSimName, setPendingSimName] = useState(null);
+  const lastEvalStudentStorageKey = 'evaluation-last-student-id-number';
+  const restoredEvalStudentRef = useRef(false);
   const [programPreviewLoading, setProgramPreviewLoading] = useState(false);
   const [programs, setPrograms] = useState([]);
   const [electiveTrackPopoverKey, setElectiveTrackPopoverKey] = useState(null);
@@ -879,6 +983,13 @@ const StudentEvaluationView = ({
   const [evalFilterYearId, setEvalFilterYearId] = useState('');
   const [evalFilterSemesterId, setEvalFilterSemesterId] = useState('');
   const [standingSaving, setStandingSaving] = useState(false);
+  const [simulationCreating, setSimulationCreating] = useState(false);
+  /** Extra years beyond curriculum map (5th, 6th, …) — length depends on the student. */
+  const [extendedYearIds, setExtendedYearIds] = useState(() => []);
+  /** Subjects in extended year containers: { '5': { '1': [keys], '2': [keys] }, ... }. */
+  const [extendedYearLoad, setExtendedYearLoad] = useState(() => ({}));
+  const [extendedAddTarget, setExtendedAddTarget] = useState({ yearId: '', semId: '' });
+  const [extendedAddSubjectKey, setExtendedAddSubjectKey] = useState('');
   const [currentStandingPanelOpen, setCurrentStandingPanelOpen] = useState(false);
   const [standingLoadDeferred, setStandingLoadDeferred] = useState(() => new Set());
   const [standingLoadSaving, setStandingLoadSaving] = useState(false);
@@ -1412,9 +1523,9 @@ const StudentEvaluationView = ({
   }, []);
 
   const persistStudentStanding = useCallback(
-    async ({ yearId, semesterId }) => {
+    async ({ yearId, semesterId, toastOnSuccess = false }) => {
       const studentId = data?.student?.student_id;
-      if (!canEditEvaluationRows || !studentId || !yearId || !semesterId) return;
+      if (!canEditEvaluationRows || !studentId || !yearId || !semesterId) return false;
       setStandingSaving(true);
       try {
         const response = await api.post('/evaluation/student/standing', {
@@ -1444,16 +1555,335 @@ const StudentEvaluationView = ({
               : prev
           );
         }
+        // Standing changed — clear local load/placement caches for the old term.
+        setStandingLoadDeferred(new Set());
+        setStandingLoadDirty(false);
+        setPlacementPreviewMap({});
+        setPlacementPreviewConfirmedMap({});
+        setOffSemesterTakeMap({});
+        if (toastOnSuccess) {
+          swalToast('success', response.data?.message || 'Student standing updated.');
+        }
+        return true;
       } catch (err) {
         await swalError(
           'Could not update standing',
           err.response?.data?.message || 'Request failed'
         );
+        return false;
       } finally {
         setStandingSaving(false);
       }
     },
     [canEditEvaluationRows, data?.student?.student_id]
+  );
+
+  const curriculumMaxYearId = useMemo(() => {
+    let max = 0;
+    (data?.rows || []).forEach((r) => {
+      const n = Number(r.year_level_id);
+      if (Number.isFinite(n) && n > max) max = n;
+    });
+    return max > 0 ? max : 4;
+  }, [data?.rows]);
+
+  useEffect(() => {
+    const sid = data?.student?.student_id ?? selectedStudent?.student_id;
+    if (sid == null || sid === '') {
+      setExtendedYearIds([]);
+      setExtendedYearLoad({});
+      return;
+    }
+    const standingY = Number(
+      data?.student?.promotion_target_year_level_id ?? data?.student?.year_level_id ?? 0
+    );
+    try {
+      const yearsRaw = window.localStorage.getItem(`evaluation-extended-years:${sid}`);
+      let years = [];
+      if (yearsRaw) {
+        const parsed = JSON.parse(yearsRaw);
+        if (Array.isArray(parsed)) {
+          years = parsed.map(String).filter((y) => Number(y) > curriculumMaxYearId);
+        }
+      }
+      // Legacy single-year flag → 5th year
+      if (
+        years.length === 0 &&
+        window.localStorage.getItem(`evaluation-extended-study:${sid}`) === '1'
+      ) {
+        years = [String(curriculumMaxYearId + 1)];
+      }
+      if (
+        Number.isFinite(standingY) &&
+        standingY > curriculumMaxYearId &&
+        !years.includes(String(standingY))
+      ) {
+        years = [...years, String(standingY)].sort((a, b) => Number(a) - Number(b));
+      }
+      setExtendedYearIds(years);
+
+      const loadRaw = window.localStorage.getItem(`evaluation-extended-load:${sid}`);
+      if (loadRaw) {
+        const parsed = JSON.parse(loadRaw);
+        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+          // Migrate legacy {1:[],2:[]} → { '5': {1:[],2:[]} }
+          if (Array.isArray(parsed['1']) || Array.isArray(parsed['2'])) {
+            const firstY = years[0] || String(curriculumMaxYearId + 1);
+            setExtendedYearLoad({
+              [firstY]: {
+                '1': Array.isArray(parsed['1']) ? parsed['1'].map(String) : [],
+                '2': Array.isArray(parsed['2']) ? parsed['2'].map(String) : [],
+              },
+            });
+          } else {
+            const next = {};
+            Object.keys(parsed).forEach((y) => {
+              const sem = parsed[y] || {};
+              next[String(y)] = {
+                '1': Array.isArray(sem['1']) ? sem['1'].map(String) : [],
+                '2': Array.isArray(sem['2']) ? sem['2'].map(String) : [],
+              };
+            });
+            setExtendedYearLoad(next);
+          }
+        } else {
+          setExtendedYearLoad({});
+        }
+      } else {
+        setExtendedYearLoad({});
+      }
+    } catch {
+      setExtendedYearIds(
+        Number.isFinite(standingY) && standingY > curriculumMaxYearId
+          ? [String(standingY)]
+          : []
+      );
+      setExtendedYearLoad({});
+    }
+  }, [
+    data?.student?.student_id,
+    data?.student?.year_level_id,
+    data?.student?.promotion_target_year_level_id,
+    selectedStudent?.student_id,
+    curriculumMaxYearId,
+  ]);
+
+  const persistExtendedYearIds = useCallback(
+    (years) => {
+      const sorted = [...new Set(years.map(String))].sort(
+        (a, b) => Number(a) - Number(b)
+      );
+      setExtendedYearIds(sorted);
+      const sid = data?.student?.student_id ?? selectedStudent?.student_id;
+      if (sid == null || sid === '') return;
+      try {
+        if (sorted.length) {
+          window.localStorage.setItem(
+            `evaluation-extended-years:${sid}`,
+            JSON.stringify(sorted)
+          );
+          window.localStorage.setItem(`evaluation-extended-study:${sid}`, '1');
+        } else {
+          window.localStorage.removeItem(`evaluation-extended-years:${sid}`);
+          window.localStorage.removeItem(`evaluation-extended-study:${sid}`);
+          window.localStorage.removeItem(`evaluation-extended-load:${sid}`);
+        }
+      } catch {
+        // ignore
+      }
+    },
+    [data?.student?.student_id, selectedStudent?.student_id]
+  );
+
+  const persistExtendedYearLoad = useCallback(
+    (nextLoad) => {
+      setExtendedYearLoad(nextLoad);
+      const sid = data?.student?.student_id ?? selectedStudent?.student_id;
+      if (sid == null || sid === '') return;
+      try {
+        window.localStorage.setItem(
+          `evaluation-extended-load:${sid}`,
+          JSON.stringify(nextLoad)
+        );
+      } catch {
+        // ignore
+      }
+    },
+    [data?.student?.student_id, selectedStudent?.student_id]
+  );
+
+  const canManageExtendedStudy = !!(
+    (isAdmin || isDean || isProgramHead) &&
+    canEditEvaluationRows &&
+    !isEvaluatedModule
+  );
+
+  const nextExtendedYearId = useMemo(() => {
+    const maxExt = extendedYearIds.reduce(
+      (m, y) => Math.max(m, Number(y) || 0),
+      curriculumMaxYearId
+    );
+    const next = maxExt + 1;
+    return next <= EXTENDED_STUDY_MAX_YEAR ? String(next) : null;
+  }, [extendedYearIds, curriculumMaxYearId]);
+
+  const remainingExtendedSubjects = useMemo(() => {
+    if (!data?.rows?.length) return [];
+    return data.rows.filter((row) => {
+      if (row?.previous_program_only === true) return false;
+      if (isTransferCreditRowForTermGate(row)) return false;
+      const merged = mergedRowsByKey.get(getEvaluationRowKey(row)) || row;
+      if (!isRowGradableForTermGate(merged)) return false;
+      return !evalPrerequisiteRowPassed(merged);
+    });
+  }, [data?.rows, mergedRowsByKey]);
+
+  const extendedLoadAssignedKeys = useMemo(() => {
+    const keys = [];
+    Object.values(extendedYearLoad || {}).forEach((semMap) => {
+      if (!semMap || typeof semMap !== 'object') return;
+      keys.push(...(semMap['1'] || []), ...(semMap['2'] || []));
+    });
+    return new Set(keys.map(String));
+  }, [extendedYearLoad]);
+
+  const extendedSubjectPickerOptions = useMemo(() => {
+    return remainingExtendedSubjects
+      .filter((row) => !extendedLoadAssignedKeys.has(getEvaluationRowKey(row)))
+      .map((row) => {
+        const key = getEvaluationRowKey(row);
+        const code = row.subject_code || row.elective_slot_name || 'Subject';
+        const title = row.subject_name || '';
+        const units = Number(row.units) || 0;
+        return {
+          value: key,
+          label: `${code} — ${title} (${units}u · ${row.year_level_name || '—'}/${row.semester_name || '—'})`,
+        };
+      });
+  }, [remainingExtendedSubjects, extendedLoadAssignedKeys]);
+
+  const unitsForExtendedRow = useCallback(
+    (rowKey) => {
+      const row =
+        mergedRowsByKey.get(String(rowKey)) ||
+        (data?.rows || []).find((r) => getEvaluationRowKey(r) === String(rowKey));
+      const u = Number(row?.units);
+      return Number.isFinite(u) && u > 0 ? u : 0;
+    },
+    [mergedRowsByKey, data?.rows]
+  );
+
+  const addSubjectToExtendedSemester = useCallback(
+    (yearId, semId, rowKey) => {
+      if (!rowKey || !yearId) return;
+      const yid = String(yearId);
+      const sid = String(semId);
+      const key = String(rowKey);
+      if (extendedLoadAssignedKeys.has(key)) {
+        swalToast('warning', 'Subject is already in an extended year load.');
+        return;
+      }
+      const yearLoad = extendedYearLoad[yid] || emptyExtendedSemLoad();
+      const currentKeys = yearLoad[sid] || [];
+      const currentUnits = currentKeys.reduce((sum, k) => sum + unitsForExtendedRow(k), 0);
+      const addUnits = unitsForExtendedRow(key);
+      if (currentUnits + addUnits > EXTENDED_STUDY_SEM_UNIT_CAP) {
+        swalToast(
+          'warning',
+          `Extended semester cap is ${EXTENDED_STUDY_SEM_UNIT_CAP} units. This would be ${currentUnits + addUnits}.`
+        );
+        return;
+      }
+      const next = {
+        ...extendedYearLoad,
+        [yid]: {
+          ...yearLoad,
+          [sid]: [...currentKeys, key],
+        },
+      };
+      persistExtendedYearLoad(next);
+      setExtendedAddSubjectKey('');
+      swalToast('success', `Subject added to ${extendedYearDisplayLabel(yid)}.`);
+    },
+    [
+      extendedLoadAssignedKeys,
+      extendedYearLoad,
+      unitsForExtendedRow,
+      persistExtendedYearLoad,
+    ]
+  );
+
+  const removeSubjectFromExtendedSemester = useCallback(
+    (yearId, semId, rowKey) => {
+      const yid = String(yearId);
+      const sid = String(semId);
+      const yearLoad = extendedYearLoad[yid] || emptyExtendedSemLoad();
+      const next = {
+        ...extendedYearLoad,
+        [yid]: {
+          ...yearLoad,
+          [sid]: (yearLoad[sid] || []).filter((k) => String(k) !== String(rowKey)),
+        },
+      };
+      persistExtendedYearLoad(next);
+    },
+    [extendedYearLoad, persistExtendedYearLoad]
+  );
+
+  const addExtendedStudyYear = useCallback(() => {
+    if (!canManageExtendedStudy || !nextExtendedYearId) {
+      if (!nextExtendedYearId) {
+        swalToast('info', `Extended study supports up to ${EXTENDED_STUDY_MAX_YEAR}th year.`);
+      }
+      return;
+    }
+    const yid = nextExtendedYearId;
+    const nextYears = [...extendedYearIds, yid];
+    persistExtendedYearIds(nextYears);
+    persistExtendedYearLoad({
+      ...extendedYearLoad,
+      [yid]: emptyExtendedSemLoad(),
+    });
+    // Extended years are planning containers only — do NOT overwrite Year Level /
+    // standing (that stays units-based or explicit promote for irregulars).
+    swalToast(
+      'success',
+      `${extendedYearDisplayLabel(yid)} added — blank 1st & 2nd semester (max ${EXTENDED_STUDY_SEM_UNIT_CAP}u each).`
+    );
+  }, [
+    canManageExtendedStudy,
+    nextExtendedYearId,
+    extendedYearIds,
+    extendedYearLoad,
+    persistExtendedYearIds,
+    persistExtendedYearLoad,
+  ]);
+
+  const removeExtendedStudyYear = useCallback(
+    (yearId) => {
+      const yid = String(yearId);
+      const nextYears = extendedYearIds.filter((y) => String(y) !== yid);
+      persistExtendedYearIds(nextYears);
+      const nextLoad = { ...extendedYearLoad };
+      delete nextLoad[yid];
+      persistExtendedYearLoad(nextYears.length ? nextLoad : {});
+      if (String(evalFilterYearId) === yid) {
+        const fallback =
+          nextYears[nextYears.length - 1] ||
+          String(curriculumMaxYearId);
+        setEvalFilterYearId(fallback);
+        setEvalFilterSemesterId('1');
+      }
+      swalToast('info', `${extendedYearDisplayLabel(yid)} removed.`);
+    },
+    [
+      extendedYearIds,
+      extendedYearLoad,
+      persistExtendedYearIds,
+      persistExtendedYearLoad,
+      evalFilterYearId,
+      curriculumMaxYearId,
+    ]
   );
 
   const programOptions = useMemo(
@@ -1471,7 +1901,25 @@ const StudentEvaluationView = ({
   const hasPendingProgramChange =
     pendingProgramId != null &&
     Number(pendingProgramId) !== Number(savedProgramId ?? '');
-  const unsavedChangeCount = modifiedKeys.size + (hasPendingProgramChange ? 1 : 0);
+
+  const isSelectedSimulation = !!(
+    selectedStudent?.is_simulation ||
+    data?.student?.is_simulation ||
+    baselineData?.student?.is_simulation
+  );
+
+  const hasPendingSimNameChange = useMemo(() => {
+    if (!isSelectedSimulation || !pendingSimName || !baselineData?.student) return false;
+    const b = baselineData.student;
+    return (
+      String(pendingSimName.first_name || '').trim() !== String(b.first_name || '').trim() ||
+      String(pendingSimName.last_name || '').trim() !== String(b.last_name || '').trim() ||
+      String(pendingSimName.middle_name || '').trim() !== String(b.middle_name || '').trim()
+    );
+  }, [isSelectedSimulation, pendingSimName, baselineData?.student]);
+
+  const unsavedChangeCount =
+    modifiedKeys.size + (hasPendingProgramChange ? 1 : 0) + (hasPendingSimNameChange ? 1 : 0);
   const hasUnsavedChanges = unsavedChangeCount > 0;
   const displayProgramId = hasPendingProgramChange ? pendingProgramId : savedProgramId;
 
@@ -1552,6 +2000,30 @@ const StudentEvaluationView = ({
         });
       }
     });
+    // Extended study years beyond the curriculum map (5th, 6th, …).
+    extendedYearIds.forEach((yearId) => {
+      const yid = String(yearId);
+      const hasYear = [...m.values()].some((t) => String(t.year_level_id) === yid);
+      if (hasYear) return;
+      const semSamples = new Map([
+        ['1', '1st Semester'],
+        ['2', '2nd Semester'],
+      ]);
+      [...m.values()].forEach((t) => {
+        const sid = String(t.semester_id);
+        if (sid === '1' || sid === '2') {
+          semSamples.set(sid, t.semester_name || semSamples.get(sid));
+        }
+      });
+      semSamples.forEach((semName, semId) => {
+        m.set(`${yid}-${semId}`, {
+          year_level_id: yid,
+          semester_id: String(semId),
+          year_level_name: extendedYearDisplayLabel(yid),
+          semester_name: semName || `Semester ${semId}`,
+        });
+      });
+    });
     return [...m.values()].sort((a, b) => {
       const dy = Number(a.year_level_id) - Number(b.year_level_id);
       if (dy !== 0) return dy;
@@ -1560,7 +2032,7 @@ const StudentEvaluationView = ({
         semesterSortValue(b.semester_id, b.semester_name)
       );
     });
-  }, [data?.rows]);
+  }, [data?.rows, extendedYearIds]);
 
   const downloadTermOptions = useMemo(() => {
     if (!data?.rows?.length) return [];
@@ -1715,39 +2187,41 @@ const StudentEvaluationView = ({
     [studentAcademicStatus]
   );
 
-  const yearsAllowedForFilter = useMemo(() => evaluationFilterOptions.years, [evaluationFilterOptions.years]);
+  /** Dean / PH / Admin may set Year + Semester standing (promote or demote) for Irregular only. */
+  const canAlterIrregularStanding = !!(
+    (isAdmin || isDean || isProgramHead) &&
+    isIrregularStudent &&
+    canEditEvaluationRows &&
+    !isEvaluatedModule
+  );
+
+  const yearsAllowedForFilter = useMemo(() => {
+    const base = evaluationFilterOptions.years;
+    if (!extendedYearIds.length) return base;
+    const next = [...base];
+    extendedYearIds.forEach((yid) => {
+      if (next.some((y) => String(y.id) === String(yid))) return;
+      next.push({ id: String(yid), label: extendedYearDisplayLabel(yid) });
+    });
+    return next.sort((a, b) => Number(a.id) - Number(b.id));
+  }, [evaluationFilterOptions.years, extendedYearIds]);
 
   const unitsBasedYearStanding = useMemo(
     () => yearStandingFromEarnedUnits(data?.summary?.total_units_earned),
     [data?.summary?.total_units_earned]
   );
 
-  /** School year shown in standing (advances with year level; curriculum Effective SY stays fixed). */
+  /** Standing school year = curriculum Effective SY (fixed; not advanced by year level). */
   const standingSchoolYearLabel = useMemo(() => {
-    const years = yearsAllowedForFilter.length
-      ? yearsAllowedForFilter
-      : evaluationFilterOptions.years;
-    const yearLabel =
-      years.find((y) => String(y.id) === String(evalFilterYearId))?.label || '';
-    const yearNum =
-      parseYearNumberFromLabel(yearLabel, evalFilterYearId) ||
-      unitsBasedYearStanding ||
-      1;
     return (
       schoolYearLabelForStanding(
-        data?.curriculum?.effective_year ?? data?.curriculum?.label,
-        yearNum
+        data?.curriculum?.effective_year ?? data?.curriculum?.label
       ) ||
-      data?.student?.academic_year_name ||
       data?.curriculum?.label ||
+      data?.student?.academic_year_name ||
       null
     );
   }, [
-    yearsAllowedForFilter,
-    evaluationFilterOptions.years,
-    evalFilterYearId,
-    parseYearNumberFromLabel,
-    unitsBasedYearStanding,
     data?.curriculum?.effective_year,
     data?.curriculum?.label,
     data?.student?.academic_year_name,
@@ -1764,6 +2238,81 @@ const StudentEvaluationView = ({
     unitsBasedYearStanding,
     parseYearNumberFromLabel,
   ]);
+
+  const majorStandingOverrideKeys = useMemo(() => {
+    const list = Array.isArray(data?.student?.major_standing_override_keys)
+      ? data.student.major_standing_override_keys
+      : [];
+    return new Set(list.map(String));
+  }, [data?.student?.major_standing_override_keys]);
+
+  const rowPrereqsMetWithOverride = useCallback(
+    (allRows, targetRow) => {
+      const key = getEvaluationRowKey(targetRow);
+      if (key && majorStandingOverrideKeys.has(String(key))) return true;
+      return evalRowPrerequisitesMet(allRows, targetRow);
+    },
+    [majorStandingOverrideKeys]
+  );
+
+  const grantMajorStandingOverride = useCallback(
+    async (row, { enabled, acknowledgeUnitsShort = false } = {}) => {
+      const studentId = data?.student?.student_id;
+      const rowKey = getEvaluationRowKey(row);
+      if (!canGrantMajorStandingOverride || !studentId || !rowKey) return false;
+
+      try {
+        const res = await api.post('/evaluation/student/major-standing-override', {
+          student_id: Number(studentId),
+          row_key: rowKey,
+          enabled: !!enabled,
+          acknowledge_units_short: !!acknowledgeUnitsShort,
+        });
+        const nextStudent = res.data?.student;
+        if (nextStudent) {
+          setData((prev) =>
+            prev ? { ...prev, student: { ...prev.student, ...nextStudent } } : prev
+          );
+          setBaselineData((prev) =>
+            prev ? { ...prev, student: { ...prev.student, ...nextStudent } } : prev
+          );
+        }
+        swalToast(
+          'success',
+          enabled
+            ? 'Major subject unlocked for this student (dean prerogative).'
+            : 'Override cleared — subject locked again.'
+        );
+        return true;
+      } catch (err) {
+        const payload = err.response?.data || {};
+        if (enabled && payload.requires_units_ack) {
+          const earned = payload.earned_units ?? data?.summary?.total_units_earned ?? 0;
+          const ok = await swalConfirm(
+            'Units short for year standing',
+            `Earned units (${earned}) are below the usual threshold for this subject’s year level, but lower-year majors are OK.\n\nAllow this major subject anyway?`,
+            'Allow subject',
+            'Cancel'
+          );
+          if (!ok) return false;
+          return grantMajorStandingOverride(row, {
+            enabled: true,
+            acknowledgeUnitsShort: true,
+          });
+        }
+        await swalError(
+          'Could not update override',
+          payload.message || err.message || 'Request failed'
+        );
+        return false;
+      }
+    },
+    [
+      canGrantMajorStandingOverride,
+      data?.student?.student_id,
+      data?.summary?.total_units_earned,
+    ]
+  );
 
   const yearOrdinalForStandingId = useCallback(
     (yearId) => {
@@ -1821,6 +2370,7 @@ const StudentEvaluationView = ({
     }
 
     // Profile year/sem after promote (may be ahead of units-based year).
+    // Irregular: Dean/PH may also demote — always honor stored profile standing.
     const py = data?.student?.year_level_id;
     const ps =
       data?.student?.semester_id != null && data.student.semester_id !== ''
@@ -1828,10 +2378,17 @@ const StudentEvaluationView = ({
         : null;
     if (py != null && py !== '' && ps != null) {
       const profileTerm = findCurriculumTerm(py, ps);
+      if (profileTerm && isIrregularStudent) {
+        return profileTerm;
+      }
       const profileOrd = yearOrdinalForStandingId(py);
       const unitsOrd = yearOrdinalForStandingId(unitsBasedYearId);
-      // Also accept when profile year standing is ahead (promotion before units catch up).
-      if (profileTerm && profileOrd >= unitsOrd) {
+      // Honor profile ahead of units (e.g. promote before units catch up), but never
+      // treat extended-study years (5th+) as standing for Regular — those are
+      // planning containers only and must not override units-based Year Level.
+      const profileBeyondCurriculum =
+        Number.isFinite(profileOrd) && profileOrd > curriculumMaxYearId;
+      if (profileTerm && profileOrd >= unitsOrd && !profileBeyondCurriculum) {
         return profileTerm;
       }
     }
@@ -1858,22 +2415,138 @@ const StudentEvaluationView = ({
     data?.active_semester?.semester_id,
     findCurriculumTerm,
     yearOrdinalForStandingId,
+    isIrregularStudent,
+    curriculumMaxYearId,
   ]);
 
   const semesterOptionsForYear = useMemo(() => {
-    if (!data?.rows?.length || !evalFilterYearId) return [];
+    if (!evalFilterYearId) return [];
     const m = new Map();
-    data.rows
+    (data?.rows || [])
       .filter((r) => String(r.year_level_id) === String(evalFilterYearId))
       .forEach((r) => {
         if (r.semester_id == null || r.semester_id === '') return;
         const label = r.semester_name || `Semester ${r.semester_id}`;
         m.set(String(r.semester_id), { id: String(r.semester_id), label });
       });
+    // Extended years have no curriculum rows — pull terms from standing map.
+    if (
+      m.size === 0 &&
+      extendedYearIds.some((y) => String(y) === String(evalFilterYearId))
+    ) {
+      orderedCurriculumTerms
+        .filter((t) => String(t.year_level_id) === String(evalFilterYearId))
+        .forEach((t) => {
+          m.set(String(t.semester_id), {
+            id: String(t.semester_id),
+            label: t.semester_name || `Semester ${t.semester_id}`,
+          });
+        });
+    }
     return [...m.values()].sort(
       (a, b) => semesterSortValue(a.id, a.label) - semesterSortValue(b.id, b.label)
     );
-  }, [data, evalFilterYearId]);
+  }, [data, evalFilterYearId, orderedCurriculumTerms, extendedYearIds]);
+
+  const applyIrregularStandingChange = useCallback(
+    async (nextYearId, nextSemId) => {
+      if (!canAlterIrregularStanding || standingSaving) return;
+      const yearId = String(nextYearId || '');
+      let semId = String(nextSemId || '');
+      if (!yearId) return;
+
+      const years = yearsAllowedForFilter.length
+        ? yearsAllowedForFilter
+        : evaluationFilterOptions.years;
+
+      if (!semId) {
+        const firstSem = orderedCurriculumTerms.find(
+          (t) => String(t.year_level_id) === yearId
+        );
+        semId = firstSem ? String(firstSem.semester_id) : '';
+      }
+      if (!semId) return;
+
+      if (
+        String(evalFilterYearId) === yearId &&
+        String(evalFilterSemesterId) === semId
+      ) {
+        return;
+      }
+
+      const fromYear =
+        years.find((y) => String(y.id) === String(evalFilterYearId))?.label || '—';
+      const fromSem =
+        semesterOptionsForYear.find((s) => String(s.id) === String(evalFilterSemesterId))
+          ?.label ||
+        orderedCurriculumTerms.find(
+          (t) =>
+            String(t.year_level_id) === String(evalFilterYearId) &&
+            String(t.semester_id) === String(evalFilterSemesterId)
+        )?.semester_name ||
+        '—';
+      const toYear = years.find((y) => String(y.id) === yearId)?.label || yearId;
+      const toSem =
+        orderedCurriculumTerms.find(
+          (t) =>
+            String(t.year_level_id) === yearId && String(t.semester_id) === semId
+        )?.semester_name || `Semester ${semId}`;
+
+      const fromIdx = orderedCurriculumTerms.findIndex(
+        (t) =>
+          String(t.year_level_id) === String(evalFilterYearId) &&
+          String(t.semester_id) === String(evalFilterSemesterId)
+      );
+      const toIdx = orderedCurriculumTerms.findIndex(
+        (t) => String(t.year_level_id) === yearId && String(t.semester_id) === semId
+      );
+      const action =
+        fromIdx >= 0 && toIdx >= 0
+          ? toIdx < fromIdx
+            ? 'demote'
+            : toIdx > fromIdx
+              ? 'promote'
+              : 'set'
+          : 'set';
+
+      const ok = await swalConfirm(
+        action === 'demote'
+          ? 'Demote irregular student?'
+          : action === 'promote'
+            ? 'Promote irregular student?'
+            : 'Change standing?',
+        `Change standing from ${fromYear} — ${fromSem} to ${toYear} — ${toSem}?\n\nOnly Irregular students can be moved this way by Dean / Program Head.`,
+        action === 'demote' ? 'Demote' : action === 'promote' ? 'Promote' : 'Apply',
+        'Cancel'
+      );
+      if (!ok) return;
+
+      const prevYear = evalFilterYearId;
+      const prevSem = evalFilterSemesterId;
+      setEvalFilterYearId(yearId);
+      setEvalFilterSemesterId(semId);
+      const saved = await persistStudentStanding({
+        yearId,
+        semesterId: semId,
+        toastOnSuccess: true,
+      });
+      if (!saved) {
+        setEvalFilterYearId(prevYear);
+        setEvalFilterSemesterId(prevSem);
+      }
+    },
+    [
+      canAlterIrregularStanding,
+      standingSaving,
+      yearsAllowedForFilter,
+      evaluationFilterOptions.years,
+      orderedCurriculumTerms,
+      evalFilterYearId,
+      evalFilterSemesterId,
+      semesterOptionsForYear,
+      persistStudentStanding,
+    ]
+  );
 
   const currentStandingSubjects = useMemo(() => {
     if (!data?.rows?.length || !evalFilterYearId || !evalFilterSemesterId) return [];
@@ -1996,7 +2669,7 @@ const StudentEvaluationView = ({
           String(row.year_level_id) === String(evalFilterYearId) &&
           String(row.semester_id) === String(evalFilterSemesterId);
         if (!isCurrent) deferred.add(key);
-        if (standingLoadBlockedByPrereq(row, mergedRowsForPrereq)) {
+        if (standingLoadBlockedByPrereq(row, mergedRowsForPrereq, majorStandingOverrideKeys)) {
           deferred.add(key);
         }
       });
@@ -2016,6 +2689,7 @@ const StudentEvaluationView = ({
     evalFilterYearId,
     evalFilterSemesterId,
     mergedRowsForPrereq,
+    majorStandingOverrideKeys,
     offSemesterStorageKey,
   ]);
 
@@ -2128,14 +2802,9 @@ const StudentEvaluationView = ({
       nextStandingTerm.year_level_name ||
       `Year ${nextStandingTerm.year_level_id}`;
     const semLabel = nextStandingTerm.semester_name || `Semester ${nextStandingTerm.semester_id}`;
-    const yearNum =
-      parseYearNumberFromLabel(yearLabel, nextStandingTerm.year_level_id) ||
-      Number(nextStandingTerm.year_level_id) ||
-      1;
     const schoolYear =
       schoolYearLabelForStanding(
-        data?.curriculum?.effective_year ?? data?.curriculum?.label,
-        yearNum
+        data?.curriculum?.effective_year ?? data?.curriculum?.label
       ) || data?.curriculum?.label;
     return [schoolYear, yearLabel, semLabel].filter(Boolean).join(' — ');
   }, [
@@ -2245,6 +2914,8 @@ const StudentEvaluationView = ({
 
   const isNextSemMapRowEligible = useCallback(
     (row) => {
+      const key = getEvaluationRowKey(row);
+      if (key && majorStandingOverrideKeys.has(String(key))) return true;
       const preCodes = Array.isArray(row?.prerequisite_subject_codes)
         ? row.prerequisite_subject_codes
         : [];
@@ -2272,7 +2943,7 @@ const StudentEvaluationView = ({
       }
       return true;
     },
-    [mergedRowsForPrereq, nextSemCurrentTakeCodes]
+    [mergedRowsForPrereq, nextSemCurrentTakeCodes, majorStandingOverrideKeys]
   );
 
   const nextSemMapUnmetLabels = useCallback(
@@ -2874,7 +3545,7 @@ const StudentEvaluationView = ({
       currentStandingSubjects.forEach((row) => {
         const key = getEvaluationRowKey(row);
         if (next.has(key)) return;
-        if (standingLoadBlockedByPrereq(row, mergedRowsForPrereq)) {
+        if (standingLoadBlockedByPrereq(row, mergedRowsForPrereq, majorStandingOverrideKeys)) {
           next.add(key);
           changed = true;
           return;
@@ -2892,6 +3563,7 @@ const StudentEvaluationView = ({
   }, [
     currentStandingSubjects,
     mergedRowsForPrereq,
+    majorStandingOverrideKeys,
     evalFilterYearId,
     evalFilterSemesterId,
     priorStandingTakeGate,
@@ -2905,7 +3577,11 @@ const StudentEvaluationView = ({
         const currentlyDropped = next.has(rowKey);
         if (currentlyDropped) {
           // Trying to TAKE
-          const block = standingLoadBlockedByPrereq(row, mergedRowsForPrereq);
+          const block = standingLoadBlockedByPrereq(
+            row,
+            mergedRowsForPrereq,
+            majorStandingOverrideKeys
+          );
           if (block) {
             swalToast('warning', block);
             return prev;
@@ -2943,7 +3619,7 @@ const StudentEvaluationView = ({
         currentStandingSubjects.forEach((other) => {
           const oKey = getEvaluationRowKey(other);
           if (next.has(oKey)) return;
-          if (standingLoadBlockedByPrereq(other, mergedRowsForPrereq)) {
+          if (standingLoadBlockedByPrereq(other, mergedRowsForPrereq, majorStandingOverrideKeys)) {
             next.add(oKey);
             return;
           }
@@ -2961,6 +3637,7 @@ const StudentEvaluationView = ({
     [
       currentStandingSubjects,
       mergedRowsForPrereq,
+      majorStandingOverrideKeys,
       evalFilterYearId,
       evalFilterSemesterId,
       priorStandingTakeGate,
@@ -2979,7 +3656,7 @@ const StudentEvaluationView = ({
     const deferred = new Set(standingLoadDeferred);
     currentStandingSubjects.forEach((row) => {
       const key = getEvaluationRowKey(row);
-      if (standingLoadBlockedByPrereq(row, mergedRowsForPrereq)) {
+      if (standingLoadBlockedByPrereq(row, mergedRowsForPrereq, majorStandingOverrideKeys)) {
         deferred.add(key);
         return;
       }
@@ -3135,6 +3812,7 @@ const StudentEvaluationView = ({
     standingLoadDeferred,
     currentStandingSubjects,
     mergedRowsForPrereq,
+    majorStandingOverrideKeys,
     evalFilterYearId,
     evalFilterSemesterId,
     yearsAllowedForFilter,
@@ -3185,7 +3863,9 @@ const StudentEvaluationView = ({
         : null;
     return promotionModalRows.map((r) => {
       const unmetPrerequisites = unmetEvalPrerequisiteLabels(data?.rows || [], r);
-      const eligible = unmetPrerequisites.length === 0 && evalRowPrerequisitesMet(data?.rows || [], r);
+      const eligible =
+        unmetPrerequisites.length === 0 &&
+        rowPrereqsMetWithOverride(data?.rows || [], r);
       if (!isElectiveTrackPendingRow(r)) {
         return {
           penCode: r.subject_code || '—',
@@ -3231,7 +3911,13 @@ const StudentEvaluationView = ({
         electiveChoices,
       };
     });
-  }, [promotionModalRows, promoteModalTrackId, data?.student?.track_id, data?.rows]);
+  }, [
+    promotionModalRows,
+    promoteModalTrackId,
+    data?.student?.track_id,
+    data?.rows,
+    rowPrereqsMetWithOverride,
+  ]);
 
   const promotionModalTotalUnits = useMemo(
     () => promotionTableRows.reduce((acc, r) => acc + (Number(r.units) || 0), 0),
@@ -3239,27 +3925,16 @@ const StudentEvaluationView = ({
   );
 
   const promotionCurriculumLabel = useMemo(() => {
-    // Standing school year for the promotion target (e.g. 2nd year → 2024-2025),
-    // not the fixed curriculum Effective SY (2023-2024).
-    if (nextPromotionTerm) {
-      const yearNum =
-        yearOrdinalForStandingId(nextPromotionTerm.year_level_id) ||
-        Number(nextPromotionTerm.year_level_id) ||
-        1;
-      const schoolYear = schoolYearLabelForStanding(
-        data?.curriculum?.effective_year ?? data?.curriculum?.label,
-        yearNum
-      );
-      if (schoolYear) return schoolYear;
-    }
+    // Curriculum Effective SY (e.g. 2023-2024) — identifies which curriculum the student is under.
     return (
+      schoolYearLabelForStanding(
+        data?.curriculum?.effective_year ?? data?.curriculum?.label
+      ) ||
       standingSchoolYearLabel ||
       data?.curriculum?.label ||
       (promotionModalRows.length ? '—' : '—')
     );
   }, [
-    nextPromotionTerm,
-    yearOrdinalForStandingId,
     data?.curriculum?.effective_year,
     data?.curriculum?.label,
     standingSchoolYearLabel,
@@ -3317,6 +3992,10 @@ const StudentEvaluationView = ({
     if (!canEditEvaluationRows || !activeSemesterStandingTerm || !data?.student?.student_id) {
       return;
     }
+    // Irregular Year/Semester is set explicitly by Dean/PH — do not auto-resync from units.
+    if (canAlterIrregularStanding) {
+      return;
+    }
 
     const nextYear = String(activeSemesterStandingTerm.year_level_id);
     const nextSem = String(activeSemesterStandingTerm.semester_id);
@@ -3355,13 +4034,14 @@ const StudentEvaluationView = ({
       nextSem &&
       (String(storedYear ?? '') !== nextYear || String(storedSem ?? '') !== nextSem)
     ) {
-      persistStudentStanding({
+      void persistStudentStanding({
         yearId: nextYear,
         semesterId: nextSem,
       });
     }
   }, [
     canEditEvaluationRows,
+    canAlterIrregularStanding,
     activeSemesterStandingTerm,
     evalFilterYearId,
     evalFilterSemesterId,
@@ -3479,6 +4159,16 @@ const StudentEvaluationView = ({
     setBaselineData(evaluationPayload);
     setData(evaluationPayload);
     setPendingProgramId(null);
+    const st = evaluationPayload?.student;
+    if (st?.is_simulation) {
+      setPendingSimName({
+        first_name: st.first_name || '',
+        last_name: st.last_name || '',
+        middle_name: st.middle_name || '',
+      });
+    } else {
+      setPendingSimName(null);
+    }
   }, []);
 
   useEffect(() => {
@@ -3593,6 +4283,16 @@ const StudentEvaluationView = ({
     setSelectedStudent(student);
     setError('');
     setLoading(true);
+    try {
+      if (student?.student_id_number) {
+        window.localStorage.setItem(
+          lastEvalStudentStorageKey,
+          String(student.student_id_number)
+        );
+      }
+    } catch {
+      // ignore
+    }
 
     try {
       const response = await api.get(`/evaluation/student/${encodeURIComponent(student.student_id_number)}`);
@@ -3601,6 +4301,7 @@ const StudentEvaluationView = ({
       console.error('Error fetching student evaluation:', err);
       setBaselineData(null);
       setData(null);
+      setPendingSimName(null);
       const msg = err.response?.data?.message || 'Failed to load student evaluation';
       setError(msg);
       await swalError('Could not load evaluation', msg);
@@ -3608,6 +4309,131 @@ const StudentEvaluationView = ({
       setLoading(false);
     }
   };
+
+  const createSimulationDummy = useCallback(async () => {
+    if (!canManageSimulationDummy || simulationCreating) return;
+    if (hasUnsavedChanges) {
+      const discard = await swalConfirm(
+        'Unsaved Changes',
+        `You have ${unsavedChangeCount} unsaved change(s). Discard them and create a simulation dummy?`,
+        'Discard & create',
+        'Cancel'
+      );
+      if (!discard) return;
+    }
+    const ok = await swalConfirm(
+      'Add simulation dummy?',
+      'Creates a practice student ([SIM]) so you can try evaluation flows without changing real student records.\n\nYou can delete it anytime with the trash button.',
+      'Create dummy',
+      'Cancel'
+    );
+    if (!ok) return;
+
+    setSimulationCreating(true);
+    try {
+      const res = await api.post('/evaluation/student/simulation-dummy', {
+        program_id:
+          selectedStudent?.program?.program_id ||
+          data?.student?.program?.program_id ||
+          undefined,
+        year_level_id: 1,
+        semester_id: 1,
+      });
+      const created = res.data?.student;
+      await fetchStudentList(searchTerm);
+      if (created?.student_id_number) {
+        try {
+          window.localStorage.setItem(
+            lastEvalStudentStorageKey,
+            String(created.student_id_number)
+          );
+        } catch {
+          // ignore
+        }
+        setSelectedStudent({ ...created, is_simulation: true });
+        setError('');
+        setLoading(true);
+        try {
+          const response = await api.get(
+            `/evaluation/student/${encodeURIComponent(created.student_id_number)}`
+          );
+          applySavedEvaluation(response.data);
+        } catch (loadErr) {
+          setBaselineData(null);
+          setData(null);
+          const msg =
+            loadErr.response?.data?.message || 'Failed to load simulation evaluation';
+          setError(msg);
+          await swalError('Could not load evaluation', msg);
+        } finally {
+          setLoading(false);
+        }
+      }
+      swalToast('success', res.data?.message || 'Simulation dummy ready.');
+    } catch (err) {
+      await swalError(
+        'Could not create simulation dummy',
+        err.response?.data?.message || err.message || 'Request failed'
+      );
+    } finally {
+      setSimulationCreating(false);
+    }
+  }, [
+    canManageSimulationDummy,
+    simulationCreating,
+    hasUnsavedChanges,
+    unsavedChangeCount,
+    selectedStudent?.program?.program_id,
+    data?.student?.program?.program_id,
+    fetchStudentList,
+    searchTerm,
+    applySavedEvaluation,
+  ]);
+
+  const deleteSelectedSimulationDummy = useCallback(async () => {
+    const sid = selectedStudent?.student_id ?? data?.student?.student_id;
+    const isSim = !!(selectedStudent?.is_simulation || data?.student?.is_simulation);
+    if (!canManageSimulationDummy || !sid || !isSim) return;
+    const ok = await swalConfirm(
+      'Delete simulation dummy?',
+      'This removes the practice account and its practice grades. Real students are not affected.',
+      'Delete dummy',
+      'Cancel'
+    );
+    if (!ok) return;
+    try {
+      await api.delete(`/evaluation/student/simulation-dummy/${sid}`);
+      try {
+        const lastId = window.localStorage.getItem(lastEvalStudentStorageKey);
+        if (
+          lastId &&
+          String(lastId) === String(selectedStudent?.student_id_number || data?.student?.student_id_number || '')
+        ) {
+          window.localStorage.removeItem(lastEvalStudentStorageKey);
+        }
+      } catch {
+        // ignore
+      }
+      setSelectedStudent(null);
+      setData(null);
+      setBaselineData(null);
+      setPendingSimName(null);
+      await fetchStudentList(searchTerm);
+      swalToast('success', 'Simulation dummy removed.');
+    } catch (err) {
+      await swalError(
+        'Could not delete simulation dummy',
+        err.response?.data?.message || err.message || 'Request failed'
+      );
+    }
+  }, [
+    canManageSimulationDummy,
+    selectedStudent,
+    data?.student?.student_id,
+    data?.student?.is_simulation,
+    fetchStudentList,
+    searchTerm,
+  ]);
 
   const refreshSelectedStudentEvaluation = useCallback(async () => {
     if (!selectedStudent?.student_id_number) return;
@@ -3618,6 +4444,27 @@ const StudentEvaluationView = ({
       console.error('Error refreshing evaluation after equivalence save', err);
     }
   }, [applySavedEvaluation, selectedStudent?.student_id_number]);
+
+  // Reopen last evaluated student (incl. simulation dummies) after page reload.
+  useEffect(() => {
+    if (restoredEvalStudentRef.current || loadingList || selectedStudent || !students.length) {
+      return;
+    }
+    restoredEvalStudentRef.current = true;
+    let lastId = '';
+    try {
+      lastId = window.localStorage.getItem(lastEvalStudentStorageKey) || '';
+    } catch {
+      lastId = '';
+    }
+    if (!lastId) return;
+    const match = students.find(
+      (s) => String(s.student_id_number || '') === String(lastId)
+    );
+    if (match) {
+      void handleStudentSelect(match);
+    }
+  }, [students, loadingList, selectedStudent]);
 
   const updateDraft = (row, patch) => {
     const key = getRowKey(row);
@@ -3670,7 +4517,7 @@ const StudentEvaluationView = ({
       if (!isRowGradable(row) || isTransferCreditRow(row)) return false;
       const mi = data?.rows ? data.rows.findIndex((r) => getRowKey(r) === getRowKey(row)) : -1;
       const mergedTarget = mi >= 0 ? mergedRowsForPrereq[mi] : row;
-      return evalRowPrerequisitesMet(mergedRowsForPrereq, mergedTarget);
+      return rowPrereqsMetWithOverride(mergedRowsForPrereq, mergedTarget);
     });
     if (gradable.length === 0) {
       swalToast(
@@ -3796,7 +4643,7 @@ const StudentEvaluationView = ({
       if (
         hasValues &&
         mergedTarget &&
-        !evalRowPrerequisitesMet(mergedRowsForPrereq, mergedTarget)
+        !rowPrereqsMetWithOverride(mergedRowsForPrereq, mergedTarget)
       ) {
         results.failed++;
         results.errors.push(
@@ -3854,7 +4701,57 @@ const StudentEvaluationView = ({
       return;
     }
 
+    let nameSaved = false;
     try {
+      if (
+        hasPendingSimNameChange &&
+        isSelectedSimulation &&
+        pendingSimName &&
+        data?.student?.student_id
+      ) {
+        const first = String(pendingSimName.first_name || '').trim();
+        const last = String(pendingSimName.last_name || '').trim();
+        if (!first || !last) {
+          setSavingAll(false);
+          await swalError('Name required', 'First name and last name are required for the simulation dummy.');
+          return;
+        }
+        const nameRes = await api.put('/evaluation/student/simulation-dummy/profile', {
+          student_id: Number(data.student.student_id),
+          first_name: first,
+          last_name: last,
+          middle_name: String(pendingSimName.middle_name || '').trim() || null,
+        });
+        const nextStudent = nameRes.data?.student;
+        if (nextStudent) {
+          setData((prev) =>
+            prev ? { ...prev, student: { ...prev.student, ...nextStudent } } : prev
+          );
+          setBaselineData((prev) =>
+            prev ? { ...prev, student: { ...prev.student, ...nextStudent } } : prev
+          );
+          setSelectedStudent((prev) =>
+            prev
+              ? {
+                  ...prev,
+                  first_name: nextStudent.first_name,
+                  last_name: nextStudent.last_name,
+                  middle_name: nextStudent.middle_name,
+                  full_name: nextStudent.full_name || prev.full_name,
+                  is_simulation: true,
+                }
+              : prev
+          );
+          setPendingSimName({
+            first_name: nextStudent.first_name || '',
+            last_name: nextStudent.last_name || '',
+            middle_name: nextStudent.middle_name || '',
+          });
+          await fetchStudentList(searchTerm);
+        }
+        nameSaved = true;
+      }
+
       if (hasPendingProgramChange) {
         const response = await api.post('/evaluation/student/change-program', {
           student_id: data.student.student_id,
@@ -3877,16 +4774,24 @@ const StudentEvaluationView = ({
         if (sid) {
           await syncStudentToEvaluatedListIfNeeded(sid);
         }
-        if (results.success > 0) {
+        if (results.success > 0 || nameSaved) {
           swalToast(
             'success',
-            `Saved ${results.success} evaluation(s) and shifted program.`
+            `Saved${results.success > 0 ? ` ${results.success} evaluation(s)` : ''}${
+              nameSaved ? ' + name' : ''
+            } and shifted program.`
           );
         } else {
           swalToast('success', response.data?.message || 'Program updated.');
         }
       } else {
-        swalToast('success', `Saved ${results.success} evaluation(s)`);
+        const parts = [];
+        if (results.success > 0) parts.push(`${results.success} evaluation(s)`);
+        if (nameSaved) parts.push('dummy name');
+        swalToast(
+          'success',
+          parts.length ? `Saved ${parts.join(' and ')}` : 'Nothing to save'
+        );
         setModifiedKeys(new Set());
         const response = await api.get(
           `/evaluation/student/${encodeURIComponent(selectedStudent.student_id_number)}`
@@ -3899,7 +4804,7 @@ const StudentEvaluationView = ({
       }
     } catch (err) {
       await swalError(
-        'Could not change program',
+        'Could not save changes',
         err.response?.data?.message || 'Request failed'
       );
     } finally {
@@ -3920,6 +4825,15 @@ const StudentEvaluationView = ({
         if (!confirmed) return;
 
         setPendingProgramId(null);
+        if (baselineData?.student?.is_simulation) {
+          setPendingSimName({
+            first_name: baselineData.student.first_name || '',
+            last_name: baselineData.student.last_name || '',
+            middle_name: baselineData.student.middle_name || '',
+          });
+        } else {
+          setPendingSimName(null);
+        }
         setPlacementPreviewMap({});
         setPlacementPreviewConfirmedMap({});
         setPlacementPreviewInsertSlotKey(null);
@@ -4835,6 +5749,16 @@ const StudentEvaluationView = ({
     const fullName =
       student?.full_name ||
       `${student?.last_name || ''}, ${student?.first_name || ''} ${student?.middle_name || ''}`.trim();
+    const canEditSimName =
+      canManageSimulationDummy && !!(student?.is_simulation || selectedStudent?.is_simulation);
+    const simName = pendingSimName || {
+      first_name: student?.first_name || '',
+      last_name: student?.last_name || '',
+      middle_name: student?.middle_name || '',
+    };
+    const displaySimFullName = `${simName.last_name || ''}, ${simName.first_name || ''}${
+      simName.middle_name ? ` ${simName.middle_name}` : ''
+    }`.trim();
 
     const programCode = student?.program?.program_code || student?.program_code || '';
     const programName = student?.program?.program_name || student?.program_name || '';
@@ -4894,7 +5818,65 @@ const StudentEvaluationView = ({
         <div className="eval-hero__top">
           <div className="eval-hero__student-card">
             <div className="eval-hero__name-row">
-              <div className="eval-hero__name">{fullName || 'N/A'}</div>
+              {canEditSimName ? (
+                <div className="eval-hero__sim-name-edit">
+                  <input
+                    className="eval-hero__sim-name-input"
+                    value={simName.last_name}
+                    onChange={(e) =>
+                      setPendingSimName((prev) => ({
+                        ...(prev || simName),
+                        last_name: e.target.value,
+                      }))
+                    }
+                    placeholder="Last name"
+                    aria-label="Simulation last name"
+                    disabled={savingAll}
+                  />
+                  <span className="eval-hero__sim-name-comma">,</span>
+                  <input
+                    className="eval-hero__sim-name-input"
+                    value={simName.first_name}
+                    onChange={(e) =>
+                      setPendingSimName((prev) => ({
+                        ...(prev || simName),
+                        first_name: e.target.value,
+                      }))
+                    }
+                    placeholder="First name"
+                    aria-label="Simulation first name"
+                    disabled={savingAll}
+                  />
+                  <input
+                    className="eval-hero__sim-name-input eval-hero__sim-name-input--middle"
+                    value={simName.middle_name}
+                    onChange={(e) =>
+                      setPendingSimName((prev) => ({
+                        ...(prev || simName),
+                        middle_name: e.target.value,
+                      }))
+                    }
+                    placeholder="MI (optional)"
+                    aria-label="Simulation middle name"
+                    disabled={savingAll}
+                  />
+                  {hasPendingSimNameChange ? (
+                    <span className="eval-hero__sim-name-dirty" title="Click Save All Changes to store this name">
+                      unsaved name
+                    </span>
+                  ) : null}
+                </div>
+              ) : (
+                <div className="eval-hero__name">{fullName || 'N/A'}</div>
+              )}
+              {student?.is_simulation || selectedStudent?.is_simulation ? (
+                <span
+                  className="eval-hero__sim-pill"
+                  title={`Practice account${displaySimFullName ? `: ${displaySimFullName}` : ''} — edit name then Save All Changes`}
+                >
+                  SIM
+                </span>
+              ) : null}
               <button
                 type="button"
                 className="eval-hero__name-link"
@@ -5074,11 +6056,7 @@ const StudentEvaluationView = ({
               disabled={curricula.length <= 1}
               title={
                 curriculumEffectiveLabel
-                  ? `Subject map: Effective SY ${curriculumEffectiveLabel}${
-                      schoolYearLabel && schoolYearLabel !== curriculumEffectiveLabel
-                        ? ` · Standing school year: ${schoolYearLabel}`
-                        : ''
-                    }`
+                  ? `Curriculum Effective SY ${curriculumEffectiveLabel} (subject map for this student)`
                   : 'Student curriculum'
               }
             >
@@ -5122,16 +6100,22 @@ const StudentEvaluationView = ({
             <select
               className="eval-filter-field__control"
               value={evalFilterYearId}
-              disabled
+              disabled={!canAlterIrregularStanding || standingSaving}
+              onChange={(e) => {
+                if (!canAlterIrregularStanding) return;
+                void applyIrregularStandingChange(e.target.value, '');
+              }}
               title={
-                activeSemesterStandingTerm
-                  ? `Standing: ${activeSemesterStandingTerm.year_level_name || ''} ${
-                      activeSemesterStandingTerm.semester_name || ''
-                    }`.trim() +
-                    (data?.student?.promoted_next_sem_at
-                      ? ' (from promotion)'
-                      : ` · earned units ${data?.summary?.total_units_earned ?? 0}`)
-                  : `Calculated from earned units (${data?.summary?.total_units_earned ?? 0}): 46→2nd, 94→3rd, 132→4th`
+                canAlterIrregularStanding
+                  ? 'Irregular only: Dean / Program Head can promote or demote by changing Year'
+                  : activeSemesterStandingTerm
+                    ? `Standing: ${activeSemesterStandingTerm.year_level_name || ''} ${
+                        activeSemesterStandingTerm.semester_name || ''
+                      }`.trim() +
+                      (data?.student?.promoted_next_sem_at
+                        ? ' (from promotion)'
+                        : ` · earned units ${data?.summary?.total_units_earned ?? 0}`)
+                    : `Calculated from earned units (${data?.summary?.total_units_earned ?? 0}): 46→2nd, 94→3rd, 132→4th`
               }
             >
               {years.map((o) => (
@@ -5147,13 +6131,19 @@ const StudentEvaluationView = ({
             <select
               className="eval-filter-field__control"
               value={evalFilterSemesterId}
-              disabled
+              disabled={!canAlterIrregularStanding || standingSaving || !evalFilterYearId}
+              onChange={(e) => {
+                if (!canAlterIrregularStanding) return;
+                void applyIrregularStandingChange(evalFilterYearId, e.target.value);
+              }}
               title={
-                data?.student?.promoted_next_sem_at
-                  ? 'Follows promotion target semester'
-                  : data?.active_semester?.semester_name
-                    ? `Follows Lookup active semester: ${data.active_semester.semester_name}`
-                    : 'Follows Lookup → Semesters active row'
+                canAlterIrregularStanding
+                  ? 'Irregular only: Dean / Program Head can promote or demote by changing Semester'
+                  : data?.student?.promoted_next_sem_at
+                    ? 'Follows promotion target semester'
+                    : data?.active_semester?.semester_name
+                      ? `Follows Lookup active semester: ${data.active_semester.semester_name}`
+                      : 'Follows Lookup → Semesters active row'
               }
             >
               {semesterOptionsForYear.map((o) => (
@@ -5181,6 +6171,12 @@ const StudentEvaluationView = ({
         ) : null}
         <p className="eval-filter-context" aria-live="polite">
           {String(standingBanner || `${currentYearLabel} — ${currentSemLabel}`).toUpperCase()}
+          {canAlterIrregularStanding ? (
+            <span className="eval-filter-context__hint">
+              {' '}
+              · Year / Semester editable (Irregular — promote or demote)
+            </span>
+          ) : null}
         </p>
       </>
     );
@@ -5195,8 +6191,9 @@ const StudentEvaluationView = ({
       );
     }
 
-    // Placement MOVE TO remaps term for Subject placement.
-    // OFFSEM / Semestral takes stay at curriculum home here (badge only).
+    // Main curriculum grid always uses curriculum home term.
+    // Subject placement MOVE TO is for the placement panel only.
+    // OFFSEM / Semestral takes stay here with a badge (not remapped).
     const activePlacementMap = placementPreviewHasPendingChanges
       ? placementPreviewMap
       : placementPreviewConfirmedMap;
@@ -5210,20 +6207,24 @@ const StudentEvaluationView = ({
           off_semester_standing: offsem,
         };
       }
+      // Stale placement without offsem flag: still keep home term + badge.
       const placement = activePlacementMap[key];
-      if (!placement) return row;
-      const slotMeta = placementPreviewSlots.find(
-        (s) =>
-          String(s.yearId ?? '') === String(placement.yearId ?? '') &&
-          String(s.semId ?? '') === String(placement.semId ?? ''),
-      );
-      return {
-        ...row,
-        year_level_id: placement.yearId ?? row.year_level_id,
-        semester_id: placement.semId ?? row.semester_id,
-        year_level_name: slotMeta?.yearLabel || row.year_level_name,
-        semester_name: slotMeta?.semesterLabel || row.semester_name,
-      };
+      if (
+        placement &&
+        (String(placement.yearId ?? '') !== String(row.year_level_id ?? '') ||
+          String(placement.semId ?? '') !== String(row.semester_id ?? ''))
+      ) {
+        return {
+          ...row,
+          off_semester: true,
+          off_semester_standing: {
+            standingYearId: placement.yearId,
+            standingSemId: placement.semId,
+            mode: placement.mode || 'offsem',
+          },
+        };
+      }
+      return row;
     });
 
     // Group rows by year level & semester similar to the spreadsheet layout
@@ -5421,7 +6422,11 @@ const StudentEvaluationView = ({
                       mi >= 0 && mergedRowsForPrereq[mi]
                         ? mergedRowsForPrereq[mi]
                         : mergeEvalRowWithDrafts(row, drafts, getEvaluationRowKey);
-                    const prereqsMet = evalRowPrerequisitesMet(mergedRowsForPrereq, mergedTarget);
+                    const prereqsMet = rowPrereqsMetWithOverride(
+                      mergedRowsForPrereq,
+                      mergedTarget
+                    );
+                    const hasMajorStandingOverride = majorStandingOverrideKeys.has(key);
                     const prereqBlocksEditing =
                       gradable && !transferCredit && termCanEditEvaluationRows && !prereqsMet;
                     const requisiteLabel = formatPromotionPrerequisiteDisplay(mergedTarget);
@@ -5430,7 +6435,21 @@ const StudentEvaluationView = ({
                       : [];
                     const unmetAreStandingOnly =
                       unmetPrerequisiteLabels.length > 0 &&
-                      unmetPrerequisiteLabels.every((label) => /year standing|prior subjects|prior year/i.test(label));
+                      unmetPrerequisiteLabels.every((label) =>
+                        /year standing|prior subjects|prior year/i.test(label)
+                      );
+                    const canOfferMajorOverride =
+                      canGrantMajorStandingOverride &&
+                      termCanEditEvaluationRows &&
+                      prereqBlocksEditing &&
+                      isMajorEvalRow(mergedTarget) &&
+                      (unmetAreStandingOnly ||
+                        rowHasStandingPrerequisiteRule(mergedTarget)) &&
+                      lowerYearMajorsComplete(
+                        mergedRowsForPrereq,
+                        mergedTarget,
+                        parseYearNumberFromLabel
+                      );
                     const notEligibleTitle = unmetPrerequisiteLabels.length
                       ? unmetAreStandingOnly
                         ? `Not eligible — requires ${unmetPrerequisiteLabels.join(', ')}`
@@ -5874,9 +6893,43 @@ const StudentEvaluationView = ({
                               ) : requisiteLabel ? (
                                 <span className="eval-prereq-locked-detail">{requisiteLabel}</span>
                               ) : null}
+                              {canOfferMajorOverride ? (
+                                <button
+                                  type="button"
+                                  className="eval-major-override-btn"
+                                  disabled={savingAll}
+                                  onClick={() => void grantMajorStandingOverride(row, { enabled: true })}
+                                  title="Dean / Program Head prerogative: unlock this major when lower-year majors are OK"
+                                >
+                                  Allow major
+                                </button>
+                              ) : null}
                             </div>
                           ) : termCanEditEvaluationRows && gradable ? (
                             <div className="status-cell-inner">
+                              {hasMajorStandingOverride ? (
+                                <div className="eval-major-override-active">
+                                  <span
+                                    className="eval-major-override-pill"
+                                    title="Unlocked by Dean / Program Head prerogative"
+                                  >
+                                    Major override
+                                  </span>
+                                  {canGrantMajorStandingOverride ? (
+                                    <button
+                                      type="button"
+                                      className="eval-major-override-clear"
+                                      disabled={savingAll}
+                                      onClick={() =>
+                                        void grantMajorStandingOverride(row, { enabled: false })
+                                      }
+                                      title="Clear override"
+                                    >
+                                      Clear
+                                    </button>
+                                  ) : null}
+                                </div>
+                              ) : null}
                               <div className="status-buttons">
                                 {[
                                   { value: 'passed', label: 'Pass', icon: 'fa-check' },
@@ -5944,6 +6997,188 @@ const StudentEvaluationView = ({
             </div>
           </section>
         ))}
+
+        {extendedYearIds.map((yearId) => {
+          const yid = String(yearId);
+          const yearLoad = extendedYearLoad[yid] || emptyExtendedSemLoad();
+          return (
+            <section
+              key={`extended-year-${yid}`}
+              className="eval-year-section eval-year-section--extended"
+            >
+              <h3 className="eval-year-heading">
+                {extendedYearDisplayLabel(yid)}
+                <span className="eval-extended-year-tag">Extended study</span>
+              </h3>
+              <p className="eval-extended-year-desc">
+                Blank {extendedYearDisplayLabel(yid)} load — add unfinished subjects below. Cap{' '}
+                <strong>{EXTENDED_STUDY_SEM_UNIT_CAP} units per semester</strong> (same as 4th
+                year). Grade outcomes still save on each subject’s curriculum home row.
+              </p>
+              <div className="eval-year-term-grid">
+                {['1', '2'].map((semId) => {
+                  const semLabel = semId === '1' ? '1st Semester' : '2nd Semester';
+                  const keys = yearLoad[semId] || [];
+                  const rows = keys
+                    .map(
+                      (k) =>
+                        mergedRowsByKey.get(String(k)) ||
+                        (data?.rows || []).find((r) => getEvaluationRowKey(r) === String(k))
+                    )
+                    .filter(Boolean);
+                  const units = rows.reduce((sum, row) => sum + (Number(row.units) || 0), 0);
+                  const overCap = units > EXTENDED_STUDY_SEM_UNIT_CAP;
+                  const isAddTarget =
+                    String(extendedAddTarget.yearId) === yid &&
+                    String(extendedAddTarget.semId) === String(semId);
+                  return (
+                    <div
+                      key={`extended-${yid}-${semId}`}
+                      id={`eval-term-${yid}-${semId}`}
+                      className={`eval-term-block ${
+                        semId === '1'
+                          ? 'eval-term-block--first-sem'
+                          : 'eval-term-block--second-sem'
+                      } eval-term-block--extended`}
+                    >
+                      <div className="eval-term-header">
+                        <span>{semLabel}</span>
+                        <span
+                          className={`eval-extended-cap${overCap ? ' eval-extended-cap--over' : ''}`}
+                        >
+                          {units} / {EXTENDED_STUDY_SEM_UNIT_CAP} units
+                        </span>
+                      </div>
+
+                      <div className="eval-responsive-table-wrap">
+                        <table className="data-table eval-course-table">
+                          <thead>
+                            <tr>
+                              <th>Pen Code</th>
+                              <th>Descriptive Title</th>
+                              <th>Units</th>
+                              <th>Home term</th>
+                              {canManageExtendedStudy ? <th> </th> : null}
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {rows.map((row) => {
+                              const key = getEvaluationRowKey(row);
+                              return (
+                                <tr key={key}>
+                                  <td>
+                                    <span className="subject-code-badge">
+                                      {row.subject_code || row.elective_slot_name || '—'}
+                                    </span>
+                                  </td>
+                                  <td>{row.subject_name || '—'}</td>
+                                  <td className="units-cell">{row.units ?? 0}</td>
+                                  <td className="eval-extended-home">
+                                    {[row.year_level_name, row.semester_name]
+                                      .filter(Boolean)
+                                      .join(' · ') || '—'}
+                                  </td>
+                                  {canManageExtendedStudy ? (
+                                    <td>
+                                      <button
+                                        type="button"
+                                        className="eval-extended-remove-subj"
+                                        onClick={() =>
+                                          removeSubjectFromExtendedSemester(yid, semId, key)
+                                        }
+                                        title="Remove from extended year"
+                                      >
+                                        Remove
+                                      </button>
+                                    </td>
+                                  ) : null}
+                                </tr>
+                              );
+                            })}
+                            {canManageExtendedStudy ? (
+                              <tr className="eval-extended-add-row">
+                                <td colSpan={5} className="eval-extended-add-cell">
+                                  <SearchableSelect
+                                    className="eval-extended-add__select"
+                                    value={isAddTarget ? extendedAddSubjectKey : ''}
+                                    onChange={(value) => {
+                                      setExtendedAddTarget({ yearId: yid, semId });
+                                      setExtendedAddSubjectKey(String(value || ''));
+                                      if (value) {
+                                        addSubjectToExtendedSemester(yid, semId, value);
+                                      }
+                                    }}
+                                    options={extendedSubjectPickerOptions}
+                                    emptyLabel="Add subject…"
+                                    placeholder="Search unfinished subject…"
+                                    disabled={savingAll || standingSaving}
+                                    aria-label={`Add subject to ${extendedYearDisplayLabel(yid)} ${semLabel}`}
+                                  />
+                                </td>
+                              </tr>
+                            ) : rows.length === 0 ? (
+                              <tr>
+                                <td colSpan={4} className="eval-extended-blank-cell">
+                                  No subjects in this semester.
+                                </td>
+                              </tr>
+                            ) : null}
+                          </tbody>
+                          <tfoot>
+                            <tr className="eval-term-footer">
+                              <td
+                                colSpan={canManageExtendedStudy ? 5 : 4}
+                                className="eval-term-footer__cell"
+                              >
+                                Total units:{' '}
+                                <span className="eval-units-pill eval-units-pill--footer">
+                                  {units}
+                                </span>
+                                <span className="eval-extended-cap-note">
+                                  {' '}
+                                  / {EXTENDED_STUDY_SEM_UNIT_CAP} cap
+                                </span>
+                              </td>
+                            </tr>
+                          </tfoot>
+                        </table>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+              {canManageExtendedStudy ? (
+                <div className="eval-extended-year-actions">
+                  <button
+                    type="button"
+                    className="eval-extended-year-remove"
+                    onClick={() => removeExtendedStudyYear(yid)}
+                  >
+                    Remove {extendedYearDisplayLabel(yid)}
+                  </button>
+                </div>
+              ) : null}
+            </section>
+          );
+        })}
+
+        {canManageExtendedStudy && nextExtendedYearId ? (
+          <div className="eval-extended-year-cta">
+            <button
+              type="button"
+              className="eval-extended-year-cta__btn"
+              onClick={() => addExtendedStudyYear()}
+              disabled={standingSaving}
+            >
+              <i className="fa-solid fa-plus" aria-hidden />
+              Add extended year ({extendedYearDisplayLabel(nextExtendedYearId)})
+            </button>
+            <p className="eval-extended-year-cta__hint">
+              For students who take longer than the normal curriculum years — add 5th, 6th, 7th…
+              as needed (up to {EXTENDED_STUDY_MAX_YEAR}th year).
+            </p>
+          </div>
+        ) : null}
 
         {showPlacementPreview ? (
           <section
@@ -6272,7 +7507,36 @@ const StudentEvaluationView = ({
               <span className="eval-selector-eyebrow">Student selection</span>
               <h3>{isEvaluatedModule ? 'Choose evaluated student' : 'Choose student to evaluate'}</h3>
             </div>
-            <span className="eval-list-header-count">{listCountLabel}</span>
+            <div className="eval-selector-heading__actions">
+              {canManageSimulationDummy ? (
+                <>
+                  <button
+                    type="button"
+                    className="eval-sim-add-btn"
+                    onClick={() => void createSimulationDummy()}
+                    disabled={simulationCreating || loadingList}
+                    title="Add simulation dummy (practice account — does not alter real students)"
+                    aria-label="Add simulation dummy"
+                  >
+                    <i className="fa-solid fa-plus" aria-hidden />
+                    <span>{simulationCreating ? 'Adding…' : 'Sim dummy'}</span>
+                  </button>
+                  {(selectedStudent?.is_simulation || data?.student?.is_simulation) ? (
+                    <button
+                      type="button"
+                      className="eval-sim-delete-btn"
+                      onClick={() => void deleteSelectedSimulationDummy()}
+                      disabled={simulationCreating || loading}
+                      title="Delete this simulation dummy"
+                      aria-label="Delete simulation dummy"
+                    >
+                      <i className="fa-solid fa-trash" aria-hidden />
+                    </button>
+                  ) : null}
+                </>
+              ) : null}
+              <span className="eval-list-header-count">{listCountLabel}</span>
+            </div>
           </div>
 
           <div className="eval-student-selector-grid">
@@ -6308,9 +7572,11 @@ const StudentEvaluationView = ({
                 onQueryChange={(q) => setSearchTerm(q)}
                 options={studentDropdownOptions.map((student) => ({
                   value: String(student.student_id),
-                  label: `${student.full_name || 'Unnamed student'} — ${
-                    student.student_id_number || 'N/A'
-                  } — ${student.program?.program_code || student.program_name || 'Program'}`,
+                  label: `${student.is_simulation ? '[SIM] ' : ''}${
+                    student.full_name || 'Unnamed student'
+                  } — ${student.student_id_number || 'N/A'} — ${
+                    student.program?.program_code || student.program_name || 'Program'
+                  }`,
                 }))}
                 disabled={loadingList && studentDropdownOptions.length === 0}
                 emptyLabel={
@@ -6359,11 +7625,15 @@ const StudentEvaluationView = ({
               }`}
             >
               <span>
-                {hasPendingProgramChange && modifiedKeys.size > 0
+                {hasPendingProgramChange && (modifiedKeys.size > 0 || hasPendingSimNameChange)
                   ? `${unsavedChangeCount} unsaved changes (including program shift)`
                   : hasPendingProgramChange
                     ? 'Program shift pending — save to apply'
-                    : `${modifiedKeys.size} subject(s) with unsaved changes`}
+                    : hasPendingSimNameChange && modifiedKeys.size > 0
+                      ? `${modifiedKeys.size} subject(s) + dummy name unsaved`
+                      : hasPendingSimNameChange
+                        ? 'Dummy name pending — save to store on system'
+                        : `${modifiedKeys.size} subject(s) with unsaved changes`}
               </span>
               <div className="floating-actions">
                 <button
@@ -6515,7 +7785,8 @@ const StudentEvaluationView = ({
                                     lastSection = section;
                                     const blockReason = standingLoadBlockedByPrereq(
                                       row,
-                                      mergedRowsForPrereq
+                                      mergedRowsForPrereq,
+                                      majorStandingOverrideKeys
                                     );
                                     const priorGate = isCurrentTerm
                                       ? { ok: true, mode: null }
