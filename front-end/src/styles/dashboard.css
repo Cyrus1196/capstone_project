@@ -1,0 +1,360 @@
+/* ============================================================
+   DASHBOARD
+   The landing screen each role sees after signing in.
+   ============================================================ */
+
+/* ------------------------------------------------------------
+   WELCOME BANNER
+   ------------------------------------------------------------ */
+
+.welcome-banner {
+  position: relative;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-5);
+  padding: var(--sp-6) var(--sp-8);
+  margin-bottom: var(--sp-6);
+  overflow: hidden;
+  color: var(--n-0);
+  background: var(--brand-gradient);
+  border-radius: var(--r-xl);
+  box-shadow: var(--shadow-md);
+}
+
+/* Soft light bloom so the flat gradient has some depth */
+.welcome-banner::after {
+  content: '';
+  position: absolute;
+  top: -60%;
+  right: -10%;
+  width: 380px;
+  height: 380px;
+  background: radial-gradient(circle, rgba(255, 255, 255, 0.18) 0%, transparent 65%);
+  pointer-events: none;
+}
+
+.welcome-text {
+  position: relative;
+  z-index: 1;
+  min-width: 0;
+}
+
+.welcome-greeting {
+  margin: 0 0 var(--sp-1);
+  font-size: var(--fs-2xl);
+  font-weight: 700;
+  color: var(--n-0);
+  letter-spacing: -0.02em;
+}
+
+.welcome-sub {
+  margin: 0;
+  font-size: var(--fs-md);
+  color: rgba(255, 255, 255, 0.85);
+}
+
+.welcome-meta {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-6);
+}
+
+.welcome-meta-item {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+}
+
+.welcome-meta-label {
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.72);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.welcome-meta-value {
+  font-size: var(--fs-lg);
+  font-weight: 700;
+  color: var(--n-0);
+}
+
+/* ------------------------------------------------------------
+   DASHBOARD LAYOUT
+   ------------------------------------------------------------ */
+
+.dashboard-grid {
+  display: grid;
+  grid-template-columns: 2fr 1fr;
+  gap: var(--sp-5);
+  align-items: start;
+}
+
+.dashboard-col {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-5);
+  min-width: 0;
+}
+
+@media (max-width: 1000px) {
+  .dashboard-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ------------------------------------------------------------
+   PANEL (a titled box on the dashboard)
+   ------------------------------------------------------------ */
+
+.panel {
+  background-color: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-xs);
+}
+
+.panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  padding: var(--sp-4) var(--sp-5);
+  border-bottom: 1px solid var(--border);
+}
+
+.panel-head h3 {
+  margin: 0;
+  font-size: var(--fs-md);
+  font-weight: 650;
+}
+
+.panel-body {
+  padding: var(--sp-5);
+}
+
+.panel-body.is-flush {
+  padding: 0;
+}
+
+/* ------------------------------------------------------------
+   QUICK ACTIONS
+   ------------------------------------------------------------ */
+
+.quick-actions {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: var(--sp-3);
+}
+
+.quick-action {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  padding: var(--sp-4);
+  font-family: inherit;
+  font-size: var(--fs-base);
+  color: var(--n-700);
+  text-align: left;
+  background-color: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  cursor: pointer;
+  transition: border-color var(--t-base), box-shadow var(--t-base), transform var(--t-base);
+}
+
+.quick-action:hover {
+  border-color: var(--brand-300);
+  box-shadow: var(--shadow-md);
+  transform: translateY(-2px);
+}
+
+.quick-action-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  color: var(--brand-700);
+  background-color: var(--brand-50);
+  border-radius: var(--r-md);
+}
+
+.quick-action-title {
+  font-weight: 650;
+  color: var(--n-900);
+}
+
+.quick-action-desc {
+  font-size: var(--fs-xs);
+  line-height: var(--lh-snug);
+  color: var(--text-muted);
+}
+
+/* ------------------------------------------------------------
+   INFO LIST (label / value pairs)
+   ------------------------------------------------------------ */
+
+.info-list {
+  display: flex;
+  flex-direction: column;
+}
+
+.info-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--sp-4);
+  padding: var(--sp-3) 0;
+  border-bottom: 1px solid var(--n-100);
+}
+
+.info-row:last-child {
+  border-bottom: none;
+  padding-bottom: 0;
+}
+
+.info-row:first-child {
+  padding-top: 0;
+}
+
+.info-label {
+  flex-shrink: 0;
+  font-size: var(--fs-sm);
+  color: var(--text-muted);
+}
+
+.info-value {
+  font-size: var(--fs-base);
+  font-weight: 600;
+  color: var(--n-800);
+  text-align: right;
+  word-break: break-word;
+}
+
+/* ------------------------------------------------------------
+   ACTIVITY / TIMELINE LIST
+   ------------------------------------------------------------ */
+
+.activity-list {
+  display: flex;
+  flex-direction: column;
+}
+
+.activity-item {
+  display: flex;
+  gap: var(--sp-3);
+  padding: var(--sp-4) var(--sp-5);
+  border-bottom: 1px solid var(--n-100);
+}
+
+.activity-item:last-child {
+  border-bottom: none;
+}
+
+.activity-dot {
+  flex-shrink: 0;
+  width: 8px;
+  height: 8px;
+  margin-top: 0.4375rem;
+  background-color: var(--brand-500);
+  border-radius: 50%;
+}
+
+.activity-dot.is-success { background-color: var(--success); }
+.activity-dot.is-warning { background-color: var(--warning); }
+.activity-dot.is-danger  { background-color: var(--danger); }
+
+.activity-body {
+  min-width: 0;
+}
+
+.activity-title {
+  font-size: var(--fs-base);
+  font-weight: 600;
+  color: var(--n-800);
+}
+
+.activity-meta {
+  font-size: var(--fs-xs);
+  color: var(--text-muted);
+}
+
+/* ------------------------------------------------------------
+   PROGRESS
+   ------------------------------------------------------------ */
+
+.progress-row {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  padding: var(--sp-3) 0;
+}
+
+.progress-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  font-size: var(--fs-sm);
+}
+
+.progress-label {
+  font-weight: 600;
+  color: var(--n-700);
+}
+
+.progress-value {
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.progress-bar {
+  width: 100%;
+  height: 8px;
+  overflow: hidden;
+  background-color: var(--n-100);
+  border-radius: var(--r-full);
+}
+
+.progress-fill {
+  height: 100%;
+  background: var(--brand-gradient);
+  border-radius: var(--r-full);
+  transition: width var(--t-slow);
+}
+
+.progress-fill.is-success { background: var(--success); }
+.progress-fill.is-warning { background: var(--warning); }
+.progress-fill.is-danger  { background: var(--danger); }
+
+/* ------------------------------------------------------------
+   RESPONSIVE
+   ------------------------------------------------------------ */
+
+@media (max-width: 640px) {
+  .welcome-banner {
+    flex-direction: column;
+    align-items: flex-start;
+    padding: var(--sp-5);
+  }
+
+  .welcome-greeting { font-size: var(--fs-xl); }
+  .welcome-sub { font-size: var(--fs-base); }
+
+  .welcome-meta {
+    gap: var(--sp-5);
+  }
+
+  .info-row {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--sp-1);
+  }
+
+  .info-value { text-align: left; }
+}

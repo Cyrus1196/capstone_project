@@ -1,75 +1,48 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { useNavigate } from 'react-router-dom';
+import AppShell from '../layout/AppShell';
+import StudentDashboard from './StudentDashboard';
 import StudentProfile from './StudentProfile';
 import StudentEnrollments from './StudentEnrollments';
 import StudentCurriculum from './StudentCurriculum';
 import './StudentPanel.css';
 
+const NAV = [
+  { key: 'dashboard', label: 'Dashboard', icon: 'dashboard', section: 'Overview' },
+  { key: 'enrollments', label: 'My Enrollments', icon: 'clipboard', section: 'Academics' },
+  { key: 'curriculum', label: 'My Curriculum', icon: 'book', section: 'Academics' },
+  { key: 'profile', label: 'My Profile', icon: 'user', section: 'Account' },
+];
+
 const StudentPanel = () => {
-  const { user, logout, isAdmin } = useAuth();
+  const { user } = useAuth();
   const navigate = useNavigate();
-  const [activeTab, setActiveTab] = useState('profile');
+  const [activeTab, setActiveTab] = useState('dashboard');
 
   useEffect(() => {
     if (!user) {
       navigate('/login');
-    } else if (isAdmin) {
-      // Redirect admins to admin panel (they can still access student panel via direct URL if needed)
-      // navigate('/admin');
     }
-  }, [user, isAdmin, navigate]);
-
-  const handleLogout = async () => {
-    await logout();
-    navigate('/login');
-  };
+  }, [user, navigate]);
 
   if (!user) {
     return null;
   }
 
   return (
-    <div className="student-panel">
-      <header className="student-header">
-        <h1>Student Portal</h1>
-        <div className="header-info">
-          <span>Welcome, {user.email}</span>
-          <button onClick={handleLogout} className="logout-button">
-            Logout
-          </button>
-        </div>
-      </header>
-
-      <div className="student-tabs">
-        <button
-          className={activeTab === 'profile' ? 'tab active' : 'tab'}
-          onClick={() => setActiveTab('profile')}
-        >
-          My Profile
-        </button>
-        <button
-          className={activeTab === 'enrollments' ? 'tab active' : 'tab'}
-          onClick={() => setActiveTab('enrollments')}
-        >
-          My Enrollments
-        </button>
-        <button
-          className={activeTab === 'curriculum' ? 'tab active' : 'tab'}
-          onClick={() => setActiveTab('curriculum')}
-        >
-          My Curriculum
-        </button>
-      </div>
-
-      <div className="student-content">
-        {activeTab === 'profile' && <StudentProfile />}
-        {activeTab === 'enrollments' && <StudentEnrollments />}
-        {activeTab === 'curriculum' && <StudentCurriculum />}
-      </div>
-    </div>
+    <AppShell
+      portalName="Student Portal"
+      nav={NAV}
+      activeKey={activeTab}
+      onNavigate={setActiveTab}
+    >
+      {activeTab === 'dashboard' && <StudentDashboard onNavigate={setActiveTab} />}
+      {activeTab === 'profile' && <StudentProfile />}
+      {activeTab === 'enrollments' && <StudentEnrollments />}
+      {activeTab === 'curriculum' && <StudentCurriculum />}
+    </AppShell>
   );
 };
 
 export default StudentPanel;
-

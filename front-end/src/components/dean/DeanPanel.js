@@ -1,7 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { useNavigate } from 'react-router-dom';
 import api from '../../api/axios';
+import AppShell from '../layout/AppShell';
+import DeanDashboard from './DeanDashboard';
 import DeanProfile from './DeanProfile';
 import DeanCurriculumReview from './DeanCurriculumReview';
 import DeanDepartmentManagement from './DeanDepartmentManagement';
@@ -9,100 +11,63 @@ import DeanReports from './DeanReports';
 import StudentEvaluationView from '../common/StudentEvaluationView';
 import './DeanPanel.css';
 
+const NAV = [
+  { key: 'dashboard', label: 'Dashboard', icon: 'dashboard', section: 'Overview' },
+  { key: 'curriculum', label: 'Curriculum Review', icon: 'book', section: 'Academics' },
+  { key: 'evaluation', label: 'Student Evaluation', icon: 'checkCircle', section: 'Academics' },
+  { key: 'reports', label: 'Academic Reports', icon: 'chart', section: 'Academics' },
+  { key: 'departments', label: 'Departments', icon: 'building', section: 'Management' },
+  { key: 'profile', label: 'My Profile', icon: 'user', section: 'Account' },
+];
+
 const DeanPanel = () => {
-  const { user, logout } = useAuth();
+  const { user } = useAuth();
   const navigate = useNavigate();
-  const [activeTab, setActiveTab] = useState('curriculum');
+  const [activeTab, setActiveTab] = useState('dashboard');
   const [deanProfile, setDeanProfile] = useState(null);
-  const [loadingProfile, setLoadingProfile] = useState(true);
+
+  const fetchDeanProfile = useCallback(async () => {
+    try {
+      const response = await api.get('/deans/profile');
+      setDeanProfile(response.data);
+    } catch (error) {
+      console.error('Error fetching dean profile:', error);
+    }
+  }, []);
 
   useEffect(() => {
     if (!user) {
       navigate('/login');
     } else if (user.role !== 'Dean' && !user.is_admin) {
-      // Redirect non-dean users
       navigate('/');
     } else if (user.role === 'Dean') {
       fetchDeanProfile();
     }
-  }, [user, navigate]);
-
-  const fetchDeanProfile = async () => {
-    try {
-      setLoadingProfile(true);
-      const response = await api.get('/deans/profile');
-      setDeanProfile(response.data);
-    } catch (error) {
-      console.error('Error fetching dean profile:', error);
-    } finally {
-      setLoadingProfile(false);
-    }
-  };
-
-  const handleLogout = async () => {
-    await logout();
-    navigate('/login');
-  };
+  }, [user, navigate, fetchDeanProfile]);
 
   if (!user) {
     return null;
   }
 
   return (
-    <div className="dean-panel">
-      <header className="dean-header">
-        <h1>Dean Portal</h1>
-        <div className="header-info">
-          <span>Welcome, {user.email}</span>
-          <button onClick={handleLogout} className="logout-button">
-            Logout
-          </button>
-        </div>
-      </header>
-
-      <div className="dean-tabs">
-        <button
-          className={activeTab === 'curriculum' ? 'tab active' : 'tab'}
-          onClick={() => setActiveTab('curriculum')}
-        >
-          Curriculum Review
-        </button>
-        <button
-          className={activeTab === 'departments' ? 'tab active' : 'tab'}
-          onClick={() => setActiveTab('departments')}
-        >
-          Department Management
-        </button>
-        <button
-          className={activeTab === 'reports' ? 'tab active' : 'tab'}
-          onClick={() => setActiveTab('reports')}
-        >
-          Academic Reports
-        </button>
-        <button
-          className={activeTab === 'evaluation' ? 'tab active' : 'tab'}
-          onClick={() => setActiveTab('evaluation')}
-        >
-          Student Evaluation
-        </button>
-        <button
-          className={activeTab === 'profile' ? 'tab active' : 'tab'}
-          onClick={() => setActiveTab('profile')}
-        >
-          My Profile
-        </button>
-      </div>
-
-      <div className="dean-content">
-        {activeTab === 'curriculum' && <DeanCurriculumReview deanProfile={deanProfile} />}
-        {activeTab === 'departments' && <DeanDepartmentManagement deanProfile={deanProfile} />}
-        {activeTab === 'reports' && <DeanReports deanProfile={deanProfile} />}
-        {activeTab === 'evaluation' && <StudentEvaluationView />}
-        {activeTab === 'profile' && <DeanProfile deanProfile={deanProfile} onUpdate={fetchDeanProfile} />}
-      </div>
-    </div>
+    <AppShell
+      portalName="Dean Portal"
+      nav={NAV}
+      activeKey={activeTab}
+      onNavigate={setActiveTab}
+    >
+      {activeTab === 'dashboard' && (
+        <DeanDashboard deanProfile={deanProfile} onNavigate={setActiveTab} />
+      )}
+      {activeTab === 'curriculum' && <DeanCurriculumReview deanProfile={deanProfile} />}
+      {activeTab === 'departments' && <DeanDepartmentManagement deanProfile={deanProfile} />}
+      {activeTab === 'reports' && <DeanReports deanProfile={deanProfile} />}
+      {activeTab === 'evaluation' && <StudentEvaluationView />}
+      {activeTab === 'profile' && (
+        <DeanProfile deanProfile={deanProfile} onUpdate={fetchDeanProfile} />
+      )}
+    </AppShell>
   );
 };
 
 export default DeanPanel;
-

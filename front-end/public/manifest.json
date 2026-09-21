@@ -1,20 +1,15 @@
 {
-  "short_name": "React App",
-  "name": "Create React App Sample",
+  "short_name": "CDO Portal",
+  "name": "CDO College Curriculum & Evaluation System",
   "icons": [
     {
-      "src": "PHINMAEd_Logo_Coloured_JPEG_2015.original.jpg",
+      "src": "phinmA.png",
       "sizes": "192x192",
-      "type": "image/jpeg"
-    },
-    {
-      "src": "PHINMAEd_Logo_Coloured_JPEG_2015.original.jpg",
-      "sizes": "512x512",
-      "type": "image/jpeg"
+      "type": "image/png"
     }
   ],
   "start_url": ".",
   "display": "standalone",
-  "theme_color": "#000000",
-  "background_color": "#ffffff"
+  "theme_color": "#4750b0",
+  "background_color": "#f6f7fb"
 }

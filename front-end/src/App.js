@@ -12,8 +12,13 @@ const PrivateRoute = ({ children, requiredRole = null }) => {
   const { user, loading, isAdmin, isDean, isFaculty } = useAuth();
 
   if (loading) {
-    return <div style={{ padding: '2rem', textAlign: 'center' }}>Loading...</div>;
-  } 
+    return (
+      <div className="app-loading">
+        <span className="spinner" />
+        <span>Loading your portal...</span>
+      </div>
+    );
+  }
 
   if (!user) {
     return <Navigate to="/login" />;

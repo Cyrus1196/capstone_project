@@ -1,15 +1,24 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { useNavigate } from 'react-router-dom';
+import AppShell from '../layout/AppShell';
+import AdminDashboard from './AdminDashboard';
 import UserManagement from './UserManagement';
 import CurriculumManagement from './CurriculumManagement';
 import LookupDataManagement from './LookupDataManagement';
 import './AdminPanel.css';
 
+const NAV = [
+  { key: 'dashboard', label: 'Dashboard', icon: 'dashboard', section: 'Overview' },
+  { key: 'users', label: 'User Management', icon: 'users', section: 'Administration' },
+  { key: 'curriculum', label: 'Curriculum', icon: 'book', section: 'Administration' },
+  { key: 'lookup', label: 'Lookup Data', icon: 'database', section: 'Administration' },
+];
+
 const AdminPanel = () => {
-  const { user, logout, isAdmin } = useAuth();
+  const { user, isAdmin } = useAuth();
   const navigate = useNavigate();
-  const [activeTab, setActiveTab] = useState('lookup');
+  const [activeTab, setActiveTab] = useState('dashboard');
 
   useEffect(() => {
     if (!user) {
@@ -19,56 +28,23 @@ const AdminPanel = () => {
     }
   }, [user, isAdmin, navigate]);
 
-  const handleLogout = async () => {
-    await logout();
-    navigate('/login');
-  };
-
   if (!user || !isAdmin) {
     return null;
   }
 
   return (
-    <div className="admin-panel">
-      <header className="admin-header">
-        <h1>Admin Panel</h1>
-        <div className="header-info">
-          <span>Welcome, {user.email}</span>
-          <button onClick={handleLogout} className="logout-button">
-            Logout
-          </button>
-        </div>
-      </header>
-
-      <div className="admin-tabs">
-        <button
-          className={activeTab === 'lookup' ? 'tab active' : 'tab'}
-          onClick={() => setActiveTab('lookup')}
-        >
-          Lookup Data
-        </button>
-        <button
-          className={activeTab === 'users' ? 'tab active' : 'tab'}
-          onClick={() => setActiveTab('users')}
-        >
-          User Management
-        </button>
-        <button
-          className={activeTab === 'curriculum' ? 'tab active' : 'tab'}
-          onClick={() => setActiveTab('curriculum')}
-        >
-          Curriculum Management
-        </button>
-      </div>
-
-      <div className="admin-content">
-        {activeTab === 'lookup' && <LookupDataManagement />}
-        {activeTab === 'users' && <UserManagement />}
-        {activeTab === 'curriculum' && <CurriculumManagement />}
-      </div>
-    </div>
+    <AppShell
+      portalName="Admin Panel"
+      nav={NAV}
+      activeKey={activeTab}
+      onNavigate={setActiveTab}
+    >
+      {activeTab === 'dashboard' && <AdminDashboard onNavigate={setActiveTab} />}
+      {activeTab === 'lookup' && <LookupDataManagement />}
+      {activeTab === 'users' && <UserManagement />}
+      {activeTab === 'curriculum' && <CurriculumManagement />}
+    </AppShell>
   );
 };
 
 export default AdminPanel;
-
