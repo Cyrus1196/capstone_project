@@ -17,6 +17,7 @@ class Prerequisite extends Model
         'subject_id',
         'requisite_type',
         'requisites_subject_id',
+        'rule_label',
     ];
 
     // Relationships

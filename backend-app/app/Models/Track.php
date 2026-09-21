@@ -16,6 +16,7 @@ class Track extends Model
     protected $fillable = [
         'track_code',
         'track_name',
+        'status',
     ];
 
     public function studentProfiles()

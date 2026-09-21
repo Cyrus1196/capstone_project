@@ -15,6 +15,12 @@ class DeanProfile extends Model
 
     protected $fillable = [
         'user_id',
+        'first_name',
+        'middle_name',
+        'last_name',
+        'employee_id',
+        'specialization',
+        'department_id',
         'program_id',
     ];
 
@@ -26,6 +32,11 @@ class DeanProfile extends Model
     public function program()
     {
         return $this->belongsTo(Program::class, 'program_id', 'program_id');
+    }
+
+    public function department()
+    {
+        return $this->belongsTo(Department::class, 'department_id', 'department_id');
     }
 }
 

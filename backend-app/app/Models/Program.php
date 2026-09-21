@@ -19,16 +19,12 @@ class Program extends Model
         'program_code',
         'program_name',
         'total_units_required',
+        'status',
     ];
 
     public function department()
     {
         return $this->belongsTo(Department::class, 'department_id', 'department_id');
-    }
-
-    public function campus()
-    {
-        return $this->belongsTo(Campus::class, 'campus_id', 'campus_id');
     }
 
     public function curricula()

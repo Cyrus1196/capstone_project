@@ -18,6 +18,7 @@ class Subject extends Model
         'subject_name',
         'number_of_units',
         'number_of_hrs',
+        'status',
     ];
 
     public function curricula()
@@ -38,6 +39,16 @@ class Subject extends Model
     public function electiveSubjects()
     {
         return $this->hasMany(ElectiveSubject::class, 'subject_id', 'subject_id');
+    }
+
+    public function creditEvaluationDetails()
+    {
+        return $this->hasMany(CreditEvaluationDetail::class, 'subject_id', 'subject_id');
+    }
+
+    public function subjectEquivalences()
+    {
+        return $this->hasMany(SubjectEquivalence::class, 'subject_id', 'subject_id');
     }
 }
 

@@ -54,6 +54,17 @@ In order to ensure that the Laravel community is welcoming to all, please review
 
 If you discover a security vulnerability within Laravel, please send an e-mail to Taylor Otwell via [taylor@laravel.com](mailto:taylor@laravel.com). All security vulnerabilities will be promptly addressed.
 
+## Test Accounts
+
+After running `php artisan db:seed` (or `AdminUserSeeder` and `StudentTestSeeder`):
+
+| Role   | Email              | Password   | Notes                                      |
+|--------|--------------------|------------|--------------------------------------------|
+| Admin  | admin@example.com  | admin123   | Full access                                |
+| Student| student@example.com| student123 | Student ID number **07413** for evaluation |
+
+To test **student evaluation**: log in as **Admin**, **Dean**, or **Faculty**, go to the Evaluation section, select the student (e.g. **07413** or "Test Student"), and the curriculum/evaluation view will load for that student.
+
 ## License
 
 The Laravel framework is open-sourced software licensed under the [MIT license](https://opensource.org/licenses/MIT).

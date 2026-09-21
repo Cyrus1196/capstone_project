@@ -49,8 +49,8 @@
 }
 
 .tab-btn.active {
-    color: #007bff;
-    border-bottom-color: #007bff;
+    color: #2e7d32;
+    border-bottom-color: #2e7d32;
     background-color: #f8f9fa;
 }
 
@@ -124,12 +124,12 @@
 }
 
 .btn-primary {
-    background-color: #007bff;
+    background-color: #2e7d32;
     color: white;
 }
 
 .btn-primary:hover {
-    background-color: #0056b3;
+    background-color: #1b5e20;
 }
 
 .btn-secondary {
@@ -355,7 +355,7 @@
     z-index: 1000;
 }
 
-.modal {
+.app-dialog {
     background: white;
     border-radius: 8px;
     width: 90%;
@@ -475,7 +475,7 @@
         grid-template-columns: 1fr;
     }
     
-    .modal {
+    .app-dialog {
         width: 95%;
         margin: 10px;
     }
@@ -504,7 +504,7 @@
         font-size: 13px;
     }
     
-    .modal {
+    .app-dialog {
         width: 100%;
         margin: 0;
         border-radius: 0;

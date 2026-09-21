@@ -15,12 +15,8 @@ class Campus extends Model
 
     protected $fillable = [
         'campus_name',
+        'status',
     ];
-
-    public function programs()
-    {
-        return $this->hasMany(Program::class, 'campus_id', 'campus_id');
-    }
 
     public function departments()
     {

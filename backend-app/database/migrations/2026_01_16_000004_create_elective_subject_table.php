@@ -13,10 +13,11 @@ return new class extends Migration
     {
         Schema::create('tbl_elective_subject', function (Blueprint $table) {
             $table->integer('elective_subject_id', true)->primary();
-            $table->integer('track_id');
+            $table->integer('track_id')->nullable();
             $table->integer('subject_id');
             $table->string('description')->nullable();
             
+            // Foreign key for track_id - only create if track_id is not null (handled by nullable)
             $table->foreign('track_id')->references('track_id')->on('tbl_track')->onDelete('cascade');
             $table->foreign('subject_id')->references('subject_id')->on('tbl_subjects')->onDelete('cascade');
         });

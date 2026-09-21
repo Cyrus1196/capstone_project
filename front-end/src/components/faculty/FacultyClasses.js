@@ -84,9 +84,6 @@ const FacultyClasses = ({ facultyProfile }) => {
         <div className="info-banner">
           <p>
             <strong>Department:</strong> {facultyProfile.department.department_name || 'Not assigned'}
-            {facultyProfile.specialization && (
-              <> | <strong>Specialization:</strong> {facultyProfile.specialization}</>
-            )}
           </p>
         </div>
       )}
@@ -139,8 +136,8 @@ const FacultyClasses = ({ facultyProfile }) => {
           <button onClick={applyFilters} className="button button-primary">
             Apply Filters
           </button>
-          <button onClick={clearFilters} className="button button-secondary">
-            Clear
+          <button type="button" onClick={clearFilters} className="button button-secondary">
+            Clear filters
           </button>
         </div>
       </div>

@@ -374,12 +374,14 @@ const SimpleEvaluationManagement = () => {
 
             {showModal && (
                 <div className="modal-overlay">
-                    <div className="modal">
+                    <div className="app-dialog">
                         <div className="modal-header">
                             <h3>{editingEvaluation ? 'Edit Evaluation' : 'Add Evaluation'}</h3>
-                            <button 
+                            <button
+                                type="button"
                                 className="close-btn"
                                 onClick={() => setShowModal(false)}
+                                aria-label="Close evaluation form"
                             >
                                 ×
                             </button>

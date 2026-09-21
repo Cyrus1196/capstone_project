@@ -20,6 +20,7 @@ class FacultyProfile extends Model
         'last_name',
         'employee_id',
         'department_id',
+        'program_id',
         'specialization',
     ];
 
@@ -31,6 +32,11 @@ class FacultyProfile extends Model
     public function department()
     {
         return $this->belongsTo(Department::class, 'department_id', 'department_id');
+    }
+
+    public function program()
+    {
+        return $this->belongsTo(Program::class, 'program_id', 'program_id');
     }
 }
 

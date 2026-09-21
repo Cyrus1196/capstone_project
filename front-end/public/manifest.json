@@ -1,6 +1,6 @@
 {
-  "short_name": "React App",
-  "name": "Create React App Sample",
+  "short_name": "Acad Eval",
+  "name": "Academic Evaluation Portal",
   "icons": [
     {
       "src": "PHINMAEd_Logo_Coloured_JPEG_2015.original.jpg",
@@ -15,6 +15,6 @@
   ],
   "start_url": ".",
   "display": "standalone",
-  "theme_color": "#000000",
+  "theme_color": "#336699",
   "background_color": "#ffffff"
 }

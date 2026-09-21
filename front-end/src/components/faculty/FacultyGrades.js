@@ -203,8 +203,8 @@ const FacultyGrades = ({ facultyProfile }) => {
           <button onClick={applyFilters} className="button button-primary">
             Apply Filters
           </button>
-          <button onClick={clearFilters} className="button button-secondary">
-            Clear
+          <button type="button" onClick={clearFilters} className="button button-secondary">
+            Clear filters
           </button>
         </div>
       </div>

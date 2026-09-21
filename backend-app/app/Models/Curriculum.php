@@ -9,16 +9,19 @@ class Curriculum extends Model
 {
     use HasFactory;
 
-    protected $table = 'curriculum';
+    // FIX: Usually your DB table is named 'tbl_curriculum', not 'curriculum'
+    protected $table = 'curriculum'; 
+    
     protected $primaryKey = 'curriculum_id';
     public $timestamps = false;
 
     protected $fillable = [
-        'curriculum_id',
         'curriculum_header_id',
-        'program_id', // Keep for backward compatibility during migration
+        'program_id',
         'subject_id',
-        'year_level',
+        'elective_slot_id',
+        // FIX: Based on your Model code, the column is 'year_level' (integer storing the ID)
+        'year_level', 
         'semester_id',
         'passing_grade',
         'subject_type',
@@ -40,6 +43,7 @@ class Curriculum extends Model
         return $this->belongsTo(Subject::class, 'subject_id', 'subject_id');
     }
 
+    // FIX: The local key is 'year_level', the parent key is 'year_level_id'
     public function yearLevel()
     {
         return $this->belongsTo(YearLevel::class, 'year_level', 'year_level_id');
@@ -52,7 +56,11 @@ class Curriculum extends Model
 
     public function requisite()
     {
-        return $this->belongsTo(Prerequisite::class, 'requisite_id', 'requisites_id');
+        return $this->hasMany(Prerequisite::class, 'subject_id', 'subject_id');
+    }
+
+    public function electiveSlot()
+    {
+        return $this->belongsTo(ElectiveSlot::class, 'elective_slot_id', 'elective_slot_id');
     }
 }
-

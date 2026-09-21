@@ -1,5 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import api from '../../api/axios';
+import { swalConfirm, swalToast, swalError } from '../../utils/swal';
+import useDialogFocus from '../../hooks/useDialogFocus';
 import './DeanPanel.css';
 
 const DeanDepartmentManagement = () => {
@@ -9,6 +11,8 @@ const DeanDepartmentManagement = () => {
   const [error, setError] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
   const [showModal, setShowModal] = useState(false);
+  const modalRef = useRef(null);
+  useDialogFocus(showModal, modalRef, null, () => setShowModal(false));
   const [editingDepartment, setEditingDepartment] = useState(null);
   const [formData, setFormData] = useState({
     department_name: '',
@@ -73,15 +77,21 @@ const DeanDepartmentManagement = () => {
   };
 
   const handleDelete = async (id) => {
-    if (!window.confirm('Are you sure you want to delete this department?')) {
-      return;
-    }
+    const ok = await swalConfirm({
+      title: 'Delete department?',
+      text: 'Are you sure you want to delete this department?',
+      confirmButtonText: 'Delete',
+    });
+    if (!ok) return;
 
     try {
       await api.delete(`/lookup/departments/${id}`);
       fetchDepartments();
+      swalToast('success', 'Department deleted');
     } catch (error) {
-      setError(error.response?.data?.message || 'Failed to delete department');
+      const msg = error.response?.data?.message || 'Failed to delete department';
+      setError(msg);
+      await swalError('Delete failed', msg);
     }
   };
 
@@ -97,8 +107,11 @@ const DeanDepartmentManagement = () => {
       }
       setShowModal(false);
       fetchDepartments();
+      swalToast('success', editingDepartment ? 'Department updated' : 'Department created');
     } catch (error) {
-      setError(error.response?.data?.message || 'Failed to save department');
+      const msg = error.response?.data?.message || 'Failed to save department';
+      setError(msg);
+      await swalError('Save failed', msg);
     }
   };
 
@@ -184,10 +197,25 @@ const DeanDepartmentManagement = () => {
       {/* Add/Edit Modal */}
       {showModal && (
         <div className="modal-overlay" onClick={() => setShowModal(false)}>
-          <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+          <div
+            ref={modalRef}
+            className="modal-content"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="department-modal-title"
+            tabIndex="-1"
+            onClick={(e) => e.stopPropagation()}
+          >
             <div className="modal-header">
-              <h3>{editingDepartment ? 'Edit Department' : 'Add Department'}</h3>
-              <button className="modal-close" onClick={() => setShowModal(false)}>
+              <h3 id="department-modal-title">
+                {editingDepartment ? 'Edit Department' : 'Add Department'}
+              </h3>
+              <button
+                type="button"
+                className="modal-close"
+                onClick={() => setShowModal(false)}
+                aria-label="Close department form"
+              >
                 ×
               </button>
             </div>
@@ -195,8 +223,9 @@ const DeanDepartmentManagement = () => {
               <div className="modal-body">
                 {error && <div className="error-message">{error}</div>}
                 <div className="form-group">
-                  <label>Department Code *</label>
+                  <label htmlFor="department-code">Department Code *</label>
                   <input
+                    id="department-code"
                     type="text"
                     name="department_code"
                     value={formData.department_code}
@@ -206,8 +235,9 @@ const DeanDepartmentManagement = () => {
                   />
                 </div>
                 <div className="form-group">
-                  <label>Department Name *</label>
+                  <label htmlFor="department-name">Department Name *</label>
                   <input
+                    id="department-name"
                     type="text"
                     name="department_name"
                     value={formData.department_name}

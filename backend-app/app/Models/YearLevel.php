@@ -15,6 +15,7 @@ class YearLevel extends Model
 
     protected $fillable = [
         'year_level',
+        'status',
     ];
 
     public function curricula()

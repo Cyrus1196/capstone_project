@@ -19,15 +19,9 @@ return [
 
     'allowed_methods' => ['*'],
 
-    // Allow both common dev ports used by the front-end (3000 and 3001).
-    // If you add more front-end origins in future, include them here or
-    // use environment variables to manage allowed origins per-environment.
-    'allowed_origins' => [
-        'http://localhost:3000',
-        'http://localhost:3001',
-        'http://127.0.0.1:3000',
-        'http://127.0.0.1:3001',
-    ],
+    'allowed_origins' => array_filter(
+        array_map('trim', explode(',', env('CORS_ALLOWED_ORIGINS', 'http://localhost:3000,http://localhost:3001')))
+    ),
 
     'allowed_origins_patterns' => [],
 

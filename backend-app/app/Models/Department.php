@@ -17,6 +17,7 @@ class Department extends Model
         'campus_id',
         'department_name',
         'department_code',
+        'status',
     ];
 
     public function campus()

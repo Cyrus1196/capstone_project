@@ -1,10 +1,17 @@
 import React, { useState, useEffect } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import api from '../../api/axios';
+import {
+  digitsOnlyContact,
+  findUnsafeFormField,
+  validateContactNumber,
+} from '../../utils/inputValidation';
+import ProfilePhotoCard from '../common/ProfilePhotoCard';
+import ProfileChangePassword from '../common/ProfileChangePassword';
 import './FacultyPanel.css';
 
 const FacultyProfile = ({ facultyProfile, onUpdate }) => {
-  const { user } = useAuth();
+  const { user, refreshUser } = useAuth();
   const [formData, setFormData] = useState({
     email: '',
     contact_number: '',
@@ -13,14 +20,15 @@ const FacultyProfile = ({ facultyProfile, onUpdate }) => {
     last_name: '',
     employee_id: '',
     department_id: '',
-    specialization: '',
+    program_id: '',
   });
   const [departments, setDepartments] = useState([]);
+  const [programs, setPrograms] = useState([]);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState({ type: '', text: '' });
 
   useEffect(() => {
-    fetchDepartments();
+    fetchProfileOptions();
     if (user) {
       setFormData((prev) => ({
         ...prev,
@@ -36,27 +44,38 @@ const FacultyProfile = ({ facultyProfile, onUpdate }) => {
         last_name: facultyProfile.last_name || '',
         employee_id: facultyProfile.employee_id || '',
         department_id: facultyProfile.department_id || '',
-        specialization: facultyProfile.specialization || '',
+        program_id: facultyProfile.program_id || '',
       }));
     }
   }, [user, facultyProfile]);
 
-  const fetchDepartments = async () => {
+  const fetchProfileOptions = async () => {
     try {
-      const response = await api.get('/departments');
-      setDepartments(response.data.departments || response.data || []);
+      const response = await api.get('/profile/options');
+      setDepartments(response.data?.departments || []);
+      setPrograms(response.data?.programs || []);
     } catch (error) {
-      console.error('Error fetching departments:', error);
+      console.error('Error fetching profile options:', error);
+      setDepartments([]);
+      setPrograms([]);
     }
   };
 
   const handleChange = (e) => {
     const { name, value } = e.target;
+    const next =
+      name === 'contact_number' ? digitsOnlyContact(value) : value;
     setFormData((prev) => ({
       ...prev,
-      [name]: value,
+      [name]: next,
+      ...(name === 'department_id' ? { program_id: '' } : {}),
     }));
   };
+
+  const filteredPrograms = programs.filter((program) => {
+    if (!formData.department_id) return true;
+    return String(program.department_id) === String(formData.department_id);
+  });
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -64,10 +83,30 @@ const FacultyProfile = ({ facultyProfile, onUpdate }) => {
     setMessage({ type: '', text: '' });
 
     try {
+      const unsafeMsg = findUnsafeFormField(formData, {
+        skipKeys: ['email', 'department_id', 'program_id'],
+        labelMap: {
+          first_name: 'First name',
+          last_name: 'Last name',
+          middle_name: 'Middle name',
+          employee_id: 'Employee ID',
+        },
+      });
+      if (unsafeMsg) {
+        setMessage({ type: 'error', text: unsafeMsg });
+        setSaving(false);
+        return;
+      }
+      const contactCheck = validateContactNumber(formData.contact_number);
+      if (!contactCheck.ok) {
+        setMessage({ type: 'error', text: contactCheck.message });
+        setSaving(false);
+        return;
+      }
+
       // Update user info
-      await api.put(`/users/${user.user_id}`, {
-        email: formData.email,
-        contact_number: formData.contact_number,
+      await api.put('/profile/account', {
+        contact_number: contactCheck.value || null,
       });
 
       // Update or create faculty profile
@@ -77,8 +116,6 @@ const FacultyProfile = ({ facultyProfile, onUpdate }) => {
           middle_name: formData.middle_name,
           last_name: formData.last_name,
           employee_id: formData.employee_id,
-          department_id: formData.department_id,
-          specialization: formData.specialization,
         });
       } else {
         await api.post(`/faculty/profile`, {
@@ -86,8 +123,6 @@ const FacultyProfile = ({ facultyProfile, onUpdate }) => {
           middle_name: formData.middle_name,
           last_name: formData.last_name,
           employee_id: formData.employee_id,
-          department_id: formData.department_id,
-          specialization: formData.specialization,
         });
       }
 
@@ -99,6 +134,7 @@ const FacultyProfile = ({ facultyProfile, onUpdate }) => {
       if (onUpdate) {
         onUpdate();
       }
+      refreshUser();
     } catch (error) {
       setMessage({
         type: 'error',
@@ -110,7 +146,7 @@ const FacultyProfile = ({ facultyProfile, onUpdate }) => {
   };
 
   return (
-    <div className="faculty-section">
+    <div className="faculty-section" data-tour="page-faculty-profile">
       <div className="section-header">
         <h2>My Profile</h2>
       </div>
@@ -121,6 +157,7 @@ const FacultyProfile = ({ facultyProfile, onUpdate }) => {
         </div>
       )}
 
+      <div className="profile-layout">
       <form onSubmit={handleSubmit} className="profile-form">
         <div className="form-row">
           <div className="form-group">
@@ -130,7 +167,7 @@ const FacultyProfile = ({ facultyProfile, onUpdate }) => {
               id="email"
               name="email"
               value={formData.email}
-              onChange={handleChange}
+              disabled
               required
             />
           </div>
@@ -138,12 +175,14 @@ const FacultyProfile = ({ facultyProfile, onUpdate }) => {
           <div className="form-group">
             <label htmlFor="contact_number">Contact Number</label>
             <input
-              type="text"
+              type="tel"
+              inputMode="numeric"
+              maxLength={11}
               id="contact_number"
               name="contact_number"
               value={formData.contact_number}
               onChange={handleChange}
-              placeholder="Enter contact number"
+              placeholder="11 digits only (e.g. 09123456789)"
             />
           </div>
         </div>
@@ -205,7 +244,7 @@ const FacultyProfile = ({ facultyProfile, onUpdate }) => {
               id="department_id"
               name="department_id"
               value={formData.department_id}
-              onChange={handleChange}
+              disabled
             >
               <option value="">Select Department</option>
               {departments.map((dept) => (
@@ -215,27 +254,24 @@ const FacultyProfile = ({ facultyProfile, onUpdate }) => {
               ))}
             </select>
           </div>
-        </div>
 
-        <div className="form-group">
-          <label htmlFor="specialization">Specialization</label>
-          <input
-            type="text"
-            id="specialization"
-            name="specialization"
-            value={formData.specialization}
-            onChange={handleChange}
-            placeholder="Enter area of specialization"
-          />
-        </div>
-
-        <div className="form-group">
-          <label>Role</label>
-          <input
-            type="text"
-            value={user?.role || 'Faculty'}
-            disabled
-          />
+          <div className="form-group">
+            <label htmlFor="program_id">Program</label>
+            <select
+              id="program_id"
+              name="program_id"
+              value={formData.program_id}
+              disabled
+            >
+              <option value="">Select Program</option>
+              {filteredPrograms.map((program) => (
+                <option key={program.program_id} value={program.program_id}>
+                  {program.program_name}
+                  {program.program_code ? ` (${program.program_code})` : ''}
+                </option>
+              ))}
+            </select>
+          </div>
         </div>
 
         <div className="form-actions">
@@ -244,6 +280,9 @@ const FacultyProfile = ({ facultyProfile, onUpdate }) => {
           </button>
         </div>
       </form>
+      <ProfilePhotoCard />
+      <ProfileChangePassword />
+      </div>
     </div>
   );
 };

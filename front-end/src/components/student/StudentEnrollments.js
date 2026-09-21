@@ -114,8 +114,8 @@ const StudentEnrollments = () => {
           <button onClick={applyFilters} className="apply-button">
             Apply Filters
           </button>
-          <button onClick={clearFilters} className="clear-button">
-            Clear
+          <button type="button" onClick={clearFilters} className="clear-button">
+            Clear filters
           </button>
         </div>
       </div>

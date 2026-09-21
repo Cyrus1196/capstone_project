@@ -1,4 +1,7 @@
 <?php
+// DANGER: DESTRUCTIVE LEGACY TOOL.
+// This script drops database tables and its allowlist may not include newer schema changes.
+// Back up the database and review the complete allowlist before running it manually.
 // Cleanup script: drop all tables that are NOT part of the new ERD (plus core Laravel system tables).
 // Usage (from project root): php backend-app/tools/cleanup_db_to_erd.php
 
