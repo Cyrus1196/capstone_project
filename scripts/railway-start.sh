@@ -83,9 +83,12 @@ else
   export QUEUE_CONNECTION="${QUEUE_CONNECTION:-database}"
 fi
 
-# Optional: run migrations on boot (set RUN_MIGRATIONS=true in Railway)
+# Optional: run migrations on boot (set RUN_MIGRATIONS=true in Railway).
+# Do NOT fail the whole container if tables already exist (common after SQL import).
 if [[ "${RUN_MIGRATIONS:-false}" == "true" && -n "${DB_HOST:-}" ]]; then
-  php artisan migrate --force
+  if ! php artisan migrate --force; then
+    echo "WARN: migrate failed (e.g. table already exists). Set RUN_MIGRATIONS=false if you imported a SQL dump."
+  fi
 fi
 
 php artisan config:cache || true
