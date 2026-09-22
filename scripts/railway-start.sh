@@ -71,24 +71,17 @@ if [[ -z "${APP_KEY:-}" ]]; then
   export APP_KEY="base64:$(php -r 'echo base64_encode(random_bytes(32));')"
 fi
 
-# Without DB, database sessions/cache crash the homepage with empty Host.
-if [[ -z "${DB_HOST:-}" || -z "${DB_DATABASE:-}" ]]; then
-  echo "WARN: DB_HOST/DB_DATABASE empty — using file sessions. Link MySQL vars on this service."
-  export SESSION_DRIVER=file
-  export CACHE_STORE=file
-  export QUEUE_CONNECTION=sync
-else
-  export SESSION_DRIVER="${SESSION_DRIVER:-database}"
-  export CACHE_STORE="${CACHE_STORE:-database}"
-  export QUEUE_CONNECTION="${QUEUE_CONNECTION:-database}"
-fi
+# File sessions/cache by default so partial DBs (missing `sessions` table) do not 500.
+# Override in Railway Variables if you want database sessions after a full SQL import.
+export SESSION_DRIVER="${SESSION_DRIVER:-file}"
+export CACHE_STORE="${CACHE_STORE:-file}"
+export QUEUE_CONNECTION="${QUEUE_CONNECTION:-sync}"
 
-# Optional: run migrations on boot (set RUN_MIGRATIONS=true in Railway).
-# Do NOT fail the whole container if tables already exist (common after SQL import).
-if [[ "${RUN_MIGRATIONS:-false}" == "true" && -n "${DB_HOST:-}" ]]; then
-  if ! php artisan migrate --force; then
-    echo "WARN: migrate failed (e.g. table already exists). Set RUN_MIGRATIONS=false if you imported a SQL dump."
-  fi
+# Migrations are NOT run on boot. Your Railway MySQL already has tables / you should
+# import db_backups/*.sql. Running migrate here crashes when tables already exist.
+if [[ "${RUN_MIGRATIONS:-false}" == "true" ]]; then
+  echo "WARN: RUN_MIGRATIONS=true is ignored on Railway boot (tables may already exist)."
+  echo "WARN: Import your SQL dump, or run: php artisan migrate --force  from the Railway shell."
 fi
 
 php artisan config:cache || true
