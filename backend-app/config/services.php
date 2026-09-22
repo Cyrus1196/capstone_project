@@ -35,4 +35,12 @@ return [
         ],
     ],
 
+    /*
+    | Brevo (Sendinblue) transactional HTTP API — preferred on Railway (SMTP ports often hang).
+    | Create an API key in Brevo → SMTP & API → API Keys (starts with xkeysib-).
+    */
+    'brevo' => [
+        'key' => env('BREVO_API_KEY'),
+    ],
+
 ];
