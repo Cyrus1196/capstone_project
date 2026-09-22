@@ -39,22 +39,22 @@ const Landing = () => {
           <div className="landing-page__masthead-inner">
             <div className="landing-page__identity">
               <img
-                src={`${publicUrl}/assets/student_evaluation_system_logo.png`}
-                alt="Student Evaluation System"
-                className="landing-page__seal landing-page__system-logo"
+                src={`${publicUrl}/assets/cit_cagayan_de_oro_college_seal.png`}
+                alt="College of Information Technology — Cagayan De Oro College"
+                className="landing-page__seal landing-page__cite-seal"
               />
               <div className="landing-page__identity-text">
-                <span className="landing-page__college-name">Academic Evaluation Portal</span>
+                <span className="landing-page__college-name">Cagayan De Oro College</span>
                 <span className="landing-page__address">
-                  Student Evaluation System · Cagayan De Oro College
+                  College of Information Technology · PHINMA Education Network
                 </span>
               </div>
             </div>
-            <div className="landing-page__partner">
+            <div className="landing-page__partner landing-page__partner--desktop">
               <img
-                src={`${publicUrl}/assets/cit_cagayan_de_oro_college_seal.png`}
-                alt="College of Information Technology — Cagayan De Oro College"
-                className="landing-page__phinma-img landing-page__cite-seal"
+                src={`${publicUrl}/assets/student_evaluation_system_logo.png`}
+                alt="Student Evaluation System"
+                className="landing-page__phinma-img landing-page__system-logo"
               />
             </div>
           </div>
