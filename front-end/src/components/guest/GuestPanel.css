@@ -56,9 +56,9 @@
   padding: 1.25rem clamp(0.75rem, 2.5vw, 2rem) 2.75rem;
 }
 
-/* Space for fixed Confirm / Show full curriculum bar */
+/* Space for fixed Confirm / Back floating bar */
 .guest-sim-page-content--sim-float {
-  padding-bottom: 2.75rem;
+  padding-bottom: calc(5.75rem + env(safe-area-inset-bottom, 0px));
 }
 
 /* —— Top bar —— */
@@ -681,21 +681,28 @@
   flex-shrink: 0;
 }
 
-/* Inline action dock for clearer flow */
+/* Viewport-fixed Confirm / Back — stays visible while scrolling courses */
 .guest-sim-action-dock {
-  position: sticky;
-  bottom: 0.75rem;
-  z-index: 20;
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 120;
   display: flex;
   justify-content: center;
-  margin-top: 0.9rem;
-  padding: 0.35rem 0.5rem;
+  margin: 0;
+  padding: 0.7rem 1rem max(0.85rem, env(safe-area-inset-bottom, 0px));
+  pointer-events: none;
   background: linear-gradient(
     180deg,
     rgba(238, 243, 248, 0) 0%,
-    rgba(238, 243, 248, 0.92) 35%,
+    rgba(238, 243, 248, 0.88) 32%,
     rgba(238, 243, 248, 0.98) 100%
   );
+}
+
+.guest-sim-action-dock .guest-sim-float-btn {
+  pointer-events: auto;
 }
 
 .guest-sim-ux-guide {
@@ -1039,21 +1046,147 @@
   width: 29%;
 }
 
-@media (max-width: 720px) {
-  .guest-col-pen {
-    width: 24%;
+/* Mobile: card rows so titles aren’t squeezed into a thin column */
+@media (max-width: 700px) {
+  .guest-sim-page-content {
+    padding-left: 0.55rem;
+    padding-right: 0.55rem;
+    padding-top: 0.85rem;
   }
 
-  .guest-col-title {
-    width: 38%;
+  .guest-sim-semester-grid {
+    padding: 0.5rem;
+    gap: 0.65rem;
   }
 
-  .guest-col-units {
-    width: 11%;
+  .guest-sim-year-heading {
+    padding: 0.65rem 0.7rem;
+    font-size: 0.78rem;
   }
 
-  .guest-col-remarks {
-    width: 27%;
+  .guest-sim-section-heading {
+    padding: 0.55rem 0.65rem;
+  }
+
+  .guest-sim-mini-scroll {
+    overflow-x: visible;
+  }
+
+  .guest-sim-mini-table {
+    table-layout: auto;
+    font-size: 0.82rem;
+  }
+
+  .guest-sim-mini-table colgroup,
+  .guest-sim-mini-table thead {
+    display: none;
+  }
+
+  .guest-sim-mini-table tbody,
+  .guest-sim-mini-table tfoot {
+    display: block;
+    width: 100%;
+  }
+
+  .guest-sim-mini-table tbody tr {
+    display: grid;
+    grid-template-columns: minmax(4.25rem, auto) minmax(0, 1fr) auto;
+    grid-template-areas:
+      "pen title units"
+      "remarks remarks remarks";
+    column-gap: 0.5rem;
+    row-gap: 0.4rem;
+    align-items: start;
+    padding: 0.7rem 0.65rem;
+    border-bottom: 1px solid #e8eef4;
+    background: #fff;
+  }
+
+  .guest-sim-mini-table tbody tr:nth-child(even) {
+    background: #f8fbff;
+  }
+
+  .guest-sim-mini-table tbody tr:last-child {
+    border-bottom: none;
+  }
+
+  .guest-sim-mini-table tbody td {
+    display: block;
+    width: auto;
+    max-width: none;
+    padding: 0;
+    border: none;
+    vertical-align: top;
+  }
+
+  .guest-sim-mini-table tbody td:nth-child(1) {
+    grid-area: pen;
+  }
+
+  .guest-sim-mini-table tbody td:nth-child(2) {
+    grid-area: title;
+    min-width: 0;
+  }
+
+  .guest-sim-mini-table tbody td:nth-child(3) {
+    grid-area: units;
+    justify-self: end;
+    text-align: right;
+  }
+
+  .guest-sim-mini-table tbody td:nth-child(4) {
+    grid-area: remarks;
+    text-align: left;
+  }
+
+  .guest-td-title {
+    font-size: 0.84rem;
+  }
+
+  .guest-title-main,
+  .guest-elective-title-btn {
+    font-size: 0.84rem;
+    line-height: 1.4;
+  }
+
+  .guest-prereq-line,
+  .guest-coreq-line {
+    font-size: 0.68rem;
+  }
+
+  .guest-code-pill {
+    font-size: 0.7rem;
+    padding: 0.12rem 0.38rem;
+  }
+
+  .guest-td-remarks {
+    text-align: left;
+  }
+
+  .guest-remarks-check {
+    width: 100%;
+    justify-content: flex-start;
+    border-radius: 8px;
+    padding: 0.4rem 0.55rem;
+    font-size: 0.76rem;
+  }
+
+  .guest-sim-mini-table tfoot tr {
+    display: flex;
+    justify-content: flex-end;
+    align-items: center;
+    gap: 0.35rem;
+    padding: 0.55rem 0.65rem;
+    background: #f8fbff;
+    border-top: 1px solid #e1ebf5;
+  }
+
+  .guest-sim-mini-table tfoot td {
+    display: block;
+    width: auto;
+    padding: 0;
+    background: transparent;
+    border: none;
   }
 }
 

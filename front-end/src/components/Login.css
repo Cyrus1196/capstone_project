@@ -129,6 +129,12 @@
   filter: drop-shadow(0 4px 12px rgba(46, 125, 50, 0.12));
 }
 
+/* Desktop masthead: CITE seal + college text; SES lives in the hero column */
+.login-page__seal--ses,
+.login-page__identity-text--ses {
+  display: none;
+}
+
 .login-page__identity-text {
   display: flex;
   flex-direction: column;
@@ -669,7 +675,21 @@
     height: 48px;
   }
 
-  /* Hide large SES hero logo on mobile/tablet — header already has CITE (matches landing) */
+  /* Mobile/tablet masthead: SES logo + product name (hero SES column stays hidden) */
+  .login-page__seal--cite,
+  .login-page__identity-text--cite {
+    display: none;
+  }
+
+  .login-page__seal--ses {
+    display: block;
+  }
+
+  .login-page__identity-text--ses {
+    display: flex;
+  }
+
+  /* Hide large SES hero logo on mobile/tablet — SES mark is in the header */
   .login-page__visual {
     display: none !important;
   }

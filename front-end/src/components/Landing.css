@@ -130,6 +130,12 @@
   min-width: 0;
 }
 
+/* Desktop: CITE left + SES right; mobile swaps left identity to SES */
+.landing-page__seal--ses,
+.landing-page__identity-text--ses {
+  display: none;
+}
+
 .landing-page__college-name {
   font-size: clamp(1rem, 2vw, 1.15rem);
   font-weight: 700;
@@ -456,9 +462,22 @@
 }
 
 @media (max-width: 900px) {
-  /* Match login header: CITE seal + college text only */
+  /* Hide desktop-right SES duplicate; show SES in left masthead instead of CITE */
   .landing-page__partner--desktop {
     display: none !important;
+  }
+
+  .landing-page__seal--cite,
+  .landing-page__identity-text--cite {
+    display: none;
+  }
+
+  .landing-page__seal--ses {
+    display: block;
+  }
+
+  .landing-page__identity-text--ses {
+    display: flex;
   }
 
   .landing-page__masthead-inner {
@@ -467,7 +486,7 @@
     align-items: center;
   }
 
-  .landing-page__cite-seal.landing-page__seal {
+  .landing-page__seal--ses.landing-page__seal {
     width: 48px;
     height: 48px;
   }
@@ -491,7 +510,7 @@
     font-size: 0.7rem;
   }
 
-  .landing-page__cite-seal.landing-page__seal {
+  .landing-page__seal--ses.landing-page__seal {
     width: 42px;
     height: 42px;
   }
@@ -537,7 +556,7 @@
 }
 
 @media (max-width: 380px) {
-  .landing-page__cite-seal.landing-page__seal {
+  .landing-page__seal--ses.landing-page__seal {
     width: 40px;
     height: 40px;
   }

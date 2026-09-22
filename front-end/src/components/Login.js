@@ -160,12 +160,23 @@ const Login = () => {
               <img
                 src={`${publicUrl}/assets/cit_cagayan_de_oro_college_seal.png`}
                 alt="College of Information Technology — Cagayan De Oro College"
-                className="login-page__seal"
+                className="login-page__seal login-page__seal--cite"
               />
-              <div className="login-page__identity-text">
+              <img
+                src={`${publicUrl}/assets/student_evaluation_system_logo.png`}
+                alt="Student Evaluation System"
+                className="login-page__seal login-page__seal--ses"
+              />
+              <div className="login-page__identity-text login-page__identity-text--cite">
                 <span className="login-page__college-name">Cagayan De Oro College</span>
                 <span className="login-page__address">
                   College of Information Technology · PHINMA Education Network
+                </span>
+              </div>
+              <div className="login-page__identity-text login-page__identity-text--ses">
+                <span className="login-page__college-name">Student Evaluation System</span>
+                <span className="login-page__address">
+                  Academic Evaluation Portal · PHINMA Education
                 </span>
               </div>
             </div>
