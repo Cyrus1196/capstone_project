@@ -94,7 +94,8 @@ class AccountMailService
 
     /**
      * Prefer Brevo HTTPS API on Railway (outbound SMTP often hangs ~60s).
-     * Falls back to Laravel mailer (smtp/log).
+     * Falls back to Laravel mailer (smtp/log). If that fails, fall back to log
+     * so forgot-password does not hang or 503 forever on Railway.
      */
     private static function deliver(Mailable $mailable, string $toEmail): void
     {
@@ -130,7 +131,13 @@ class AccountMailService
             return;
         }
 
-        Mail::to($toEmail)->send($mailable);
+        try {
+            Mail::to($toEmail)->send($mailable);
+        } catch (\Throwable $e) {
+            report($e);
+            // Railway often blocks/hangs SMTP; keep the request from failing hard.
+            Mail::mailer('log')->to($toEmail)->send($mailable);
+        }
     }
 
     public static function consumeToken(string $plainToken, string $purpose): ?TblUser

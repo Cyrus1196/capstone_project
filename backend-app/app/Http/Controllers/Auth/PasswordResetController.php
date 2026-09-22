@@ -30,9 +30,12 @@ class PasswordResetController extends Controller
             } catch (\Throwable $e) {
                 report($e);
 
+                // Do not leave the UI spinning on SMTP/API outages. Token may still
+                // have been created; admin can check logs. Generic message either way.
                 return response()->json([
-                    'message' => 'Unable to send email right now. Please try again later or contact an administrator.',
-                ], 503);
+                    'message' => 'If an account with a valid email exists for that login, a password reset link has been sent.',
+                    'mail_warning' => 'Email delivery may be delayed. If nothing arrives, contact an administrator.',
+                ]);
             }
         }
 
