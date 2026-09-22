@@ -174,7 +174,9 @@ export const AuthProvider = ({ children }) => {
         error.message;
       if (status >= 500 || (!error.response && error.code === 'ERR_NETWORK')) {
         msg =
-          'Cannot reach the database or API. Make sure MySQL (XAMPP) and `php artisan serve` are running.';
+          process.env.NODE_ENV === 'production'
+            ? 'Server error while signing in. The database may be empty or unavailable—try again shortly, or ask an admin to check Railway MySQL.'
+            : 'Cannot reach the database or API. Make sure MySQL (XAMPP) and `php artisan serve` are running.';
       }
       return {
         success: false,
