@@ -6,7 +6,9 @@ use App\Mail\ResetPasswordMail;
 use App\Mail\VerifyEmailMail;
 use App\Models\TblUser;
 use App\Support\CachedSchema;
+use Illuminate\Mail\Mailable;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
@@ -69,7 +71,7 @@ class AccountMailService
         $plain = self::issueToken($user, self::PURPOSE_VERIFY, (int) config('account_mail.verify_expire_minutes', 60));
         $url = config('account_mail.frontend_url').'/verify-email?token='.urlencode($plain);
 
-        Mail::to($user->email)->send(new VerifyEmailMail($user, $url));
+        self::deliver(new VerifyEmailMail($user, $url), (string) $user->email);
 
         return true;
     }
@@ -85,9 +87,50 @@ class AccountMailService
             .'/reset-password?token='.urlencode($plain)
             .'&email='.urlencode((string) $user->email);
 
-        Mail::to($user->email)->send(new ResetPasswordMail($user, $url));
+        self::deliver(new ResetPasswordMail($user, $url), (string) $user->email);
 
         return true;
+    }
+
+    /**
+     * Prefer Brevo HTTPS API on Railway (outbound SMTP often hangs ~60s).
+     * Falls back to Laravel mailer (smtp/log).
+     */
+    private static function deliver(Mailable $mailable, string $toEmail): void
+    {
+        $apiKey = trim((string) config('services.brevo.key'));
+        if ($apiKey !== '') {
+            $rendered = $mailable->render();
+            $subject = $mailable->envelope()->subject ?? config('app.name', 'Academic Evaluation System');
+
+            $response = Http::withHeaders([
+                'api-key' => $apiKey,
+                'accept' => 'application/json',
+                'content-type' => 'application/json',
+            ])
+                ->timeout((int) env('MAIL_TIMEOUT', 12))
+                ->post('https://api.brevo.com/v3/smtp/email', [
+                    'sender' => [
+                        'name' => (string) config('mail.from.name', config('app.name')),
+                        'email' => (string) config('mail.from.address'),
+                    ],
+                    'to' => [
+                        ['email' => $toEmail],
+                    ],
+                    'subject' => $subject,
+                    'htmlContent' => $rendered,
+                ]);
+
+            if ($response->failed()) {
+                throw new \RuntimeException(
+                    'Brevo API mail failed ('.$response->status().'): '.$response->body()
+                );
+            }
+
+            return;
+        }
+
+        Mail::to($toEmail)->send($mailable);
     }
 
     public static function consumeToken(string $plainToken, string $purpose): ?TblUser
