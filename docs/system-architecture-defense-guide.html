@@ -1,0 +1,458 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Academic Evaluation System — Architecture Defense Guide</title>
+  <style>
+    @page { size: A4; margin: 17mm 15mm; }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      color: #17211c;
+      background: #fff;
+      font-family: "Segoe UI", Arial, sans-serif;
+      font-size: 10.5pt;
+      line-height: 1.48;
+    }
+    h1, h2, h3, p { margin-top: 0; }
+    h1 { font-size: 25pt; line-height: 1.15; margin-bottom: 8px; color: #006b3c; }
+    h2 {
+      font-size: 17pt;
+      color: #006b3c;
+      border-bottom: 2px solid #dce9e2;
+      padding-bottom: 5px;
+      margin: 0 0 12px;
+    }
+    h3 { font-size: 11.5pt; color: #124d32; margin: 0 0 5px; }
+    p { margin-bottom: 8px; }
+    ul, ol { margin: 5px 0 8px 19px; padding: 0; }
+    li { margin: 3px 0; }
+    code {
+      font-family: Consolas, monospace;
+      font-size: 9.2pt;
+      color: #13472f;
+      background: #eef5f1;
+      padding: 1px 4px;
+      border-radius: 3px;
+    }
+    .cover {
+      min-height: 245mm;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      border-top: 10px solid #007a43;
+      border-bottom: 2px solid #007a43;
+      padding: 28mm 8mm;
+    }
+    .eyebrow {
+      color: #527064;
+      font-size: 10pt;
+      font-weight: 700;
+      letter-spacing: 1.4px;
+      text-transform: uppercase;
+      margin-bottom: 12px;
+    }
+    .subtitle { font-size: 14pt; color: #486157; max-width: 150mm; }
+    .cover-flow {
+      margin-top: 25mm;
+      padding: 13px 16px;
+      background: #eef5f1;
+      border-left: 5px solid #007a43;
+      font-weight: 650;
+      color: #1d4433;
+    }
+    .meta { margin-top: 26mm; color: #60756c; }
+    .page { page-break-before: always; }
+    .section { break-inside: avoid; margin-bottom: 16px; }
+    .grid-2 {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+      margin-bottom: 14px;
+    }
+    .grid-3 {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 9px;
+      margin-bottom: 14px;
+    }
+    .card {
+      border: 1px solid #cddfd5;
+      border-radius: 7px;
+      padding: 10px 11px;
+      break-inside: avoid;
+    }
+    .card p:last-child, .card ul:last-child { margin-bottom: 0; }
+    .callout {
+      padding: 10px 12px;
+      border-left: 4px solid #007a43;
+      background: #eef5f1;
+      margin: 10px 0 14px;
+      break-inside: avoid;
+    }
+    .warning {
+      border-left-color: #a56600;
+      background: #fff7e8;
+    }
+    .danger {
+      border-left-color: #a72d2d;
+      background: #fff0f0;
+    }
+    .script {
+      border: 1px solid #b7d2c3;
+      background: #f7faf8;
+      border-radius: 7px;
+      padding: 12px 14px;
+      font-size: 10.5pt;
+      break-inside: avoid;
+    }
+    .flow {
+      display: grid;
+      grid-template-columns: repeat(6, 1fr);
+      gap: 5px;
+      margin: 12px 0 17px;
+    }
+    .flow div {
+      background: #007a43;
+      color: #fff;
+      border-radius: 5px;
+      padding: 8px 4px;
+      text-align: center;
+      font-size: 8.5pt;
+      font-weight: 650;
+      position: relative;
+    }
+    .flow div:not(:last-child)::after {
+      content: "›";
+      position: absolute;
+      right: -7px;
+      top: 4px;
+      color: #007a43;
+      font-size: 16pt;
+      z-index: 2;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin: 7px 0 15px;
+      font-size: 9.2pt;
+    }
+    th {
+      background: #e6f0eb;
+      color: #124d32;
+      text-align: left;
+      font-weight: 700;
+    }
+    th, td { border: 1px solid #cddfd5; padding: 6px 7px; vertical-align: top; }
+    tr { break-inside: avoid; }
+    .label {
+      display: inline-block;
+      padding: 2px 7px;
+      margin: 0 4px 5px 0;
+      border: 1px solid #b7d2c3;
+      border-radius: 12px;
+      color: #19583a;
+      font-size: 8.5pt;
+      font-weight: 650;
+    }
+    .small { font-size: 8.8pt; color: #5c7168; }
+    .footer-note { margin-top: 18px; font-size: 8.5pt; color: #63756d; }
+  </style>
+</head>
+<body>
+  <section class="cover">
+    <div class="eyebrow">Capstone Defense Reference</div>
+    <h1>Academic Evaluation System</h1>
+    <p class="subtitle">Frontend and Backend Architecture — how the system works, how the code is organized, and what each major layer does.</p>
+    <div class="cover-flow">
+      User → React Interface → Laravel API → Business Rules → MySQL Database → JSON Response → Updated Interface
+    </div>
+    <div class="meta">
+      <strong>Technology:</strong> React 19, React Router, Axios, Laravel 12, PHP 8.2+, JWT, Eloquent, MySQL<br>
+      <strong>Prepared:</strong> September 2026
+    </div>
+  </section>
+
+  <section class="page">
+    <h2>1. Whole-System Overview</h2>
+    <div class="script">
+      <h3>Short defense explanation</h3>
+      <p>“Our Academic Evaluation System uses a client-server architecture. The React frontend is responsible for the user interface, role-based portals, forms, reports, and interaction. It communicates with a Laravel REST API through Axios. The backend authenticates the user, validates requests, applies academic and permission rules, reads or updates the MySQL database, and returns JSON. React stores the returned data in component state and automatically updates the page.”</p>
+    </div>
+
+    <div class="flow">
+      <div>User action</div>
+      <div>React component</div>
+      <div>Axios request</div>
+      <div>Laravel API</div>
+      <div>MySQL</div>
+      <div>React update</div>
+    </div>
+
+    <div class="grid-2">
+      <div class="card">
+        <h3>Frontend responsibilities</h3>
+        <ul>
+          <li>Display pages appropriate to the user’s role and permissions.</li>
+          <li>Collect input and provide immediate form feedback.</li>
+          <li>Send authenticated API requests and display responses.</li>
+          <li>Handle responsive layout, accessibility, reports, and exports.</li>
+        </ul>
+      </div>
+      <div class="card">
+        <h3>Backend responsibilities</h3>
+        <ul>
+          <li>Authenticate JWTs and enforce authoritative access rules.</li>
+          <li>Validate requests and academic operations.</li>
+          <li>Persist curricula, evaluations, users, and related records.</li>
+          <li>Provide auditing, imports, analytics, and database backups.</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="callout">
+      <strong>Important defense point:</strong> The frontend may hide a page or button, but that is only a usability control. Real security must be enforced by backend middleware and controller permission checks.
+    </div>
+
+    <h2>2. Example: Student Evaluation Flow</h2>
+    <ol>
+      <li>A permitted staff member opens the shared student evaluation workspace.</li>
+      <li>React requests the student directory and the selected student’s academic record.</li>
+      <li>Axios attaches the saved JWT as a Bearer token.</li>
+      <li>Laravel verifies the JWT and evaluation access before running the controller.</li>
+      <li>The backend loads curriculum, grades, prerequisites, electives, standing, and transfer credits.</li>
+      <li>The evaluator edits grades or plans in React state and confirms the action.</li>
+      <li>Laravel validates and saves the permitted operation, then returns JSON.</li>
+      <li>The frontend reloads the record and shows the updated evaluation or report.</li>
+    </ol>
+  </section>
+
+  <section class="page">
+    <h2>3. Frontend Architecture</h2>
+    <div>
+      <span class="label">React 19</span>
+      <span class="label">React Router 6</span>
+      <span class="label">Axios</span>
+      <span class="label">CRA 5 + CRACO</span>
+      <span class="label">SweetAlert2</span>
+      <span class="label">jsPDF</span>
+    </div>
+
+    <div class="script">
+      <h3>Frontend defense script</h3>
+      <p>“The frontend is a React single-page application. <code>index.js</code> starts React, and <code>App.js</code> initializes authentication, the system guide, session controls, network feedback, and routing. <code>AuthContext</code> stores the current user and permissions. React Router opens the correct portal, while reusable components render modules such as curriculum management and student evaluation. Components call the Laravel API through a centralized Axios client, then update React state using the returned JSON.”</p>
+    </div>
+
+    <table>
+      <thead><tr><th>Code area</th><th>Function</th><th>Important file</th></tr></thead>
+      <tbody>
+        <tr><td>Entry point</td><td>Mounts React and imports global styles.</td><td><code>src/index.js</code></td></tr>
+        <tr><td>Application shell</td><td>Defines providers, global UI, lazy loading, and browser routes.</td><td><code>src/App.js</code></td></tr>
+        <tr><td>Authentication</td><td>Restores the user, logs in/out, provides role and permission helpers, and stores session policy.</td><td><code>src/context/AuthContext.js</code></td></tr>
+        <tr><td>API communication</td><td>Sets the API URL, adds JWT headers, refreshes expired tokens, and reports network failures.</td><td><code>src/api/axios.js</code></td></tr>
+        <tr><td>Role portals</td><td>Show permission-controlled navigation and feature modules.</td><td><code>src/components/{role}/</code></td></tr>
+        <tr><td>Shared features</td><td>Reusable sidebar, evaluation view, system guide, selects, modals, and pagination.</td><td><code>src/components/common/</code></td></tr>
+        <tr><td>Utilities</td><td>PDF generation, validation, SweetAlert helpers, and network recovery.</td><td><code>src/utils/</code></td></tr>
+      </tbody>
+    </table>
+
+    <div class="grid-3">
+      <div class="card"><h3>Components</h3><p>Reusable UI or feature functions that return JSX.</p></div>
+      <div class="card"><h3>Props</h3><p>Inputs passed from a parent component to a child.</p></div>
+      <div class="card"><h3>State</h3><p>Changing data such as forms, filters, records, and active tabs.</p></div>
+      <div class="card"><h3>Hooks</h3><p>Manage state, effects, memoized values, callbacks, focus, and sessions.</p></div>
+      <div class="card"><h3>Context</h3><p>Shares authenticated user and guide state throughout the component tree.</p></div>
+      <div class="card"><h3>Router</h3><p>Maps URLs to public pages or protected role portals.</p></div>
+    </div>
+  </section>
+
+  <section class="page">
+    <h2>4. Frontend Portals and Shared Behavior</h2>
+    <table>
+      <thead><tr><th>Portal</th><th>Purpose</th><th>Route</th></tr></thead>
+      <tbody>
+        <tr><td>Public</td><td>Landing, login, guest curriculum, and credit simulation.</td><td><code>/</code>, <code>/login</code>, <code>/guest</code></td></tr>
+        <tr><td>Admin</td><td>Users, roles, lookup data, curriculum, security, imports, audits, and backups.</td><td><code>/admin</code></td></tr>
+        <tr><td>Student</td><td>Dashboard, profile, and curriculum progress.</td><td><code>/student</code></td></tr>
+        <tr><td>Dean</td><td>Department records, evaluation, and decision analytics.</td><td><code>/dean</code></td></tr>
+        <tr><td>Adviser/Evaluator</td><td>Classes, grades, student evaluation, and adviser analytics.</td><td><code>/evaluator</code></td></tr>
+        <tr><td>Program Head</td><td>Program-scoped evaluation, curriculum, and analytics.</td><td><code>/program-head</code></td></tr>
+        <tr><td>Secretary</td><td>Permission-controlled student and curriculum administration.</td><td><code>/secretary</code></td></tr>
+      </tbody>
+    </table>
+
+    <div class="grid-2">
+      <div class="card">
+        <h3>State and storage</h3>
+        <ul>
+          <li>React state: live page, form, filter, modal, and API data.</li>
+          <li>Context: authenticated user and guide state.</li>
+          <li><code>localStorage</code>: JWT, tab/sidebar preferences, guide status, and some evaluation plans.</li>
+          <li><code>sessionStorage</code>: recoverable non-password form drafts.</li>
+        </ul>
+      </div>
+      <div class="card">
+        <h3>Accessibility and responsiveness</h3>
+        <ul>
+          <li>Skip link and semantic main content.</li>
+          <li>Visible keyboard focus and reduced-motion support.</li>
+          <li>Focus trapping and restoration for shared dialogs.</li>
+          <li>Keyboard-accessible tabs and searchable selects.</li>
+          <li>Responsive layouts and sidebar behavior.</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="warning callout">
+      <strong>Verified frontend limitations:</strong>
+      <ul>
+        <li>There are currently no frontend test files, and CRACO removes ESLint from webpack compilation.</li>
+        <li>The JWT is stored in <code>localStorage</code>, making strong XSS prevention essential.</li>
+        <li><code>/student</code> requires login but does not explicitly require the Student role.</li>
+        <li>Unknown URLs have no catch-all 404 route.</li>
+        <li>Evaluation row saves use separate concurrent requests, so partial persistence is possible.</li>
+        <li><code>StudentEvaluationView.js</code> is over 8,000 lines and combines many responsibilities.</li>
+        <li>html2canvas-based PDFs are rasterized and are less searchable and accessible.</li>
+      </ul>
+    </div>
+  </section>
+
+  <section class="page">
+    <h2>5. Backend Architecture</h2>
+    <div>
+      <span class="label">Laravel 12</span>
+      <span class="label">PHP 8.2+</span>
+      <span class="label">JWT Auth</span>
+      <span class="label">Eloquent ORM</span>
+      <span class="label">MySQL</span>
+    </div>
+
+    <div class="script">
+      <h3>Backend defense script</h3>
+      <p>“The backend is a Laravel REST API. Requests enter through <code>routes/api.php</code>. Middleware checks the JWT, unsafe input, and evaluation access. The matching domain controller validates the request and coordinates models or services. Services contain complex rules such as authentication security, academic standing, prerequisites, promotion, imports, transfer credits, and backups. Eloquent models represent database tables and relationships. Laravel then returns JSON to the frontend, while audit observers record important model changes.”</p>
+    </div>
+
+    <div class="flow">
+      <div>API request</div>
+      <div>Middleware</div>
+      <div>Route</div>
+      <div>Controller</div>
+      <div>Service/model</div>
+      <div>JSON response</div>
+    </div>
+
+    <table>
+      <thead><tr><th>Layer</th><th>Function</th><th>Location</th></tr></thead>
+      <tbody>
+        <tr><td>Bootstrap</td><td>Registers routes, global middleware, aliases, and API exception behavior.</td><td><code>bootstrap/app.php</code></td></tr>
+        <tr><td>Routes</td><td>Map HTTP methods and URLs to controllers and middleware.</td><td><code>routes/api.php</code></td></tr>
+        <tr><td>Middleware</td><td>Authenticate, reject unsafe input, add security headers, and enforce evaluation access.</td><td><code>app/Http/Middleware/</code></td></tr>
+        <tr><td>Controllers</td><td>Validate requests, authorize operations, call services/models, and return responses.</td><td><code>app/Http/Controllers/</code></td></tr>
+        <tr><td>Services</td><td>Hold reusable and complex business rules.</td><td><code>app/Services/</code></td></tr>
+        <tr><td>Models</td><td>Map database tables, keys, casts, and relationships.</td><td><code>app/Models/</code></td></tr>
+        <tr><td>Migrations</td><td>Version changes to the database schema.</td><td><code>database/migrations/</code></td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section class="page">
+    <h2>6. Backend Business Domains</h2>
+    <table>
+      <thead><tr><th>Domain</th><th>Main responsibility</th></tr></thead>
+      <tbody>
+        <tr><td>Auth</td><td>Login, logout, token refresh, registration, current user, and password changes.</td></tr>
+        <tr><td>Identity</td><td>User accounts, roles, permissions, and per-user access overrides.</td></tr>
+        <tr><td>Profiles</td><td>Student, dean, and faculty/adviser profile-specific data.</td></tr>
+        <tr><td>Curriculum</td><td>Programs, subjects, curriculum versions, requisites, lookup data, and elective slots.</td></tr>
+        <tr><td>Evaluation</td><td>Grades, academic standing, promotion, subject placement, reports, and analytics.</td></tr>
+        <tr><td>Transfer Credit</td><td>Prior schools, external subjects, equivalencies, simulations, and credited subjects.</td></tr>
+        <tr><td>Administration</td><td>Security settings, audit logs, CSV imports, and database backups.</td></tr>
+      </tbody>
+    </table>
+
+    <h2>7. Core Data Relationships</h2>
+    <div class="grid-2">
+      <div class="card">
+        <h3>Identity</h3>
+        <p><code>TblUser → Role → Permissions</code></p>
+        <p>A user can also have a student, dean, or faculty profile.</p>
+      </div>
+      <div class="card">
+        <h3>Organization and curriculum</h3>
+        <p><code>Campus → Department → Program → CurriculumHeader → Curriculum</code></p>
+        <p>Curriculum rows point to a subject or an elective slot and include year and semester.</p>
+      </div>
+      <div class="card">
+        <h3>Academic record</h3>
+        <p><code>StudentProfile → Evaluation → Subject</code></p>
+        <p>Evaluations also reference term, section, modality, grade components, and evaluator.</p>
+      </div>
+      <div class="card">
+        <h3>Transfer credit</h3>
+        <p><code>Student → CreditEvaluation → CreditEvaluationDetail</code></p>
+        <p>External school subjects are mapped to local subjects through equivalences.</p>
+      </div>
+    </div>
+
+    <h2>8. Security and Reliability</h2>
+    <ul>
+      <li><code>auth:api</code> uses JWT and the <code>TblUser</code> provider.</li>
+      <li><code>SecurityHeaders</code> adds browser security policies to responses.</li>
+      <li><code>RejectUnsafeInput</code> checks API input and normalizes contact numbers.</li>
+      <li><code>EvaluationAccessMiddleware</code> checks evaluation privileges and restricts deletion.</li>
+      <li>Laravel request validation rejects invalid payloads with HTTP 422.</li>
+      <li>Transactions protect many multi-table imports, evaluations, promotions, and credit operations.</li>
+      <li><code>AuditModelObserver</code> records important model changes.</li>
+    </ul>
+  </section>
+
+  <section class="page">
+    <h2>9. Database, Operations, and Verified Limitations</h2>
+    <div class="grid-2">
+      <div class="card">
+        <h3>Database lifecycle</h3>
+        <ul>
+          <li>81 migrations record incremental schema changes.</li>
+          <li>11 seeders provide permissions, users, subjects, electives, and demonstration records.</li>
+          <li>Most models map legacy <code>tbl_*</code> names and custom primary keys.</li>
+        </ul>
+      </div>
+      <div class="card">
+        <h3>Operational tools</h3>
+        <ul>
+          <li><code>scripts/imports/</code>: one-off curriculum imports.</li>
+          <li><code>scripts/maintenance/</code>: repair and cleanup utilities.</li>
+          <li><code>storage/app/backups/</code>: generated database backups.</li>
+          <li>Scheduled commands handle INC expiry and backup checks.</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="danger callout">
+      <strong>Verified backend limitations:</strong>
+      <ul>
+        <li><code>POST /api/jwt/register</code> is public and accepts a caller-selected existing <code>role_id</code>. This can allow privileged self-registration unless restricted before deployment.</li>
+        <li>Comments saying “admin only” are not enforcement. Many permissions are checked inside controllers rather than attached directly to route groups.</li>
+        <li>Fresh migrations do not create several foundational legacy tables, including users, students, subjects, programs, and campuses.</li>
+        <li>The setup instructions reference <code>capstone_db.sql</code>, but that file is absent. An empty database therefore cannot currently be rebuilt reliably from the repository alone.</li>
+        <li>Backend automated coverage contains only two unit-test suites and does not exercise controllers, MySQL schema, imports, or backups.</li>
+      </ul>
+    </div>
+
+    <h2>10. Common Defense Questions</h2>
+    <table>
+      <thead><tr><th>Question</th><th>Brief answer</th></tr></thead>
+      <tbody>
+        <tr><td>Why separate frontend and backend?</td><td>It separates presentation from business rules and data access, allowing each side to be developed, tested, and secured independently.</td></tr>
+        <tr><td>Why use JWT?</td><td>It lets the stateless API identify authenticated users through a signed Bearer token on each protected request.</td></tr>
+        <tr><td>Why use services?</td><td>Services isolate complex reusable rules and prevent large controllers from duplicating domain logic.</td></tr>
+        <tr><td>Why use migrations?</td><td>They provide an ordered, version-controlled history of database changes. In this project they currently supplement, rather than fully replace, the legacy base schema.</td></tr>
+        <tr><td>How are roles controlled?</td><td>The backend provides role and permission data; the frontend filters modules, while the backend must authorize sensitive API operations.</td></tr>
+        <tr><td>How is data consistency protected?</td><td>Laravel validation, foreign keys, transactions, controller checks, and audit logging protect many operations. Known non-atomic frontend save flows remain improvement targets.</td></tr>
+      </tbody>
+    </table>
+
+    <p class="footer-note">This guide describes the verified repository structure as of September 2026. Identified limitations are included so the architecture can be defended accurately rather than overstated.</p>
+  </section>
+</body>
+</html>

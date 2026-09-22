@@ -1,0 +1,11 @@
+{
+  "files.exclude": {
+    "**/vendor": true,
+    "**/build": true,
+    "**/bootstrap/cache/*.php": true,
+    "**/storage/framework/cache/**": true,
+    "**/storage/framework/views/**": true,
+    "**/storage/logs/*.log": true,
+    // "**/node_modules": true,
+  }
+}

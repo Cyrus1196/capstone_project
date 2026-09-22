@@ -1,0 +1,20 @@
+{
+  "short_name": "Acad Eval",
+  "name": "Academic Evaluation Portal",
+  "icons": [
+    {
+      "src": "PHINMAEd_Logo_Coloured_JPEG_2015.original.jpg",
+      "sizes": "192x192",
+      "type": "image/jpeg"
+    },
+    {
+      "src": "PHINMAEd_Logo_Coloured_JPEG_2015.original.jpg",
+      "sizes": "512x512",
+      "type": "image/jpeg"
+    }
+  ],
+  "start_url": ".",
+  "display": "standalone",
+  "theme_color": "#336699",
+  "background_color": "#ffffff"
+}
