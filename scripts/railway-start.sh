@@ -3,6 +3,16 @@ set -euo pipefail
 
 cd /app
 
+# Railway injects env vars — there is no committed .env. Create an empty one so
+# artisan commands that touch the file do not crash.
+if [[ ! -f .env ]]; then
+  if [[ -f .env.example ]]; then
+    cp .env.example .env
+  else
+    touch .env
+  fi
+fi
+
 # Railway MySQL plugin often injects MYSQL*; Laravel expects DB_*
 export DB_CONNECTION="${DB_CONNECTION:-mysql}"
 export DB_HOST="${DB_HOST:-${MYSQLHOST:-${MYSQL_HOST:-}}}"
@@ -20,10 +30,11 @@ php artisan config:clear || true
 php artisan route:clear || true
 php artisan view:clear || true
 
-# Missing APP_KEY causes 500 on every request (EncryptCookies / CookieJar)
+# Missing APP_KEY causes 500 on every request. Prefer a value set in Railway
+# Variables; otherwise generate an ephemeral key in-memory (no file write).
 if [[ -z "${APP_KEY:-}" ]]; then
-  echo "WARN: APP_KEY was empty — generating one for this deploy."
-  php artisan key:generate --force --no-interaction
+  echo "WARN: APP_KEY was empty — generating ephemeral key. Set APP_KEY in Railway Variables."
+  export APP_KEY="base64:$(php -r 'echo base64_encode(random_bytes(32));')"
 fi
 
 # Optional: run migrations on boot (set RUN_MIGRATIONS=true in Railway)
