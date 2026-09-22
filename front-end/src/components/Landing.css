@@ -130,12 +130,6 @@
   min-width: 0;
 }
 
-/* Desktop: CITE left + SES right; mobile swaps left identity to SES */
-.landing-page__seal--ses,
-.landing-page__identity-text--ses {
-  display: none;
-}
-
 .landing-page__college-name {
   font-size: clamp(1rem, 2vw, 1.15rem);
   font-weight: 700;
@@ -206,7 +200,7 @@
   filter: drop-shadow(0 4px 12px rgba(46, 125, 50, 0.15));
 }
 
-/* SES mark only on desktop (right side) — mobile header matches login (CITE only) */
+/* CITE seal only on desktop (right side) — mobile header is SES */
 .landing-page__partner--desktop {
   display: flex;
 }
@@ -462,22 +456,9 @@
 }
 
 @media (max-width: 900px) {
-  /* Hide desktop-right SES duplicate; show SES in left masthead instead of CITE */
+  /* Hide desktop-right CITE; left masthead is always SES */
   .landing-page__partner--desktop {
     display: none !important;
-  }
-
-  .landing-page__seal--cite,
-  .landing-page__identity-text--cite {
-    display: none;
-  }
-
-  .landing-page__seal--ses {
-    display: block;
-  }
-
-  .landing-page__identity-text--ses {
-    display: flex;
   }
 
   .landing-page__masthead-inner {
@@ -486,7 +467,7 @@
     align-items: center;
   }
 
-  .landing-page__seal--ses.landing-page__seal {
+  .landing-page__system-logo.landing-page__seal {
     width: 48px;
     height: 48px;
   }
@@ -510,7 +491,7 @@
     font-size: 0.7rem;
   }
 
-  .landing-page__seal--ses.landing-page__seal {
+  .landing-page__system-logo.landing-page__seal {
     width: 42px;
     height: 42px;
   }
@@ -556,7 +537,7 @@
 }
 
 @media (max-width: 380px) {
-  .landing-page__seal--ses.landing-page__seal {
+  .landing-page__system-logo.landing-page__seal {
     width: 40px;
     height: 40px;
   }
