@@ -362,7 +362,8 @@
     gap 0.18s ease;
 }
 
-.landing-page__btn i {
+.landing-page__btn i,
+.landing-page__btn svg {
   transition: transform 0.18s ease;
 }
 
@@ -378,7 +379,8 @@
   box-shadow: 0 6px 18px rgba(46, 125, 50, 0.32);
 }
 
-.landing-page__btn--primary:hover i {
+.landing-page__btn--primary:hover i,
+.landing-page__btn--primary:hover svg {
   transform: translateX(3px);
 }
 
@@ -399,7 +401,8 @@
   transform: translateY(-2px);
 }
 
-.landing-page__btn--secondary:hover i {
+.landing-page__btn--secondary:hover i,
+.landing-page__btn--secondary:hover svg {
   transform: translateX(3px);
 }
 

@@ -73,7 +73,11 @@ const Landing = () => {
           <div className="landing-page__paths">
             <article className="landing-page__path landing-page__path--account">
               <div className="landing-page__path-icon" aria-hidden>
-                <i className="fa-solid fa-right-to-bracket" />
+                <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4" />
+                  <polyline points="10 17 15 12 10 7" />
+                  <line x1="15" y1="12" x2="3" y2="12" />
+                </svg>
               </div>
               <div className="landing-page__path-body">
                 <h2 className="landing-page__path-title">Sign in</h2>
@@ -87,14 +91,20 @@ const Landing = () => {
                   disabled={exitingToLogin}
                 >
                   Go to login
-                  <i className="fa-solid fa-arrow-right-long" aria-hidden />
+                  <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2.25" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                    <line x1="5" y1="12" x2="19" y2="12" />
+                    <polyline points="12 5 19 12 12 19" />
+                  </svg>
                 </button>
               </div>
             </article>
 
             <article className="landing-page__path landing-page__path--guest">
               <div className="landing-page__path-icon landing-page__path-icon--guest" aria-hidden>
-                <i className="fa-solid fa-compass" />
+                <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <circle cx="12" cy="12" r="10" />
+                  <polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76" />
+                </svg>
               </div>
               <div className="landing-page__path-body">
                 <h2 className="landing-page__path-title">Explore as guest</h2>
@@ -108,7 +118,10 @@ const Landing = () => {
                   disabled={exitingToLogin}
                 >
                   Open guest area
-                  <i className="fa-solid fa-arrow-right-long" aria-hidden />
+                  <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2.25" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                    <line x1="5" y1="12" x2="19" y2="12" />
+                    <polyline points="12 5 19 12 12 19" />
+                  </svg>
                 </button>
               </div>
             </article>
