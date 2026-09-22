@@ -1655,6 +1655,12 @@ button.eval-code-pill--elective-trigger {
     padding: 0.45rem 0.35rem !important;
     font-size: 0.78rem;
   }
+
+  /* Card rows already set their own padding; don't crush them */
+  .student-eval-section--cdoc .eval-year-term-grid .eval-course-table tbody td {
+    padding: 0 !important;
+    font-size: 0.82rem;
+  }
 }
 
 /* ===== Dean evaluation workspace refresh ===== */
@@ -2016,7 +2022,7 @@ button.eval-code-pill--elective-trigger {
 
 @media (max-width: 760px) {
   .student-eval-section--cdoc {
-    padding: 1rem;
+    padding: 0.75rem 0.5rem 1.25rem;
   }
 
   .student-eval-section--cdoc .eval-list-toolbar,
@@ -3000,14 +3006,27 @@ button.eval-code-pill--elective-trigger {
 }
 
 @media (max-width: 640px) {
+  .student-eval-section--cdoc {
+    padding: 0.65rem 0.45rem 5.5rem;
+    border-radius: 12px;
+  }
+
   .student-eval-section--cdoc .eval-student-selector-grid {
     grid-template-columns: 1fr;
   }
 
+  .student-eval-section--cdoc .eval-filter-rail {
+    grid-template-columns: 1fr;
+    gap: 0.55rem;
+    padding: 0.65rem 0.7rem;
+    margin-bottom: 0.55rem;
+    border-radius: 12px;
+  }
+
   .student-eval-section--cdoc .eval-year-term-grid {
     grid-template-columns: 1fr;
-    gap: 0.85rem;
-    padding: 0.65rem;
+    gap: 0.65rem;
+    padding: 0.4rem;
   }
 
   .student-eval-section--cdoc .eval-term-block--first-sem,
@@ -3018,153 +3037,200 @@ button.eval-code-pill--elective-trigger {
   }
 
   .student-eval-section--cdoc .eval-year-section {
-    border-radius: 16px;
+    border-radius: 12px;
   }
 
   .student-eval-section--cdoc .eval-year-section__title {
-    padding: 0.75rem 0.85rem;
+    padding: 0.6rem 0.7rem;
+    font-size: 0.78rem;
   }
 
   .student-eval-section--cdoc .eval-term-block {
-    border-radius: 14px;
+    border-radius: 12px;
   }
 
   .student-eval-section--cdoc .eval-term-header {
-    padding: 0.72rem 0.85rem;
+    padding: 0.55rem 0.65rem;
+    flex-wrap: wrap;
+    gap: 0.4rem;
   }
 
+  .student-eval-section--cdoc .eval-term-header .batch-btn--equivalence {
+    font-size: 0.68rem;
+    padding: 0.28rem 0.5rem;
+  }
+
+  /* Guest-sim style: card rows so grade/pass controls stay usable on phones */
   .student-eval-section--cdoc .eval-year-term-grid .eval-responsive-table-wrap {
-    overflow-x: auto;
-    overflow-y: visible;
-    -webkit-overflow-scrolling: touch;
+    overflow: visible;
   }
 
   .student-eval-section--cdoc .eval-year-term-grid .eval-course-table {
-    display: table;
+    display: block;
     width: 100%;
-    min-width: 540px;
-    table-layout: fixed;
+    min-width: 0 !important;
+    table-layout: auto;
+    font-size: 0.82rem;
   }
 
   .student-eval-section--cdoc .eval-year-term-grid .eval-course-table thead {
-    display: table-header-group;
+    display: none;
   }
 
-  .student-eval-section--cdoc .eval-year-term-grid .eval-course-table tbody {
-    display: table-row-group;
-  }
-
+  .student-eval-section--cdoc .eval-year-term-grid .eval-course-table tbody,
   .student-eval-section--cdoc .eval-year-term-grid .eval-course-table tfoot {
-    display: table-footer-group;
+    display: block;
+    width: 100%;
   }
 
-  .student-eval-section--cdoc .eval-year-term-grid .eval-course-table tr {
-    display: table-row;
+  .student-eval-section--cdoc .eval-year-term-grid .eval-course-table tbody tr {
+    display: grid;
+    grid-template-columns: minmax(4.25rem, auto) minmax(0, 1fr) auto;
+    grid-template-areas:
+      "code title units"
+      "grade grade grade"
+      "remarks remarks remarks";
+    column-gap: 0.45rem;
+    row-gap: 0.4rem;
+    align-items: start;
+    padding: 0.7rem 0.6rem;
+    border-bottom: 1px solid #e8eef4;
+    background: #fff;
+    width: 100%;
+    box-sizing: border-box;
   }
 
-  .student-eval-section--cdoc .eval-year-term-grid .eval-course-table th,
-  .student-eval-section--cdoc .eval-year-term-grid .eval-course-table td {
-    display: table-cell;
-    width: auto !important;
+  .student-eval-section--cdoc .eval-year-term-grid .eval-course-table tbody tr:nth-child(even) {
+    background: #f8fbff;
   }
 
-  .student-eval-section--cdoc .eval-year-term-grid .eval-course-table th:nth-child(1),
-  .student-eval-section--cdoc .eval-year-term-grid .eval-course-table td:nth-child(1) {
-    width: 15% !important;
-  }
-
-  .student-eval-section--cdoc .eval-year-term-grid .eval-course-table th:nth-child(2),
-  .student-eval-section--cdoc .eval-year-term-grid .eval-course-table td:nth-child(2) {
-    width: 42% !important;
-  }
-
-  .student-eval-section--cdoc .eval-year-term-grid .eval-course-table th:nth-child(3),
-  .student-eval-section--cdoc .eval-year-term-grid .eval-course-table td:nth-child(3) {
-    width: 9% !important;
-  }
-
-  .student-eval-section--cdoc .eval-year-term-grid .eval-course-table th:nth-child(4),
-  .student-eval-section--cdoc .eval-year-term-grid .eval-course-table td:nth-child(4) {
-    width: 11% !important;
-  }
-
-  .student-eval-section--cdoc .eval-year-term-grid .eval-course-table th:nth-child(5),
-  .student-eval-section--cdoc .eval-year-term-grid .eval-course-table td:nth-child(5) {
-    width: 23% !important;
-  }
-
-  .student-eval-section--cdoc .eval-year-term-grid .eval-course-table thead th {
-    padding: 0.5rem 0.35rem !important;
-    font-size: 0.56rem;
-    letter-spacing: 0.03em;
-    line-height: 1.15;
+  .student-eval-section--cdoc .eval-year-term-grid .eval-course-table tbody tr:last-child {
+    border-bottom: none;
   }
 
   .student-eval-section--cdoc .eval-year-term-grid .eval-course-table tbody td {
-    padding: 0.5rem 0.35rem !important;
-    font-size: 0.68rem;
-    line-height: 1.25;
-    vertical-align: middle;
+    display: block;
+    width: auto !important;
+    max-width: none !important;
+    padding: 0 !important;
+    border: none !important;
+    font-size: 0.82rem;
+    line-height: 1.35;
+    vertical-align: top;
+  }
+
+  .student-eval-section--cdoc .eval-year-term-grid .eval-course-table tbody td.code-cell {
+    grid-area: code;
+  }
+
+  .student-eval-section--cdoc .eval-year-term-grid .eval-course-table tbody td.subject-cell {
+    grid-area: title;
+    min-width: 0;
+  }
+
+  .student-eval-section--cdoc .eval-year-term-grid .eval-course-table tbody td.units-cell {
+    grid-area: units;
+    justify-self: end;
+    text-align: right;
+    white-space: nowrap;
+  }
+
+  .student-eval-section--cdoc .eval-year-term-grid .eval-course-table tbody td.grade-cell {
+    grid-area: grade;
+    text-align: left;
+    white-space: normal;
+  }
+
+  .student-eval-section--cdoc .eval-year-term-grid .eval-course-table tbody td.status-cell {
+    grid-area: remarks;
+    text-align: left;
+    white-space: normal;
   }
 
   .student-eval-section--cdoc .eval-year-term-grid .eval-code-cell-inner {
+    flex-wrap: wrap;
     justify-content: flex-start;
+    gap: 0.3rem;
   }
 
-  .student-eval-section--cdoc .eval-year-term-grid .units-cell,
-  .student-eval-section--cdoc .eval-year-term-grid .grade-cell,
-  .student-eval-section--cdoc .eval-year-term-grid .status-cell {
-    text-align: center;
-    white-space: nowrap;
+  .student-eval-section--cdoc .eval-year-term-grid .eval-title-stack__name,
+  .student-eval-section--cdoc .eval-year-term-grid .eval-elective-title-readonly__title {
+    font-size: 0.84rem;
+    line-height: 1.4;
   }
 
-  .student-eval-section--cdoc .eval-year-term-grid .eval-units-pill,
-  .student-eval-section--cdoc .eval-year-term-grid .eval-grade-readonly,
-  .student-eval-section--cdoc .eval-year-term-grid .eval-grade-prereq-blocked,
-  .student-eval-section--cdoc .eval-year-term-grid .status-display,
-  .student-eval-section--cdoc .eval-year-term-grid .status-badge-eval-credited,
-  .student-eval-section--cdoc .eval-year-term-grid .eval-prereq-locked-badge {
+  .student-eval-section--cdoc .eval-year-term-grid .eval-requisite-line {
     font-size: 0.68rem;
-    line-height: 1.1;
-    white-space: nowrap;
   }
 
   .student-eval-section--cdoc .eval-year-term-grid .eval-code-pill,
   .student-eval-section--cdoc .eval-year-term-grid .eval-units-pill {
-    height: 1.85rem;
-    min-height: 1.85rem;
+    height: auto;
+    min-height: 1.75rem;
     border-radius: 6px;
-    font-size: 0.68rem;
+    font-size: 0.72rem;
   }
 
   .student-eval-section--cdoc .eval-year-term-grid .eval-units-pill {
-    width: 2.5rem;
-    min-width: 2.5rem;
-    padding: 0;
+    width: auto;
+    min-width: 1.75rem;
+    padding: 0.12rem 0.4rem;
   }
 
   .student-eval-section--cdoc .eval-year-term-grid .grade-cell input,
   .student-eval-section--cdoc .eval-year-term-grid .grade-cell input.eval-grade-input {
-    width: 2.5rem !important;
-    min-width: 2.5rem !important;
-    max-width: 2.5rem !important;
-    height: 1.85rem !important;
+    width: 4.5rem !important;
+    min-width: 4.5rem !important;
+    max-width: 6rem !important;
+    height: 2.25rem !important;
+    font-size: 0.9rem !important;
+  }
+
+  .student-eval-section--cdoc .eval-year-term-grid .status-buttons {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.4rem;
+    justify-content: flex-start;
   }
 
   .student-eval-section--cdoc .eval-year-term-grid .status-btn,
   .student-eval-section--cdoc .eval-remarks-header-actions .batch-btn--icon,
   .student-eval-section--cdoc .eval-year-term-grid .eval-row-equiv-btn {
-    width: 1.85rem;
-    height: 1.85rem;
-    min-width: 1.85rem;
-    border-radius: 6px;
+    width: 2.35rem;
+    height: 2.35rem;
+    min-width: 2.35rem;
+    border-radius: 8px;
+    font-size: 0.85rem;
+  }
+
+  .student-eval-section--cdoc .eval-year-term-grid .status-btn--labeled {
+    width: auto;
+    min-width: 4.5rem;
+    padding: 0.35rem 0.65rem;
+  }
+
+  .student-eval-section--cdoc .eval-year-term-grid .eval-prereq-locked {
+    align-items: flex-start;
+    text-align: left;
+  }
+
+  .student-eval-section--cdoc .eval-year-term-grid .eval-course-table tfoot tr {
+    display: flex;
+    justify-content: flex-end;
+    align-items: center;
+    padding: 0.55rem 0.65rem;
+    background: #f8fbff;
+    border-top: 1px solid #e1ebf5;
   }
 
   .student-eval-section--cdoc .eval-year-term-grid .eval-course-table tfoot td {
-    display: table-cell;
-    padding: 0.45rem 0.4rem !important;
+    display: block;
+    width: auto !important;
+    padding: 0 !important;
     text-align: right;
-    font-size: 0.62rem;
+    font-size: 0.72rem;
+    background: transparent;
+    border: none;
   }
 
   .student-eval-section--cdoc .eval-selector-heading {

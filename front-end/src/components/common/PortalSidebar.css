@@ -104,10 +104,10 @@
   }
 }
 
-/* Phones / small tablets: leave room for hamburger */
+/* Phones / small tablets: leave room for hamburger; tighten side gutters */
 @media (max-width: 767px) {
   .portal-shell__content {
-    padding-top: 3.25rem;
+    padding: 3.25rem 0.45rem 1rem;
   }
 }
 
