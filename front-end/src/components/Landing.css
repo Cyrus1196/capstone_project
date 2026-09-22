@@ -443,7 +443,9 @@
   }
 
   .landing-page__btn--primary:hover i,
-  .landing-page__btn--secondary:hover i {
+  .landing-page__btn--secondary:hover i,
+  .landing-page__btn--primary:hover svg,
+  .landing-page__btn--secondary:hover svg {
     transform: none;
   }
 }
