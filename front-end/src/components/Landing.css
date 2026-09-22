@@ -451,9 +451,27 @@
 }
 
 @media (max-width: 640px) {
+  .landing-page__masthead {
+    padding: 0.75rem 0.85rem;
+  }
+
   .landing-page__masthead-inner {
     flex-direction: column;
     align-items: flex-start;
+    gap: 0.75rem;
+  }
+
+  .landing-page__identity {
+    min-width: 0;
+    width: 100%;
+  }
+
+  .landing-page__college-name {
+    font-size: 0.95rem;
+  }
+
+  .landing-page__address {
+    font-size: 0.7rem;
   }
 
   .landing-page__partner {
@@ -467,15 +485,67 @@
   .landing-page__phinma-img,
   .landing-page__cite-seal {
     object-position: left center;
+    max-height: 52px;
+  }
+
+  .landing-page__main {
+    padding: 1.15rem 0.85rem 1.5rem;
+    gap: 1.15rem;
+  }
+
+  .landing-page__title {
+    font-size: clamp(1.45rem, 7vw, 1.85rem);
+  }
+
+  .landing-page__lead {
+    font-size: 0.9rem;
+  }
+
+  .landing-page__paths {
+    grid-template-columns: 1fr;
+    gap: 0.75rem;
   }
 
   .landing-page__path {
     flex-direction: column;
     align-items: flex-start;
+    padding: 1.1rem 1rem 1.15rem;
   }
 
   .landing-page__path-icon {
     width: 44px;
     height: 44px;
+  }
+
+  .landing-page__btn {
+    min-height: 48px;
+    font-size: 0.95rem;
+  }
+
+  .landing-page__footer-text {
+    font-size: 0.68rem;
+    padding: 0 0.5rem;
+  }
+}
+
+@media (max-width: 380px) {
+  .landing-page__system-logo,
+  .landing-page__seal {
+    width: 44px;
+    height: 44px;
+  }
+}
+
+@media (max-width: 900px) and (max-height: 480px) and (orientation: landscape) {
+  .landing-page__hero {
+    max-width: none;
+  }
+
+  .landing-page__title {
+    font-size: 1.35rem;
+  }
+
+  .landing-page__paths {
+    grid-template-columns: 1fr 1fr;
   }
 }
