@@ -833,6 +833,17 @@ class StudentCurriculumEvaluationBuilder
             return null;
         }
 
+        // Phinma / CDO style: 02-2324-12910 → SY 2023-2024 → entry calendar year 2023
+        // (first segment is campus/college code, not the batch year)
+        if (preg_match('/^\d{2}-(\d{2})(\d{2})-\d+/', $sid, $m)) {
+            $startYy = (int) $m[1];
+            $endYy = (int) $m[2];
+            // Prefer the start year of the SY pair (23 from 2324); sanity-check end = start+1 mod 100
+            if ((($startYy + 1) % 100) === $endYy) {
+                return $startYy >= 70 ? 1900 + $startYy : 2000 + $startYy;
+            }
+        }
+
         // 18-ARCH-0001 / 25-1901 → 2018 / 2025
         if (preg_match('/^(\d{2})(?!\d)/', $sid, $m)) {
             $yy = (int) $m[1];

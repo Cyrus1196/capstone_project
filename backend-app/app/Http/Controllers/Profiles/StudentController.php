@@ -556,7 +556,13 @@ class StudentController extends Controller
                 ]);
             }
 
-            $curriculum = Curriculum::where('program_id', $programId)
+            $builder = app(StudentCurriculumEvaluationBuilder::class);
+            $curriculumHeader = $builder->resolveCurriculumHeaderForStudent($profile);
+            $headerId = $curriculumHeader?->curriculum_header_id !== null
+                ? (int) $curriculumHeader->curriculum_header_id
+                : null;
+
+            $curriculumQuery = Curriculum::where('program_id', $programId)
                 ->with([
                     'subject.prerequisites.requiredSubject',
                     'yearLevel',
@@ -564,7 +570,11 @@ class StudentController extends Controller
                     'program',
                     'electiveSlot.electiveSubjects.subject',
                     'electiveSlot.electiveSubjects.track',
-                ])
+                ]);
+            if ($headerId) {
+                $curriculumQuery->where('curriculum_header_id', $headerId);
+            }
+            $curriculum = $curriculumQuery
                 ->orderBy('year_level')
                 ->orderByRaw('CASE WHEN semester_id = 3 THEN 0 ELSE semester_id END')
                 ->get();
