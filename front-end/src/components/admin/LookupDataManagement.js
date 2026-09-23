@@ -2946,7 +2946,7 @@ const LookupDataManagement = ({
         <div className="section-header">
           <h3>{formatTabTitle(section)}</h3>
           {showActions && (
-            <button type="button" className="add-button" onClick={handleAdd}>
+            <button type="button" className="lookup-btn lookup-btn--primary" onClick={handleAdd}>
               Add {formatTabTitle(section)}
             </button>
           )}
