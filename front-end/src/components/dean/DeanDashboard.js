@@ -11,6 +11,7 @@ import '../common/StaffDashboard.css';
  *   canManageCurriculum?: boolean,
  *   canManageUsers?: boolean,
  *   portalLabel?: string,
+ *   analyticsTabId?: string,
  * }} props
  */
 const DeanDashboard = ({
@@ -19,6 +20,7 @@ const DeanDashboard = ({
   canManageCurriculum = false,
   canManageUsers = false,
   portalLabel = 'Dean',
+  analyticsTabId = 'dean-analytics',
 }) => {
   const { user } = useAuth();
   const [loading, setLoading] = useState(true);
@@ -172,7 +174,7 @@ const DeanDashboard = ({
                 <button
                   type="button"
                   className="staff-dash__action"
-                  onClick={() => onNavigate('dean-analytics')}
+                  onClick={() => onNavigate(analyticsTabId)}
                 >
                   <span className="staff-dash__action-icon" aria-hidden>
                     <i className="fa-solid fa-chart-column" />

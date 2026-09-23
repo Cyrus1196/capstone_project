@@ -423,6 +423,7 @@ const CurriculumStaffPortal = ({
                 canManageCurriculum={showAdminCurriculumTab}
                 canManageUsers={showUserManagement}
                 portalLabel={roleChipLabel || expectedRole}
+                analyticsTabId="analytics"
               />
             ) : (
               <EvaluatorDashboard
