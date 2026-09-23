@@ -3317,11 +3317,17 @@ const CurriculumManagement = ({ lockedProgramId = null } = {}) => {
         document.body
       )}
 
-      {/* Edit Panel - Right Side */}
+      {/* Edit Panel — centered modal */}
       {canMutateCurriculum && showEditPanel &&
         createPortal(
         <div className="edit-panel-overlay" onClick={closeEditPanel}>
-          <div className="edit-panel" onClick={(e) => e.stopPropagation()}>
+          <div
+            className="edit-panel"
+            role="dialog"
+            aria-modal="true"
+            aria-label={editPanelMode === 'insert' ? 'Insert subject' : 'Edit subject'}
+            onClick={(e) => e.stopPropagation()}
+          >
             <div className="edit-panel-header">
               <div className="edit-panel-header__text">
                 <span className="edit-panel-eyebrow">Curriculum group</span>
