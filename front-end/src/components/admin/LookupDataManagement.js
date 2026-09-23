@@ -2918,18 +2918,20 @@ const LookupDataManagement = ({
             {supportsStatus && (
               <button
                 type="button"
-                className={isActive ? 'deactivate-button' : 'activate-button'}
+                className={
+                  isActive ? 'lookup-action lookup-action--off' : 'lookup-action lookup-action--on'
+                }
                 onClick={() => handleToggleLookupStatus(section, item)}
               >
                 {isActive ? 'Deactivate' : 'Activate'}
               </button>
             )}
-            <button type="button" className="edit-button" onClick={() => handleEdit(item)}>
+            <button type="button" className="lookup-action lookup-action--edit" onClick={() => handleEdit(item)}>
               Edit
             </button>
             <button
               type="button"
-              className="delete-button"
+              className="lookup-action lookup-action--delete"
               onClick={() => handleDelete(getLookupRecordId(section, item))}
             >
               Delete
@@ -3093,7 +3095,7 @@ const LookupDataManagement = ({
             <span className="lookup-view-only-badge"> View only</span>
           )}
         </h2>
-        <button className="refresh-button" onClick={fetchLookupData}>
+        <button type="button" className="lookup-btn lookup-btn--primary" onClick={fetchLookupData}>
           Refresh Data
         </button>
       </div>

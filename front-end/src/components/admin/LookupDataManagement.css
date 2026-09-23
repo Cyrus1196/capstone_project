@@ -769,6 +769,91 @@
   color: #64748b;
 }
 
+/* —— Lookup action buttons (unique classes; avoid global .edit-button collisions) —— */
+.lookup-data-management .lookup-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 2.25rem;
+  padding: 0.5rem 1.15rem;
+  border-radius: 999px;
+  border: 1px solid #1b5e20;
+  background: #2e7d32;
+  color: #fff;
+  font-size: 0.86rem;
+  font-weight: 700;
+  cursor: pointer;
+  box-shadow: 0 2px 8px rgba(46, 125, 50, 0.18);
+  transition: background 0.15s ease, transform 0.12s ease;
+}
+
+.lookup-data-management .lookup-btn--primary:hover {
+  background: #1b5e20;
+  transform: translateY(-1px);
+}
+
+.lookup-data-management .lookup-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 1.85rem;
+  padding: 0.3rem 0.75rem;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  background: #fff;
+  font-size: 0.75rem;
+  font-weight: 700;
+  line-height: 1.2;
+  cursor: pointer;
+  box-shadow: none;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+
+.lookup-data-management .lookup-action--on {
+  color: #fff;
+  border-color: #2e7d32;
+  background: #2e7d32;
+}
+
+.lookup-data-management .lookup-action--on:hover {
+  background: #1b5e20;
+  border-color: #1b5e20;
+}
+
+.lookup-data-management .lookup-action--off {
+  color: #475569;
+  border-color: #cbd5e1;
+  background: #f8fafc;
+}
+
+.lookup-data-management .lookup-action--off:hover {
+  color: #1e293b;
+  border-color: #94a3b8;
+  background: #f1f5f9;
+}
+
+.lookup-data-management .lookup-action--edit {
+  color: #1b5e20;
+  border-color: rgba(46, 125, 50, 0.4);
+  background: #fff;
+}
+
+.lookup-data-management .lookup-action--edit:hover {
+  background: rgba(46, 125, 50, 0.08);
+  border-color: #2e7d32;
+}
+
+.lookup-data-management .lookup-action--delete {
+  color: #b91c1c;
+  border-color: rgba(185, 28, 28, 0.35);
+  background: #fff;
+}
+
+.lookup-data-management .lookup-action--delete:hover {
+  background: #fef2f2;
+  border-color: #f87171;
+}
+
 @media (max-width: 640px) {
   .requisite-builder__year-range {
     grid-template-columns: 1fr;
