@@ -310,7 +310,9 @@
 .preview-table {
   width: 100%;
   min-width: max-content;
-  border-collapse: collapse;
+  /* collapse breaks position:sticky and lets frozen cols paint over neighbors */
+  border-collapse: separate;
+  border-spacing: 0;
   font-size: 0.9rem;
 }
 
@@ -319,6 +321,7 @@
   padding: 10px 12px;
   text-align: left;
   border-bottom: 1px solid #e2e8f0;
+  background-clip: padding-box;
 }
 
 .preview-table th {
@@ -330,6 +333,7 @@
   letter-spacing: 0.03em;
   position: sticky;
   top: 0;
+  z-index: 1;
 }
 
 .preview-table tbody tr.valid:hover {
@@ -449,23 +453,32 @@
 }
 
 .csv-preview-issue {
-  max-width: 320px;
-  min-width: 240px;
+  /* width locked so sticky `right` on Status matches Issue column */
+  width: 260px;
+  min-width: 260px;
+  max-width: 260px;
   white-space: normal;
   color: #991b1b;
   font-size: 0.8rem;
   line-height: 1.35;
+  word-break: break-word;
 }
 
 .csv-preview-issue-text {
   margin-top: 8px;
 }
 
+/* Frozen Status + Issue: exact widths so Semester never sits under Status */
 .csv-preview-sticky-col {
   position: sticky;
-  z-index: 2;
+  z-index: 3;
   background: #fff;
-  box-shadow: -6px 0 8px -6px rgba(15, 23, 42, 0.12);
+  box-shadow: -8px 0 10px -8px rgba(15, 23, 42, 0.28);
+}
+
+.preview-table thead th.csv-preview-sticky-col {
+  z-index: 5;
+  background: #f8fafc;
 }
 
 .preview-table tr.valid .csv-preview-sticky-col {
@@ -476,21 +489,30 @@
   background: #fef2f2;
 }
 
+.preview-table thead th.csv-preview-sticky-col--issue {
+  background: #f8fafc;
+}
+
+/* Issue / Fix — flush right */
 .csv-preview-sticky-col--issue {
   right: 0;
-  min-width: 280px;
-  max-width: 340px;
+  width: 260px;
+  min-width: 260px;
+  max-width: 260px;
+  z-index: 4;
 }
 
+.preview-table thead th.csv-preview-sticky-col--issue {
+  z-index: 6;
+}
+
+/* Status — sits immediately left of Issue (260px), fixed width */
 .preview-table th.csv-preview-sticky-col:nth-last-child(2),
 .preview-table td.csv-preview-sticky-col:nth-last-child(2) {
-  right: 300px;
-  min-width: 120px;
-}
-
-.preview-table th.csv-preview-sticky-col--issue,
-.preview-table td.csv-preview-sticky-col--issue {
-  right: 0;
+  right: 260px;
+  width: 104px;
+  min-width: 104px;
+  max-width: 104px;
 }
 
 .csv-bulk-fix-bar {
