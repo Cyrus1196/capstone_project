@@ -84,16 +84,16 @@
 .credit-evaluation-management .submit-button,
 .curriculum-management .btn-primary,
 .lookup-data-management .btn-primary {
-  background: linear-gradient(135deg, var(--admin-accent) 0%, var(--admin-accent-dark) 100%);
+  background: var(--admin-accent, #2e7d32);
   color: #fff;
-  border: none;
-  border-radius: var(--admin-radius-sm);
-  padding: 0.55rem 1.05rem;
-  font-size: 0.88rem;
+  border: 1px solid var(--admin-accent-dark, #1b5e20);
+  border-radius: 999px;
+  padding: 0.5rem 1.1rem;
+  font-size: 0.86rem;
   font-weight: 700;
   cursor: pointer;
-  box-shadow: 0 6px 18px rgba(46, 125, 50, 0.22);
-  transition: transform 0.15s ease, filter 0.15s ease, box-shadow 0.15s ease;
+  box-shadow: 0 2px 8px rgba(46, 125, 50, 0.18);
+  transition: background 0.15s ease, transform 0.12s ease, box-shadow 0.15s ease;
 }
 
 .lookup-data-management .add-button:hover,
@@ -109,10 +109,12 @@
 .elective-slot-management .submit-button:hover,
 .user-management .submit-button:hover,
 .credit-evaluation-management .submit-button:hover,
-.curriculum-management .btn-primary:hover {
-  filter: brightness(1.05);
+.curriculum-management .btn-primary:hover,
+.lookup-data-management .btn-primary:hover {
+  background: var(--admin-accent-dark, #1b5e20);
+  filter: none;
   transform: translateY(-1px);
-  box-shadow: 0 8px 22px rgba(46, 125, 50, 0.28);
+  box-shadow: 0 4px 12px rgba(27, 94, 32, 0.22);
 }
 
 .lookup-data-management .cancel-button,
@@ -125,9 +127,9 @@
   background: #fff;
   color: #334155;
   border: 1px solid var(--admin-border);
-  border-radius: var(--admin-radius-sm);
-  padding: 0.55rem 1.05rem;
-  font-size: 0.88rem;
+  border-radius: 999px;
+  padding: 0.5rem 1.1rem;
+  font-size: 0.86rem;
   font-weight: 650;
   cursor: pointer;
   transition: background 0.15s ease, border-color 0.15s ease;
@@ -366,21 +368,52 @@
   border-top: 1px solid var(--admin-border-soft);
 }
 
-/* —— Row action pills —— */
+/* —— Row actions: shared outline family (not candy pastels) —— */
+.lookup-data-management .edit-button,
+.curriculum-management .edit-button,
+.academic-management .edit-button,
+.elective-slot-management .edit-button,
+.user-management .edit-button,
+.credit-evaluation-management .edit-button,
+.lookup-data-management .delete-button,
+.lookup-data-management .deactivate-button,
+.lookup-data-management .activate-button,
+.curriculum-management .delete-button,
+.academic-management .delete-button,
+.elective-slot-management .delete-button,
+.user-management .delete-button,
+.credit-evaluation-management .delete-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.25rem;
+  min-height: 1.85rem;
+  padding: 0.3rem 0.7rem;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  background: #fff;
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  line-height: 1.2;
+  cursor: pointer;
+  box-shadow: none;
+  transition:
+    background 0.15s ease,
+    border-color 0.15s ease,
+    color 0.15s ease,
+    transform 0.12s ease;
+}
+
 .lookup-data-management .edit-button,
 .curriculum-management .edit-button,
 .academic-management .edit-button,
 .elective-slot-management .edit-button,
 .user-management .edit-button,
 .credit-evaluation-management .edit-button {
-  background: var(--admin-warn-soft);
-  color: #92400e;
-  border: 1px solid #fcd34d;
-  border-radius: 8px;
-  padding: 0.35rem 0.7rem;
-  font-size: 0.78rem;
-  font-weight: 700;
-  cursor: pointer;
+  color: var(--admin-accent-dark, #1b5e20);
+  border-color: rgba(46, 125, 50, 0.35);
+  background: #fff;
 }
 
 .lookup-data-management .edit-button:hover,
@@ -389,49 +422,53 @@
 .elective-slot-management .edit-button:hover,
 .user-management .edit-button:hover,
 .credit-evaluation-management .edit-button:hover {
-  background: #fef3c7;
+  background: rgba(46, 125, 50, 0.08);
+  border-color: var(--admin-accent, #2e7d32);
+}
+
+.lookup-data-management .activate-button {
+  color: #fff;
+  border-color: var(--admin-accent, #2e7d32);
+  background: var(--admin-accent, #2e7d32);
+}
+
+.lookup-data-management .activate-button:hover {
+  background: var(--admin-accent-dark, #1b5e20);
+  border-color: var(--admin-accent-dark, #1b5e20);
+  filter: none;
+}
+
+.lookup-data-management .deactivate-button {
+  color: #475569;
+  border-color: #cbd5e1;
+  background: #f8fafc;
+}
+
+.lookup-data-management .deactivate-button:hover {
+  color: #1e293b;
+  border-color: #94a3b8;
+  background: #f1f5f9;
 }
 
 .lookup-data-management .delete-button,
-.lookup-data-management .deactivate-button,
 .curriculum-management .delete-button,
 .academic-management .delete-button,
 .elective-slot-management .delete-button,
 .user-management .delete-button,
 .credit-evaluation-management .delete-button {
-  background: var(--admin-danger-soft);
-  color: #991b1b;
-  border: 1px solid #fecaca;
-  border-radius: 8px;
-  padding: 0.35rem 0.7rem;
-  font-size: 0.78rem;
-  font-weight: 700;
-  cursor: pointer;
+  color: #b91c1c;
+  border-color: rgba(185, 28, 28, 0.35);
+  background: #fff;
 }
 
 .lookup-data-management .delete-button:hover,
-.lookup-data-management .deactivate-button:hover,
 .curriculum-management .delete-button:hover,
 .academic-management .delete-button:hover,
 .elective-slot-management .delete-button:hover,
 .user-management .delete-button:hover,
 .credit-evaluation-management .delete-button:hover {
-  background: #fee2e2;
-}
-
-.lookup-data-management .activate-button {
-  background: var(--admin-ok-soft);
-  color: #166534;
-  border: 1px solid #86efac;
-  border-radius: 8px;
-  padding: 0.35rem 0.7rem;
-  font-size: 0.78rem;
-  font-weight: 700;
-  cursor: pointer;
-}
-
-.lookup-data-management .activate-button:hover {
-  background: #dcfce7;
+  background: #fef2f2;
+  border-color: #f87171;
 }
 
 @media (max-width: 640px) {
