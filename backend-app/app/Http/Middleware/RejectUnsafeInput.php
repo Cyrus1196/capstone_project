@@ -73,11 +73,38 @@ class RejectUnsafeInput
             if (! is_string($value)) {
                 continue;
             }
+
+            // Form fields like row_fixes are JSON strings — braces/brackets are structure,
+            // not user text. Decode and scan leaf string values instead.
+            $decoded = $this->decodeJsonObjectOrArray($value);
+            if ($decoded !== null) {
+                $bad = array_merge($bad, $this->scan($decoded, $path));
+                continue;
+            }
+
             if (InputGuards::containsUnsafeSymbols($value)) {
                 $bad[] = $path;
             }
         }
 
         return $bad;
+    }
+
+    /**
+     * @return array<string, mixed>|list<mixed>|null
+     */
+    private function decodeJsonObjectOrArray(string $value): ?array
+    {
+        $trimmed = ltrim($value);
+        if ($trimmed === '' || ($trimmed[0] !== '{' && $trimmed[0] !== '[')) {
+            return null;
+        }
+
+        $decoded = json_decode($value, true);
+        if (json_last_error() !== JSON_ERROR_NONE || ! is_array($decoded)) {
+            return null;
+        }
+
+        return $decoded;
     }
 }
