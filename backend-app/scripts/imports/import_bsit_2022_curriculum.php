@@ -115,6 +115,30 @@ if (! $header) {
     ]);
 }
 
+$rowCount = (int) DB::table('curriculum')->where('curriculum_header_id', $headerId)->count();
+$hasJunk = DB::table('curriculum as c')
+    ->leftJoin('tbl_subjects as s', 's.subject_id', '=', 'c.subject_id')
+    ->where('c.curriculum_header_id', $headerId)
+    ->where(function ($q) {
+        $q->whereRaw("REPLACE(UPPER(COALESCE(s.subject_code,'')), ' ', '') IN ('TEST','ELE119','MEE117')")
+            ->orWhere('s.subject_name', 'like', 'test%')
+            ->orWhere('s.subject_name', 'like', '%Industrial Electronics%')
+            ->orWhere('s.subject_name', 'like', '%Machine Design%');
+    })
+    ->exists();
+
+if (! $hasJunk && $rowCount >= 50) {
+    echo json_encode([
+        'program_id' => $programId,
+        'curriculum_header_id' => $headerId,
+        'effective_year' => 2022,
+        'skipped' => true,
+        'reason' => 'already_synced',
+        'row_count' => $rowCount,
+    ], JSON_PRETTY_PRINT).PHP_EOL;
+    exit(0);
+}
+
 // [code, name, units, hours]
 $subjects = [
     // Y1 S1

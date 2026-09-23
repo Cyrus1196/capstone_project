@@ -77,12 +77,16 @@ export SESSION_DRIVER="${SESSION_DRIVER:-file}"
 export CACHE_STORE="${CACHE_STORE:-file}"
 export QUEUE_CONNECTION="${QUEUE_CONNECTION:-sync}"
 
-# Migrations are NOT run on boot. Your Railway MySQL already has tables / you should
-# import db_backups/*.sql. Running migrate here crashes when tables already exist.
+# Migrations are NOT run on boot (existing Railway tables / SQL dump).
 if [[ "${RUN_MIGRATIONS:-false}" == "true" ]]; then
   echo "WARN: RUN_MIGRATIONS=true is ignored on Railway boot (tables may already exist)."
   echo "WARN: Import your SQL dump, or run: php artisan migrate --force  from the Railway shell."
 fi
+
+# One-shot data sync: replace BSIT Effective SY 2022-2023 junk (test/ELE/MEE) with CMO checklist.
+# Idempotent — skips when the header already has the full curriculum.
+echo "Syncing BSIT 2022-2023 curriculum (if needed)..."
+php artisan curriculum:import-bsit-2022 || echo "WARN: BSIT 2022 curriculum sync skipped or failed."
 
 php artisan config:cache || true
 php artisan route:cache || true
