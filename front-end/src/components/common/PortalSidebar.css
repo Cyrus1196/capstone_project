@@ -132,6 +132,55 @@
   width: 72px;
 }
 
+/* Desktop: peek full rail on hover so content width reflows with the grid */
+@media (min-width: 768px) {
+  .portal-sidebar--collapsed:hover {
+    width: 268px;
+    z-index: 6;
+  }
+
+  .portal-sidebar--collapsed:hover .portal-sidebar__label,
+  .portal-sidebar--collapsed:hover .portal-sidebar__section-title,
+  .portal-sidebar--collapsed:hover .portal-sidebar__chevron,
+  .portal-sidebar--collapsed:hover .portal-sidebar__nested-chevron {
+    position: static;
+    width: auto;
+    height: auto;
+    padding: 0;
+    margin: 0;
+    overflow: visible;
+    clip: auto;
+    white-space: normal;
+    border: 0;
+  }
+
+  .portal-sidebar--collapsed:hover .portal-sidebar__brand {
+    justify-content: flex-start;
+  }
+
+  .portal-sidebar--collapsed:hover .portal-sidebar__section-header {
+    justify-content: space-between;
+  }
+
+  .portal-sidebar--collapsed:hover .portal-sidebar__link {
+    justify-content: flex-start;
+    padding: 0.55rem 0.85rem;
+  }
+
+  .portal-sidebar--collapsed:hover .portal-sidebar__list {
+    padding: 0 0.65rem;
+  }
+
+  .portal-sidebar--collapsed:hover .portal-sidebar__footer {
+    justify-content: flex-start;
+    padding: 0.85rem 1rem;
+  }
+
+  .portal-sidebar--collapsed:hover .portal-sidebar__footer-text {
+    display: block;
+  }
+}
+
 .portal-sidebar--admin,
 .portal-sidebar--dean,
 .portal-sidebar--faculty,
