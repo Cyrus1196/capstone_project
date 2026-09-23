@@ -422,9 +422,14 @@ const CurriculumStaffPortal = ({
                 showEvalModules={showEvalModules}
                 canManageCurriculum={showAdminCurriculumTab}
                 canManageUsers={showUserManagement}
+                portalLabel={roleChipLabel || expectedRole}
               />
             ) : (
-              <EvaluatorDashboard onNavigate={setActiveTab} showEvalModules={showEvalModules} />
+              <EvaluatorDashboard
+                onNavigate={setActiveTab}
+                showEvalModules={showEvalModules}
+                portalLabel={roleChipLabel || expectedRole}
+              />
             )
           )}
           {activeTab === 'academic-record' && showEvalModules && (

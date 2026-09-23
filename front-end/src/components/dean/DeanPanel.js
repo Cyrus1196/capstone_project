@@ -402,6 +402,7 @@ const DeanPanel = () => {
             showEvalModules={showStudentEvalTabs}
             canManageCurriculum={showAdminCurriculumTab}
             canManageUsers={showUserManagement}
+            portalLabel="Dean"
           />
         )}
         {activeTab === 'dean-analytics' && showEvaluationReportsTab && (

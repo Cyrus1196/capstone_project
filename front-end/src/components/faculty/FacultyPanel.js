@@ -179,7 +179,11 @@ const FacultyPanel = () => {
         <main id="main-content" className="portal-shell__content faculty-content" tabIndex="-1">
           <h1 className="sr-only">{activeTab.replaceAll('-', ' ')}</h1>
           {activeTab === 'dashboard' && (
-            <EvaluatorDashboard onNavigate={setActiveTab} showEvalModules={showEvalModules} />
+            <EvaluatorDashboard
+              onNavigate={setActiveTab}
+              showEvalModules={showEvalModules}
+              portalLabel="Adviser"
+            />
           )}
           {activeTab === 'academic-record' && showEvalModules && (
             <StudentEvaluationView listMode="need-evaluation" />
