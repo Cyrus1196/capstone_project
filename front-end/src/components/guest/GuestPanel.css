@@ -90,6 +90,12 @@
   border-radius: 10px;
 }
 
+/* Desktop: CITE seal; phone/tablet: SES logo (matches login/landing) */
+.guest-sim-seal--ses,
+.guest-sim-brand-text--ses {
+  display: none;
+}
+
 .guest-sim-brand-text {
   display: flex;
   flex-direction: column;
@@ -1044,6 +1050,27 @@
 
 .guest-col-remarks {
   width: 29%;
+}
+
+/* Phone/tablet header: SES logo + product name (same as login/landing) */
+@media (max-width: 900px) {
+  .guest-sim-seal--cite,
+  .guest-sim-brand-text--cite {
+    display: none;
+  }
+
+  .guest-sim-seal--ses {
+    display: block;
+  }
+
+  .guest-sim-brand-text--ses {
+    display: flex;
+  }
+
+  .guest-sim-seal {
+    width: 42px;
+    height: 42px;
+  }
 }
 
 /* Mobile: card rows so titles aren’t squeezed into a thin column */
