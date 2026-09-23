@@ -785,6 +785,18 @@
   background: #eff6ff;
 }
 
+.csv-fix-suggestion-badge {
+  margin-left: 6px;
+  font-style: normal;
+  font-weight: 600;
+  font-size: 0.72rem;
+  color: #1b5e20;
+  background: #e8f5e9;
+  border-radius: 4px;
+  padding: 1px 5px;
+  vertical-align: middle;
+}
+
 .csv-fix-select {
   width: 100%;
   min-height: 2.4rem;
@@ -792,6 +804,15 @@
   border-radius: 8px;
   padding: 8px 10px;
   font-size: 0.9rem;
+}
+
+.csv-fix-searchable {
+  width: 100%;
+}
+
+.csv-fix-term-row .csv-fix-searchable {
+  flex: 1;
+  min-width: 0;
 }
 
 .csv-fix-apply-all {

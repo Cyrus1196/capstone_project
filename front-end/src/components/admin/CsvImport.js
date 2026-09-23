@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
 import api from '../../api/axios';
 import { swalConfirm, swalSuccess, swalError } from '../../utils/swal';
 import useDialogFocus from '../../hooks/useDialogFocus';
+import SearchableSelect from '../common/SearchableSelect';
 import './CsvImport.css';
 
 /** For sis_mixed preview: put row-type and grade fields first so they are visible without horizontal scroll. */
@@ -1296,104 +1297,109 @@ const CsvImport = ({
                                   }))
                                 }
                               >
-                                <strong>{s.subject_code}</strong>
+                                <strong>
+                                  {s.subject_code}
+                                  {s.in_program ? (
+                                    <em className="csv-fix-suggestion-badge"> program</em>
+                                  ) : null}
+                                </strong>
                                 <span>{s.subject_name}</span>
                               </button>
                             ))}
                           </div>
                         </div>
                       ) : null}
-                      <select
-                        className="csv-fix-select"
+                      <SearchableSelect
+                        className="csv-fix-searchable"
                         value={fixFormValues.subject_code || ''}
-                        onChange={(e) =>
+                        onChange={(v) =>
                           setFixFormValues((prev) => ({
                             ...prev,
-                            subject_code: e.target.value,
+                            subject_code: v,
                           }))
                         }
-                      >
-                        <option value="">Select system subject…</option>
-                        {(subjects || []).map((s) => (
-                          <option key={s.subject_id} value={s.subject_code}>
-                            {s.subject_code} — {s.subject_name}
-                          </option>
-                        ))}
-                      </select>
+                        options={(subjects || []).map((s) => ({
+                          value: String(s.subject_code),
+                          label: `${s.subject_code} — ${s.subject_name}`,
+                        }))}
+                        placeholder="Type to search subjects…"
+                        emptyLabel="Select system subject…"
+                        aria-label="System subject"
+                      />
                     </>
                   ) : null}
 
                   {issue.type === 'term_select' ? (
                     <div className="csv-fix-term-row">
-                      <select
-                        className="csv-fix-select"
+                      <SearchableSelect
+                        className="csv-fix-searchable"
                         value={fixFormValues.academic_year_id || ''}
-                        onChange={(e) =>
+                        onChange={(v) =>
                           setFixFormValues((prev) => ({
                             ...prev,
-                            academic_year_id: e.target.value,
+                            academic_year_id: v,
                           }))
                         }
-                      >
-                        <option value="">Academic year…</option>
-                        {(fixOptions.academic_years || []).map((ay) => (
-                          <option key={ay.academic_year_id} value={String(ay.academic_year_id)}>
-                            {ay.academic_year_name} (id {ay.academic_year_id})
-                          </option>
-                        ))}
-                      </select>
-                      <select
-                        className="csv-fix-select"
+                        options={(fixOptions.academic_years || []).map((ay) => ({
+                          value: String(ay.academic_year_id),
+                          label: `${ay.academic_year_name} (id ${ay.academic_year_id})`,
+                        }))}
+                        placeholder="Type to search academic year…"
+                        emptyLabel="Academic year…"
+                        aria-label="Academic year"
+                      />
+                      <SearchableSelect
+                        className="csv-fix-searchable"
                         value={fixFormValues.semester_id || ''}
-                        onChange={(e) =>
+                        onChange={(v) =>
                           setFixFormValues((prev) => ({
                             ...prev,
-                            semester_id: e.target.value,
+                            semester_id: v,
                           }))
                         }
-                      >
-                        <option value="">Semester…</option>
-                        {(fixOptions.semesters || []).map((sem) => (
-                          <option key={sem.semester_id} value={String(sem.semester_id)}>
-                            {sem.semester_name} (id {sem.semester_id})
-                          </option>
-                        ))}
-                      </select>
+                        options={(fixOptions.semesters || []).map((sem) => ({
+                          value: String(sem.semester_id),
+                          label: `${sem.semester_name} (id ${sem.semester_id})`,
+                        }))}
+                        placeholder="Type to search semester…"
+                        emptyLabel="Semester…"
+                        aria-label="Semester"
+                      />
                     </div>
                   ) : null}
 
                   {issue.type === 'select' && issue.field === 'program_id' ? (
-                    <select
-                      className="csv-fix-select"
+                    <SearchableSelect
+                      className="csv-fix-searchable"
                       value={fixFormValues.program_id || ''}
-                      onChange={(e) =>
-                        setFixFormValues((prev) => ({ ...prev, program_id: e.target.value }))
+                      onChange={(v) =>
+                        setFixFormValues((prev) => ({ ...prev, program_id: v }))
                       }
-                    >
-                      <option value="">Select program…</option>
-                      {(fixOptions.programs || []).map((p) => (
-                        <option key={p.program_id} value={String(p.program_id)}>
-                          {p.program_code || p.program_name} — {p.program_name}
-                        </option>
-                      ))}
-                    </select>
+                      options={(fixOptions.programs || []).map((p) => ({
+                        value: String(p.program_id),
+                        label: `${p.program_code || p.program_name} — ${p.program_name}`,
+                      }))}
+                      placeholder="Type to search program…"
+                      emptyLabel="Select program…"
+                      aria-label="Program"
+                    />
                   ) : null}
 
                   {issue.type === 'select' && issue.field === 'year_level_id' ? (
-                    <select
-                      className="csv-fix-select"
+                    <SearchableSelect
+                      className="csv-fix-searchable"
                       value={fixFormValues.year_level_id || ''}
-                      onChange={(e) =>
-                        setFixFormValues((prev) => ({ ...prev, year_level_id: e.target.value }))
+                      onChange={(v) =>
+                        setFixFormValues((prev) => ({ ...prev, year_level_id: v }))
                       }
-                    >
-                      <option value="">Select year level…</option>
-                      {(fixOptions.year_levels || []).map((yl) => (
-                        <option key={yl.year_level_id} value={String(yl.year_level_id)}>
-                          {yl.year_level}
-                        </option>
-                      ))}
-                    </select>
+                      options={(fixOptions.year_levels || []).map((yl) => ({
+                        value: String(yl.year_level_id),
+                        label: String(yl.year_level),
+                      }))}
+                      placeholder="Type to search year level…"
+                      emptyLabel="Select year level…"
+                      aria-label="Year level"
+                    />
                   ) : null}
 
                   {issue.type === 'text' ? (

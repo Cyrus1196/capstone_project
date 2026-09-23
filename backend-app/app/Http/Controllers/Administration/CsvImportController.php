@@ -2261,14 +2261,63 @@ class CsvImportController extends Controller
     }
 
     /**
-     * @return list<array{subject_id: int, subject_code: string, subject_name: string}>
+     * Compact subject title for fuzzy compare (drop parentheticals / punctuation).
+     */
+    private function compactSubjectTitle(string $name): string
+    {
+        $stripped = preg_replace('/\([^)]*\)/', ' ', $name) ?? $name;
+        $stripped = preg_replace('/[^A-Za-z0-9]+/', '', strtoupper($stripped)) ?? '';
+
+        return $stripped;
+    }
+
+    /**
+     * 0–100 name similarity; treats "Introduction to Computing" as a match for
+     * "Introduction to Computing (Including IT Fundamentals)".
+     */
+    private function subjectNameSimilarityScore(string $importName, string $dbName): int
+    {
+        $importCompact = $this->compactSubjectTitle($importName);
+        $dbCompact = $this->compactSubjectTitle($dbName);
+        if ($importCompact === '' || $dbCompact === '') {
+            return 0;
+        }
+        if ($importCompact === $dbCompact) {
+            return 100;
+        }
+        if (str_contains($dbCompact, $importCompact) || str_contains($importCompact, $dbCompact)) {
+            $shorter = min(strlen($importCompact), strlen($dbCompact));
+            $longer = max(strlen($importCompact), strlen($dbCompact));
+
+            return max(90, (int) round(100 * $shorter / max(1, $longer)));
+        }
+        similar_text($importCompact, $dbCompact, $pct);
+
+        return (int) round($pct);
+    }
+
+    private function subjectCodeLetterPrefix(string $code): string
+    {
+        if (preg_match('/^[A-Za-z]+/', trim($code), $m)) {
+            return strtoupper($m[0]);
+        }
+
+        return '';
+    }
+
+    /**
+     * @return list<array{subject_id: int, subject_code: string, subject_name: string, in_program?: bool}>
      */
     private function suggestSystemSubjectsForImport(string $importCode, string $importName, ?int $programId = null): array
     {
         $suggestions = [];
         $seen = [];
+        $curriculumSubjectIds = $programId
+            ? Curriculum::query()->where('program_id', $programId)->pluck('subject_id')->map(fn ($id) => (int) $id)->all()
+            : [];
+        $curriculumIdSet = array_fill_keys($curriculumSubjectIds, true);
 
-        $add = function (Subject $subject) use (&$suggestions, &$seen): void {
+        $add = function (Subject $subject) use (&$suggestions, &$seen, $curriculumIdSet): void {
             $id = (int) $subject->subject_id;
             if (isset($seen[$id])) {
                 return;
@@ -2278,6 +2327,7 @@ class CsvImportController extends Controller
                 'subject_id' => $id,
                 'subject_code' => (string) $subject->subject_code,
                 'subject_name' => (string) $subject->subject_name,
+                'in_program' => isset($curriculumIdSet[$id]),
             ];
         };
 
@@ -2294,60 +2344,50 @@ class CsvImportController extends Controller
             }
         }
 
-        if ($importName !== '') {
-            $importCompact = preg_replace('/\s+/', '', strtoupper($importName)) ?? '';
-            foreach (Subject::query()->get() as $subject) {
-                $dbCompact = preg_replace('/\s+/', '', strtoupper(trim((string) $subject->subject_name))) ?? '';
-                if ($dbCompact === '' || $importCompact === '') {
-                    continue;
-                }
-                if ($dbCompact === $importCompact) {
-                    $add($subject);
+        $allSubjects = Subject::query()->orderBy('subject_code')->get();
+        $nameThreshold = 68;
+        $programNameThreshold = 55;
 
-                    continue;
-                }
-                similar_text($importCompact, $dbCompact, $pct);
-                if ($pct >= 72) {
+        if ($importName !== '') {
+            // Prefer student's program curriculum first, then other programs.
+            $ordered = $allSubjects->sortBy(function (Subject $subject) use ($curriculumIdSet) {
+                return isset($curriculumIdSet[(int) $subject->subject_id]) ? 0 : 1;
+            });
+
+            foreach ($ordered as $subject) {
+                $score = $this->subjectNameSimilarityScore($importName, (string) $subject->subject_name);
+                $inProgram = isset($curriculumIdSet[(int) $subject->subject_id]);
+                $minScore = $inProgram ? $programNameThreshold : $nameThreshold;
+                if ($score >= $minScore) {
                     $add($subject);
                 }
             }
         }
 
-        $importNameCompact = preg_replace('/\s+/', '', strtoupper(trim($importName))) ?? '';
-        $curriculumSubjectIds = $programId
-            ? Curriculum::query()->where('program_id', $programId)->pluck('subject_id')->all()
-            : [];
+        $importCodePrefix = $this->subjectCodeLetterPrefix($importCode);
 
-        usort($suggestions, function (array $a, array $b) use ($importNameCompact, $curriculumSubjectIds): int {
-            $nameRank = function (array $item) use ($importNameCompact): array {
-                $dbCompact = preg_replace('/\s+/', '', strtoupper(trim((string) ($item['subject_name'] ?? '')))) ?? '';
-                if ($importNameCompact === '' || $dbCompact === '') {
-                    return [2, 0];
-                }
-                if ($dbCompact === $importNameCompact) {
-                    return [0, 100];
-                }
-                similar_text($importNameCompact, $dbCompact, $pct);
-
-                return [1, (int) round($pct)];
-            };
-
-            [$aNameTier, $aNameScore] = $nameRank($a);
-            [$bNameTier, $bNameScore] = $nameRank($b);
-            if ($aNameTier !== $bNameTier) {
-                return $aNameTier <=> $bNameTier;
-            }
-            if ($aNameScore !== $bNameScore) {
-                return $bNameScore <=> $aNameScore;
-            }
-
-            $aIn = in_array($a['subject_id'], $curriculumSubjectIds, true) ? 0 : 1;
-            $bIn = in_array($b['subject_id'], $curriculumSubjectIds, true) ? 0 : 1;
+        usort($suggestions, function (array $a, array $b) use ($importName, $importCodePrefix, $curriculumIdSet): int {
+            $aIn = isset($curriculumIdSet[$a['subject_id']]) ? 0 : 1;
+            $bIn = isset($curriculumIdSet[$b['subject_id']]) ? 0 : 1;
             if ($aIn !== $bIn) {
                 return $aIn <=> $bIn;
             }
 
-            return strcmp($a['subject_code'], $b['subject_code']);
+            $aScore = $this->subjectNameSimilarityScore($importName, (string) ($a['subject_name'] ?? ''));
+            $bScore = $this->subjectNameSimilarityScore($importName, (string) ($b['subject_name'] ?? ''));
+            if ($aScore !== $bScore) {
+                return $bScore <=> $aScore;
+            }
+
+            if ($importCodePrefix !== '') {
+                $aPrefix = $this->subjectCodeLetterPrefix((string) ($a['subject_code'] ?? '')) === $importCodePrefix ? 0 : 1;
+                $bPrefix = $this->subjectCodeLetterPrefix((string) ($b['subject_code'] ?? '')) === $importCodePrefix ? 0 : 1;
+                if ($aPrefix !== $bPrefix) {
+                    return $aPrefix <=> $bPrefix;
+                }
+            }
+
+            return strcmp((string) ($a['subject_code'] ?? ''), (string) ($b['subject_code'] ?? ''));
         });
 
         return array_slice($suggestions, 0, 8);
