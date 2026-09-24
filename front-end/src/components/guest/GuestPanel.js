@@ -2614,20 +2614,11 @@ export default function GuestPanel() {
       <header className="guest-sim-topbar">
         <div className="guest-sim-brand">
           <img
-            src={`${publicUrl}/assets/cit_cagayan_de_oro_college_seal.png`}
-            alt="College of Information Technology — Cagayan De Oro College"
-            className="guest-sim-seal guest-sim-seal--cite"
-          />
-          <img
             src={`${publicUrl}/assets/student_evaluation_system_logo.png`}
             alt="Student Evaluation System"
-            className="guest-sim-seal guest-sim-seal--ses"
+            className="guest-sim-seal"
           />
-          <div className="guest-sim-brand-text guest-sim-brand-text--cite">
-            <span className="guest-sim-institution">{INSTITUTION_NAME}</span>
-            <span className="guest-sim-portal-tag">Academic Evaluation Portal · Guest</span>
-          </div>
-          <div className="guest-sim-brand-text guest-sim-brand-text--ses">
+          <div className="guest-sim-brand-text">
             <span className="guest-sim-institution">Student Evaluation System</span>
             <span className="guest-sim-portal-tag">Academic Evaluation Portal · Guest</span>
           </div>
