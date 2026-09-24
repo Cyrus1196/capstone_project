@@ -1285,13 +1285,11 @@ function orderInList(list, id, idField) {
   return i === -1 ? Number(id) || 99999 : i;
 }
 
-/** Max enrollable units per regular semester by curriculum year level.
- *  Aligned to BSIT CMO No. 25 S. 2015 Effective SY 2022-2023 term totals
- *  (Y1=24, Y2S2=27, Y3=19, Y4=12) so official checklist loads are not flagged.
- */
+/** Max enrollable units per regular semester by curriculum year level
+ *  (institutional load limits: 1st=23, 2nd=24, 3rd=19, 4th=12). */
 const GUEST_MAX_UNITS_BY_YEAR = {
-  1: 24,
-  2: 27,
+  1: 23,
+  2: 24,
   3: 19,
   4: 12,
 };
@@ -1839,7 +1837,7 @@ export default function GuestPanel() {
   /** Credited / lacking units, standing, and remaining years & semesters. */
   const simulationStats = useMemo(() => {
     let creditedUnits = 0;
-    let lackingUnits = 0;
+    let listedUncredited = 0;
 
     visibleCreditScopeRows.forEach((row) => {
       const n = parseUnitsNumber(getUnitsForGuest(row, getGuestTrackIdForRow(row, guestElectiveTracks), programs, creditScopeRows, guestElectiveTracks));
@@ -1847,17 +1845,27 @@ export default function GuestPanel() {
       if (effectivelyCredited) {
         if (n != null) creditedUnits += n;
       } else if (n != null) {
-        lackingUnits += n;
+        listedUncredited += n;
       }
     });
+
+    // Prefer program.total_units_required (e.g. BSIT 154) over the sum of listed
+    // checklist rows when the official degree total is higher.
+    const selectedProgram =
+      programs.find((p) => String(p.program_id) === String(programFilter)) || null;
+    const programRequired = Number(selectedProgram?.total_units_required) || 0;
+    const listedTotal = creditedUnits + listedUncredited;
+    const degreeTotal = programRequired > 0 ? Math.max(programRequired, listedTotal) : listedTotal;
+    const lackingUnits = Math.max(0, degreeTotal - creditedUnits);
 
     const standing = resolveGuestStanding(studyMap, creditedUnits);
     const maxUnitsPerSemester = getMaxUnitsForYearIndex(standing.standingYearIndex);
     const totalProgramYears = studyMap.length;
 
-    const programComplete =
-      totalProgramYears > 0 &&
-      creditedUnits >= studyMap[totalProgramYears - 1].cumulativeThreshold;
+    const lastThreshold =
+      totalProgramYears > 0 ? studyMap[totalProgramYears - 1].cumulativeThreshold : 0;
+    const completionTarget = Math.max(lastThreshold, degreeTotal);
+    const programComplete = totalProgramYears > 0 && creditedUnits >= completionTarget;
 
     const remainingYears = programComplete
       ? 0
@@ -1877,6 +1885,7 @@ export default function GuestPanel() {
     return {
       creditedUnits,
       lackingUnits,
+      degreeTotal,
       remainingYears,
       remainingSemesters,
       standingYearIndex: standing.standingYearIndex,
@@ -1893,6 +1902,7 @@ export default function GuestPanel() {
     remarks,
     guestElectiveTracks,
     programs,
+    programFilter,
     studyMap,
     yearLevels,
     semesters,
