@@ -23,6 +23,77 @@ function subjectCodeCurriculumCategory(subjectCode) {
   return 'other';
 }
 
+/** Units for one curriculum row (elective slots default to 3 when subject units are empty). */
+function curriculumRowUnits(row) {
+  const subj = row?.subject;
+  let u = Number(subj?.number_of_units ?? row?.number_of_units);
+  const isElectiveSlot = Boolean(row?.elective_slot_id || row?.electiveSlot || row?.elective_slot);
+  if ((!Number.isFinite(u) || u <= 0) && isElectiveSlot) {
+    u = 3;
+  }
+  return Number.isFinite(u) && u > 0 ? u : 0;
+}
+
+/**
+ * Latest curriculum total units per program_id (by Effective_Year).
+ * Totals come from curriculum rows — not program.total_units_required.
+ */
+function buildProgramCurriculumUnitsMap(curriculums, curriculumHeaders) {
+  const sumsByHeader = new Map();
+  (curriculums || []).forEach((row) => {
+    const hid = row.curriculum_header_id
+      ?? row.curriculumHeader?.curriculum_header_id
+      ?? row.curriculum_header?.curriculum_header_id;
+    if (hid == null) return;
+    const key = String(hid);
+    sumsByHeader.set(key, (sumsByHeader.get(key) || 0) + curriculumRowUnits(row));
+  });
+
+  const headersByProgram = new Map();
+  (curriculumHeaders || []).forEach((h) => {
+    const pid = String(h.program_id ?? h.program?.program_id ?? '');
+    if (!pid) return;
+    if (!headersByProgram.has(pid)) headersByProgram.set(pid, []);
+    headersByProgram.get(pid).push(h);
+  });
+
+  // Also attribute headers from curriculum rows when header list is incomplete.
+  (curriculums || []).forEach((row) => {
+    const pid = String(row.program_id ?? row.program?.program_id ?? '');
+    const hid = row.curriculum_header_id
+      ?? row.curriculumHeader?.curriculum_header_id
+      ?? row.curriculum_header?.curriculum_header_id;
+    if (!pid || hid == null) return;
+    if (!headersByProgram.has(pid)) headersByProgram.set(pid, []);
+    const list = headersByProgram.get(pid);
+    if (!list.some((h) => String(h.curriculum_header_id) === String(hid))) {
+      const h = row.curriculumHeader ?? row.curriculum_header ?? {
+        curriculum_header_id: hid,
+        program_id: pid,
+        Effective_Year: 0,
+      };
+      list.push(h);
+    }
+  });
+
+  const result = new Map();
+  headersByProgram.forEach((headers, pid) => {
+    const sorted = [...headers].sort(
+      (a, b) =>
+        Number(b.Effective_Year ?? b.effective_year ?? 0) -
+        Number(a.Effective_Year ?? a.effective_year ?? 0),
+    );
+    for (const h of sorted) {
+      const sum = sumsByHeader.get(String(h.curriculum_header_id));
+      if (sum != null && sum > 0) {
+        result.set(pid, sum);
+        return;
+      }
+    }
+  });
+  return result;
+}
+
 /** Lookup tabs that show a client-side search field above the grid */
 const SEARCHABLE_LOOKUP_SECTIONS = new Set([
   'programs',
@@ -35,7 +106,7 @@ const SEARCHABLE_LOOKUP_SECTIONS = new Set([
 ]);
 
 const LOOKUP_SEARCH_PLACEHOLDER = {
-  programs: 'Search by department code, program name, or units…',
+  programs: 'Search by department code or program name…',
   departments: 'Search by campus, name, or code…',
   subjects: 'Search by code or name…',
   requisites: 'Search by type, subject, or required subject…',
@@ -217,6 +288,12 @@ const LookupDataManagement = ({
     if (slug && hasPermission(`lookup.${slug}.manage`)) return true;
     return false;
   }, [isAdmin, hasPermission, activeTab]);
+
+  const programCurriculumUnitsById = useMemo(
+    () =>
+      buildProgramCurriculumUnitsMap(lookupData.curriculums, lookupData.curriculumHeaders),
+    [lookupData.curriculums, lookupData.curriculumHeaders],
+  );
 
   const setActiveTab = (key) => {
     if (externalNav) {
@@ -744,6 +821,10 @@ const LookupDataManagement = ({
       }
 
       const payload = { ...formData };
+      // Degree totals come from curriculum rows — never write total_units_required from this form.
+      if (activeTab === 'programs') {
+        delete payload.total_units_required;
+      }
       // New lookup rows (except semester) always start Active — change later via Activate/Deactivate.
       if (!editingItem && activeTab !== 'semesters' && activeTab !== 'requisites') {
         if (Object.prototype.hasOwnProperty.call(LOOKUP_STATUS_API_PATH, activeTab)) {
@@ -819,7 +900,7 @@ const LookupDataManagement = ({
 
   const getDefaultFormData = (section) => {
     const defaults = {
-      programs: { department_id: '', program_code: '', program_name: '', total_units_required: '' },
+      programs: { department_id: '', program_code: '', program_name: '' },
       departments: { campus_id: '', department_name: '', department_code: '' },
       subjects: { subject_code: '', subject_name: '', number_of_units: 3, number_of_hrs: 3 },
       yearLevels: { year_level: '' },
@@ -849,7 +930,6 @@ const LookupDataManagement = ({
         department_id: item.department_id ?? '',
         program_code: item.program_code ?? '',
         program_name: item.program_name ?? '',
-        total_units_required: item.total_units_required ?? '',
       };
     }
 
@@ -1558,16 +1638,6 @@ const LookupDataManagement = ({
               value={formData.program_name || ''}
               onChange={(e) => setFormData({ ...formData, program_name: e.target.value })}
               required
-            />
-          </div>
-          <div className="form-group">
-            <label>Total Units Required</label>
-            <input
-              type="number"
-              aria-label="Total units required"
-              min="0"
-              value={formData.total_units_required === null || formData.total_units_required === undefined ? '' : formData.total_units_required}
-              onChange={(e) => setFormData({ ...formData, total_units_required: e.target.value === '' ? '' : parseInt(e.target.value) })}
             />
           </div>
         </>
@@ -2707,7 +2777,7 @@ const LookupDataManagement = ({
   const renderTable = (section, data) => {
     const showActions = canMutateCurrentPanel;
     const tableHeaders = {
-      programs: ['Department Code', 'Program Name', 'Total Units', 'Status'],
+      programs: ['Department Code', 'Program Name', 'Total Units (curriculum)', 'Status'],
       departments: ['Campus', 'Department Name', 'Department Code', 'Status'],
       subjects: ['Subject Code', 'Subject Name', 'Units', 'Hours', 'Status'],
       yearLevels: ['Year Level', 'Status'],
@@ -2727,7 +2797,10 @@ const LookupDataManagement = ({
         programs: [
           item.department?.department_code || item.department_code || item.department_id || '-',
           item.program_name,
-          (item.total_units_required === null || item.total_units_required === undefined) ? '-' : item.total_units_required,
+          (() => {
+            const fromCurriculum = programCurriculumUnitsById.get(String(item.program_id));
+            return fromCurriculum != null ? fromCurriculum : '—';
+          })(),
           lookupItemIsActive(item) ? 'Active' : 'Inactive',
         ],
         departments: [
