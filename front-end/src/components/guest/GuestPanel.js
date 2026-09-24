@@ -37,6 +37,28 @@ function curriculumHeaderLabel(row) {
   return schoolYear || h.description || `Curriculum #${row.curriculum_header_id}`;
 }
 
+/** BSIT degree totals by curriculum Effective_Year (SY start year). */
+const GUEST_DEGREE_TOTAL_BY_EFFECTIVE_YEAR = {
+  2022: 154, // 2022-2023 — one additional subject vs later revision
+  2023: 150, // 2023-2024
+};
+
+function getCurriculumEffectiveYear(row) {
+  const h = row?.curriculumHeader ?? row?.curriculum_header;
+  const y = Number(h?.Effective_Year ?? h?.effective_year);
+  return Number.isFinite(y) && y > 0 ? y : null;
+}
+
+/** Degree total for the selected curriculum — not the program-wide required units. */
+function resolveGuestDegreeTotal(listedTotal, effectiveYear, programRequired) {
+  const year = Number(effectiveYear);
+  if (Number.isFinite(year) && GUEST_DEGREE_TOTAL_BY_EFFECTIVE_YEAR[year] != null) {
+    return GUEST_DEGREE_TOTAL_BY_EFFECTIVE_YEAR[year];
+  }
+  if (listedTotal > 0) return listedTotal;
+  return programRequired > 0 ? programRequired : 0;
+}
+
 function electiveSlot(row) {
   return row.electiveSlot || row.elective_slot;
 }
@@ -1849,13 +1871,16 @@ export default function GuestPanel() {
       }
     });
 
-    // Prefer program.total_units_required (e.g. BSIT 154) over the sum of listed
-    // checklist rows when the official degree total is higher.
+    // Degree total follows the selected curriculum year (22-23=154, 23-24=150),
+    // not program.total_units_required which is shared across all curricula.
     const selectedProgram =
       programs.find((p) => String(p.program_id) === String(programFilter)) || null;
     const programRequired = Number(selectedProgram?.total_units_required) || 0;
     const listedTotal = creditedUnits + listedUncredited;
-    const degreeTotal = programRequired > 0 ? Math.max(programRequired, listedTotal) : listedTotal;
+    const effectiveYear = getCurriculumEffectiveYear(
+      visibleCreditScopeRows[0] || creditScopeRows[0],
+    );
+    const degreeTotal = resolveGuestDegreeTotal(listedTotal, effectiveYear, programRequired);
     const lackingUnits = Math.max(0, degreeTotal - creditedUnits);
 
     const standing = resolveGuestStanding(studyMap, creditedUnits);
