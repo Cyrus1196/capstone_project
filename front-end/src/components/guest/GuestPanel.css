@@ -58,7 +58,7 @@
 
 /* Space for fixed Confirm / Back floating bar */
 .guest-sim-page-content--sim-float {
-  padding-bottom: calc(5.75rem + env(safe-area-inset-bottom, 0px));
+  padding-bottom: calc(6.5rem + env(safe-area-inset-bottom, 0px));
 }
 
 /* —— Top bar —— */
@@ -955,7 +955,7 @@
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 0.9rem;
   padding: 0.95rem;
-  align-items: start;
+  align-items: stretch;
 }
 
 @media (max-width: 900px) {
@@ -974,9 +974,33 @@
 }
 
 .guest-sim-semester-card {
+  display: flex;
+  flex-direction: column;
   height: 100%;
+  min-height: 0;
   border-color: #e4edf6;
   background: #fff;
+}
+
+.guest-sim-semester-card .guest-sim-section-heading {
+  flex-shrink: 0;
+}
+
+.guest-sim-semester-card .guest-sim-mini-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.guest-sim-semester-card .guest-sim-mini-table {
+  flex: 1 1 auto;
+  height: 100%;
+}
+
+.guest-sim-semester-card .guest-sim-mini-table tfoot td {
+  background: #f8fbff;
+  border-top: 1px solid #e1ebf5;
 }
 
 .guest-sim-section-heading {

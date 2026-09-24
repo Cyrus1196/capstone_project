@@ -1285,10 +1285,13 @@ function orderInList(list, id, idField) {
   return i === -1 ? Number(id) || 99999 : i;
 }
 
-/** Max enrollable units per regular semester by curriculum year level. */
+/** Max enrollable units per regular semester by curriculum year level.
+ *  Aligned to BSIT CMO No. 25 S. 2015 Effective SY 2022-2023 term totals
+ *  (Y1=24, Y2S2=27, Y3=19, Y4=12) so official checklist loads are not flagged.
+ */
 const GUEST_MAX_UNITS_BY_YEAR = {
-  1: 23,
-  2: 24,
+  1: 24,
+  2: 27,
   3: 19,
   4: 12,
 };
