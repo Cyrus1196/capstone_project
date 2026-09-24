@@ -50,13 +50,6 @@ const Landing = () => {
                 </span>
               </div>
             </div>
-            <div className="landing-page__partner landing-page__partner--desktop">
-              <img
-                src={`${publicUrl}/assets/cit_cagayan_de_oro_college_seal.png`}
-                alt="College of Information Technology — Cagayan De Oro College"
-                className="landing-page__phinma-img landing-page__cite-seal"
-              />
-            </div>
           </div>
         </header>
 
