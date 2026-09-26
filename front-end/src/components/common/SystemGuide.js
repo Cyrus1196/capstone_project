@@ -10,7 +10,7 @@ import React, {
 import { useAuth } from '../../context/AuthContext';
 import './SystemGuide.css';
 
-const GUIDE_STORAGE_PREFIX = 'portalGuideSeen_v4_';
+const GUIDE_STORAGE_PREFIX = 'portalGuideSeen_v5_';
 
 const SystemGuideContext = createContext(null);
 
@@ -56,7 +56,6 @@ function clearGuideSeen(userId) {
 function portalNameForRole(role) {
   const r = String(role || '').trim().toLowerCase();
   if (r === 'dean') return 'Dean Portal';
-  if (r === 'admin') return 'Admin Panel';
   if (r === 'program head') return 'Program Head portal';
   if (r === 'secretary') return 'Secretary portal';
   if (r === 'adviser' || r === 'evaluator' || r === 'faculty') return 'Adviser Portal';
@@ -64,7 +63,7 @@ function portalNameForRole(role) {
 }
 
 /**
- * Shared evaluation walkthrough for every staff role:
+ * Shared evaluation walkthrough for evaluating staff roles (not Admin):
  * regulars are auto-evaluated/promoted; manual work focuses on irregulars.
  */
 function evaluationWalkthroughSteps({ portalName = 'portal' } = {}) {
@@ -225,7 +224,59 @@ function tourStepsForRole(role) {
     ];
   }
 
-  // Dean, Adviser, Evaluator, Program Head, Secretary, Admin, and any other staff role.
+  // Admin manages the system — no student-evaluation walkthrough.
+  if (r === 'admin') {
+    return [
+      {
+        title: 'How it works',
+        body: 'Welcome to the Admin Panel. Each step opens a module and shows what you manage there. Student evaluation is handled by Dean, Adviser, Program Head, and Secretary — not this guide.',
+        target: null,
+      },
+      {
+        title: 'Sidebar',
+        body: 'Every administration module lives in this left menu.',
+        target: '[data-tour="portal-sidebar"]',
+        spotlight: 'sidebar',
+      },
+      {
+        title: 'Lookup data',
+        body: 'Maintain programs, departments, subjects, campuses, and other reference lists.',
+        openTab: 'lookup',
+        target: '[data-tour="page-lookup-data"], .portal-shell__content',
+      },
+      {
+        title: 'User management',
+        body: 'Create and edit staff accounts, assign roles, and control access.',
+        openTab: 'users',
+        target: '[data-tour="page-user-management"]',
+      },
+      {
+        title: 'Student management',
+        body: 'Manage student profiles and import grade CSV files with preview and Fix row.',
+        openTab: 'student-management',
+        target: '[data-tour="page-student-management"]',
+      },
+      {
+        title: 'Curriculum',
+        body: 'Maintain program curricula, subjects, and prerequisites used across evaluation.',
+        openTab: 'curriculum',
+        target: '[data-tour="page-curriculum"]',
+      },
+      {
+        title: 'Elective slots',
+        body: 'Configure elective slots available to programs and evaluation.',
+        openTab: 'elective-slots',
+        target: '[data-tour="page-elective-slots"]',
+      },
+      {
+        title: 'Guide anytime',
+        body: 'Need a refresher? Click Guide next to Logout.',
+        target: '[data-tour="guide-button"]',
+      },
+    ];
+  }
+
+  // Dean, Adviser, Evaluator, Program Head, Secretary, and other evaluating staff.
   return evaluationWalkthroughSteps({ portalName: portalNameForRole(role) });
 }
 
