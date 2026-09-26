@@ -128,18 +128,19 @@ function evaluationWalkthroughSteps({ portalName = 'portal' } = {}) {
       requireBeforeNext: '[data-tour="promote-review"]',
       requireMessage: 'Click Promote to next semester before continuing.',
       blockedButtonLabel: 'Open promote first',
+      autoAdvanceOnRequire: true,
     },
     {
       title: '6. Review next term',
       body: 'Review next-term subjects, prerequisites, and units. Pick a track or elective if required, enter the evaluator name, then Save. In Guide mode, Save only closes the preview.',
       openTab: 'academic-record',
-      target:
-        '[data-tour="promote-review"], [data-tour="promote-student"], [data-tour="evaluation-summary"], [data-tour="page-academic-record"]',
+      target: '[data-tour="promote-review"]',
       allowInteraction: true,
       requireBeforeNext:
         '[data-tour="page-academic-record"][data-guide-promotion-saved="true"]',
       requireMessage: 'Click Save in the promotion preview before continuing.',
       blockedButtonLabel: 'Save preview first',
+      autoAdvanceOnRequire: true,
     },
     {
       title: '7. Open Subject placement',
@@ -151,33 +152,39 @@ function evaluationWalkthroughSteps({ portalName = 'portal' } = {}) {
       requireBeforeNext: '[data-tour="subject-placement-panel"]',
       requireMessage: 'Open Subject placement before continuing.',
       blockedButtonLabel: 'Open placement first',
+      autoAdvanceOnRequire: true,
     },
     {
       title: '8. Build the term load',
       body: 'Check Take for subjects to enroll and Drop for deferred ones. Prior subjects need met prerequisites and must be offered; stay within the unit cap. Preview-only while the Guide is open.',
       openTab: 'academic-record',
-      target:
-        '[data-tour="subject-placement-panel"], [data-tour="subject-placement"], [data-tour="page-academic-record"]',
+      target: '[data-tour="subject-placement-panel"]',
       allowInteraction: true,
     },
     {
       title: '9. Save subject placement',
-      body: 'Click Save load plan to finish. In Guide mode this closes the preview without writing the load plan.',
+      body: 'Click Save load plan (bottom of the placement window) to finish. In Guide mode this closes the preview without writing the load plan.',
       openTab: 'academic-record',
-      target:
-        '[data-tour="save-load-plan"], [data-tour="subject-placement-panel"], [data-tour="subject-placement"], [data-tour="page-academic-record"]',
+      target: '[data-tour="save-load-plan"]',
       allowInteraction: true,
+      requireBeforeNext:
+        '[data-tour="page-academic-record"][data-guide-load-saved="true"]',
+      requireMessage: 'Click Save load plan before continuing.',
+      blockedButtonLabel: 'Save load plan first',
+      autoAdvanceOnRequire: true,
     },
     {
       title: 'Evaluation complete',
       body: 'Recheck Year/Semester, irregular vs regular status, remaining units, and This term load. Open Evaluated students later to review stored irregular evaluations.',
       openTab: 'academic-record',
       target: '[data-tour="evaluation-summary"]',
+      closeEvalPanels: true,
     },
     {
       title: 'Guide anytime',
       body: 'Click Guide next to Logout anytime you need this irregular-evaluation walkthrough again.',
       target: '[data-tour="guide-button"]',
+      closeEvalPanels: true,
     },
   ];
 }
@@ -382,7 +389,13 @@ export function SystemGuideProvider({ children }) {
     setOpen(false);
     setStepIndex(0);
     if (userId != null) markGuideSeen(userId);
+    window.dispatchEvent(new CustomEvent('system-guide-close-eval-panels'));
   }, [userId]);
+
+  useEffect(() => {
+    document.body.classList.toggle('system-guide-open', open);
+    return () => document.body.classList.remove('system-guide-open');
+  }, [open]);
 
   const resetGuide = useCallback(() => {
     clearGuideSeen(userId);
@@ -575,7 +588,13 @@ function SpotlightTour({ steps, stepIndex, setStepIndex, onClose }) {
 
     expandSidebarIfNeeded();
 
-    let found = step.target ? resolveTargetRect(step.target) : null;
+    // Prefer the required control/modal once it appears (e.g. promote preview after click).
+    let found = step.requireBeforeNext
+      ? resolveTargetRect(step.requireBeforeNext)
+      : null;
+    if (!found && step.target) {
+      found = resolveTargetRect(step.target);
+    }
     if (!found && step.openTab) {
       found = resolveTargetRect(
         '[data-tour="page-academic-record"], [data-tour="page-evaluated-students"], .portal-shell__content'
@@ -603,7 +622,12 @@ function SpotlightTour({ steps, stepIndex, setStepIndex, onClose }) {
       if (step.openTab) {
         activateTourTab(step.openTab);
       }
-      const delays = isSidebarStep || step.openTab ? [50, 150, 300, 500, 800, 1200] : [40, 120];
+      if (step.closeEvalPanels) {
+        window.dispatchEvent(new CustomEvent('system-guide-close-eval-panels'));
+      }
+      const delays = isSidebarStep || step.openTab || step.allowInteraction
+        ? [50, 150, 300, 500, 800, 1200]
+        : [40, 120];
       delays.forEach((ms) => {
         timers.push(
           window.setTimeout(() => {
@@ -626,17 +650,31 @@ function SpotlightTour({ steps, stepIndex, setStepIndex, onClose }) {
 
   useEffect(() => {
     if (!step?.requireBeforeNext) return undefined;
+    let advanced = false;
     const checkRequirement = () => {
-      if (resolveTargetRect(step.requireBeforeNext)) {
+      const ready = Boolean(resolveTargetRect(step.requireBeforeNext));
+      if (ready) {
         setBlockedMessage('');
+        measure();
+        if (step.autoAdvanceOnRequire && !advanced) {
+          advanced = true;
+          setStepIndex((i) => Math.min(total - 1, i + 1));
+        }
       } else {
         setBlockedMessage(step.requireMessage || 'Complete this step before continuing.');
       }
     };
     checkRequirement();
-    const timer = window.setInterval(checkRequirement, 250);
+    const timer = window.setInterval(checkRequirement, 200);
     return () => window.clearInterval(timer);
-  }, [step]);
+  }, [step, stepIndex, total, setStepIndex, measure]);
+
+  // Keep the spotlight glued to modals/buttons that appear during interactive steps.
+  useEffect(() => {
+    if (!isInteractiveStep) return undefined;
+    const timer = window.setInterval(() => measure(), 300);
+    return () => window.clearInterval(timer);
+  }, [isInteractiveStep, stepIndex, measure]);
 
   useEffect(() => {
     window.addEventListener('resize', measure);
@@ -651,6 +689,12 @@ function SpotlightTour({ steps, stepIndex, setStepIndex, onClose }) {
     const onKey = (e) => {
       if (e.key === 'Escape') onClose();
       if (e.key === 'ArrowRight' || e.key === 'Enter') {
+        e.preventDefault();
+        if (step?.requireBeforeNext && !resolveTargetRect(step.requireBeforeNext)) {
+          setBlockedMessage(step.requireMessage || 'Complete this step before continuing.');
+          measure();
+          return;
+        }
         if (isLast) onClose();
         else setStepIndex((i) => Math.min(total - 1, i + 1));
       }
@@ -660,7 +704,7 @@ function SpotlightTour({ steps, stepIndex, setStepIndex, onClose }) {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [onClose, isLast, isFirst, setStepIndex, total]);
+  }, [onClose, isLast, isFirst, setStepIndex, total, step, measure]);
 
   const goNext = () => {
     if (step?.requireBeforeNext && !resolveTargetRect(step.requireBeforeNext)) {

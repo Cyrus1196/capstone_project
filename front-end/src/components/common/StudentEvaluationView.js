@@ -1171,6 +1171,7 @@ const StudentEvaluationView = ({
   const [promoteModalElective4SubjectId, setPromoteModalElective4SubjectId] = useState('');
   const [promoteSaving, setPromoteSaving] = useState(false);
   const [guidePromotionPreviewSaved, setGuidePromotionPreviewSaved] = useState(false);
+  const [guideLoadPlanPreviewSaved, setGuideLoadPlanPreviewSaved] = useState(false);
   const [electiveTrackSaving, setElectiveTrackSaving] = useState(false);
   const [pendingProgramId, setPendingProgramId] = useState(null);
   /** Editable name draft for simulation dummies only. */
@@ -3848,6 +3849,7 @@ const StudentEvaluationView = ({
       setStandingLoadDeferred(new Set(savedDeferredKeys));
       setStandingLoadDirty(false);
       setCurrentStandingPanelOpen(false);
+      setGuideLoadPlanPreviewSaved(true);
       await swalInfo(
         'Guide preview complete',
         'The sample subject placement was not saved to the system.'
@@ -4701,12 +4703,26 @@ const StudentEvaluationView = ({
     }
   };
 
+  useEffect(() => {
+    // Fresh guide session — clear completion gates so auto-advance does not skip steps.
+    setGuidePromotionPreviewSaved(false);
+    setGuideLoadPlanPreviewSaved(false);
+  }, [systemGuideOpen]);
+
+  useEffect(() => {
+    const closePanels = () => {
+      setPromoteModalOpen(false);
+      setCurrentStandingPanelOpen(false);
+    };
+    window.addEventListener('system-guide-close-eval-panels', closePanels);
+    return () => window.removeEventListener('system-guide-close-eval-panels', closePanels);
+  }, []);
+
   // The guided walkthrough always opens an existing practice student so the
   // user can follow the workflow without selecting or risking a real record.
   useEffect(() => {
     if (!systemGuideOpen) {
       guideDemoLoadingRef.current = false;
-      setGuidePromotionPreviewSaved(false);
       return;
     }
     if (
@@ -8034,6 +8050,7 @@ const StudentEvaluationView = ({
       }`}
       data-tour={isEvaluatedModule ? 'page-evaluated-students' : 'page-academic-record'}
       data-guide-promotion-saved={guidePromotionPreviewSaved ? 'true' : 'false'}
+      data-guide-load-saved={guideLoadPlanPreviewSaved ? 'true' : 'false'}
     >
       <div className="section-header section-header--academic-record">
         <div className="section-header-titles">
@@ -8615,7 +8632,9 @@ const StudentEvaluationView = ({
                           type="button"
                           className="btn-primary"
                           data-tour="save-load-plan"
-                          disabled={standingLoadSaving || !standingLoadDirty}
+                          disabled={
+                            standingLoadSaving || (!systemGuideOpen && !standingLoadDirty)
+                          }
                           onClick={() => void persistStandingLoadPlan()}
                         >
                           {standingLoadSaving ? 'Saving…' : 'Save load plan'}

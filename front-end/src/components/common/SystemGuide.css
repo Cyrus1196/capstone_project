@@ -234,3 +234,18 @@
   border-color: #fff;
   color: #1a3d24;
 }
+
+/* Interactive evaluation modals must sit above the guide dimmer so Save works. */
+body.system-guide-open .promote-modal-overlay,
+body.system-guide-open .eval-standing-modal-overlay {
+  z-index: 10065;
+}
+
+body.system-guide-open .spotlight-tour__card,
+body.system-guide-open .spotlight-tour__float-nav {
+  z-index: 10070;
+}
+
+body.system-guide-open .spotlight-tour__hole {
+  z-index: 10066;
+}
