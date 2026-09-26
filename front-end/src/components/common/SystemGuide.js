@@ -113,14 +113,14 @@ function evaluationWalkthroughSteps({ portalName = 'portal' } = {}) {
     },
     {
       title: '4. Save grade changes',
-      body: 'When the floating save bar appears, click Save All Changes before promoting so prerequisites and standing use the latest results.',
+      body: 'If you edited grades, click Save All Changes when the floating bar appears. If the practice student still has blank grades, skip this — Guide mode lets you open Promote as a preview anyway.',
       openTab: 'academic-record',
       target:
         '[data-tour="evaluation-save"], [data-tour="evaluation-grades"], [data-tour="page-academic-record"]',
     },
     {
       title: '5. Promote (manual for irregulars)',
-      body: 'Regulars who cleared the term are promoted automatically. For irregulars, click Promote to next semester to set the next standing yourself. Open that window before continuing — Guide mode will not save the promotion.',
+      body: 'Regulars who cleared the term are promoted automatically. For irregulars, use Promote to next semester. In Guide mode the button stays clickable for a preview even if the practice student looks Regular or has no grades yet — nothing is saved.',
       openTab: 'academic-record',
       target:
         '[data-tour="promote-student"], [data-tour="evaluation-summary"], [data-tour="page-academic-record"]',

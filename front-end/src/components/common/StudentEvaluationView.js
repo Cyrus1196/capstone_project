@@ -2416,13 +2416,16 @@ const StudentEvaluationView = ({
   const nextPromotionTerm = useMemo(() => {
     const terms = orderedCurriculumTerms;
     if (!terms.length || !evalFilterYearId || !evalFilterSemesterId) return null;
-    if (!currentTermCompleteForPromotion) return null;
     const curIdx = terms.findIndex(
       (t) => t.year_level_id === String(evalFilterYearId) && t.semester_id === String(evalFilterSemesterId)
     );
     if (curIdx < 0 || curIdx >= terms.length - 1) return null;
     return terms[curIdx + 1];
-  }, [orderedCurriculumTerms, evalFilterYearId, evalFilterSemesterId, currentTermCompleteForPromotion]);
+  }, [orderedCurriculumTerms, evalFilterYearId, evalFilterSemesterId]);
+
+  const canOpenPromoteModal =
+    Boolean(nextPromotionTerm) &&
+    (systemGuideOpen || currentTermCompleteForPromotion);
 
   const studentAcademicStatus = useMemo(() => {
     return String(
@@ -5523,7 +5526,9 @@ const StudentEvaluationView = ({
   );
 
   const openPromoteModal = useCallback(() => {
-    if (!currentTermCompleteForPromotion) {
+    // Guide mode: allow opening the promotion preview even when the practice
+    // student has blank grades / still looks Regular (nothing is saved).
+    if (!systemGuideOpen && !currentTermCompleteForPromotion) {
       void swalInfo(
         'Current term not ready to promote',
         'Record an outcome for every subject the student actually took this standing. Subjects with no grade (not taken — e.g. Programming 2 saved for summer or next year) do not block promotion. Save unsaved grade changes first.'
@@ -6458,9 +6463,11 @@ const StudentEvaluationView = ({
                 className="eval-hero__promote-btn"
                 data-tour="promote-student"
                 onClick={openPromoteModal}
-                disabled={!nextPromotionTerm || !currentTermCompleteForPromotion || promoteSaving}
+                disabled={!canOpenPromoteModal || promoteSaving}
                 title={
-                  isRegularStudent && promotionTrackPickRequired
+                  systemGuideOpen
+                    ? 'Guide preview: open promotion without saving (works even if the practice student still looks Regular or has blank grades).'
+                    : isRegularStudent && promotionTrackPickRequired
                     ? 'Assign a track first, then promote (required for track-based electives).'
                     : !currentTermCompleteForPromotion
                       ? 'Complete recorded subjects this standing. Untaken subjects (no grade) can be taken later (summer / next year) and do not block promotion.'
