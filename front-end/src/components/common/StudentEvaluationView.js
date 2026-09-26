@@ -8110,7 +8110,7 @@ const StudentEvaluationView = ({
               </select>
             </label>
 
-            <label className="eval-list-toolbar__field">
+            <label className="eval-list-toolbar__field" data-tour="evaluation-standing-filter">
               <span className="eval-list-toolbar__hint">Standing</span>
               <select
                 className="eval-list-toolbar__select"

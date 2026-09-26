@@ -10,7 +10,7 @@ import React, {
 import { useAuth } from '../../context/AuthContext';
 import './SystemGuide.css';
 
-const GUIDE_STORAGE_PREFIX = 'portalGuideSeen_v2_';
+const GUIDE_STORAGE_PREFIX = 'portalGuideSeen_v3_';
 
 const SystemGuideContext = createContext(null);
 
@@ -51,6 +51,126 @@ function clearGuideSeen(userId) {
   } catch {
     // Ignore storage errors.
   }
+}
+
+/**
+ * Shared evaluation walkthrough: regulars are auto-evaluated/promoted;
+ * manual work focuses on irregular / incomplete loads.
+ */
+function evaluationWalkthroughSteps({ portalName = 'portal' } = {}) {
+  return [
+    {
+      title: 'How evaluation works',
+      body: `Welcome to the ${portalName}. Regular students who passed their term subjects are auto-evaluated and auto-promoted — you normally do not need to open them. This guide walks you through evaluating irregular students (failed, incomplete, or off-track loads).`,
+      target: null,
+    },
+    {
+      title: 'Open Student evaluation',
+      body: 'Go to Evaluation → Student (or use Evaluate a student from the dashboard). This list is where manual evaluation happens.',
+      openTab: 'academic-record',
+      target:
+        '[data-tour="page-academic-record"], [data-tour="nav-academic-record"], [data-tour="dean-quick-actions"]',
+    },
+    {
+      title: 'Focus on irregulars',
+      body: 'Use Standing and choose Unevaluated irregular (or Irregular). That hides regulars who were already auto-evaluated and shows the students who need your review.',
+      openTab: 'academic-record',
+      target:
+        '[data-tour="evaluation-standing-filter"], [data-tour="evaluation-student-selector"], [data-tour="page-academic-record"]',
+      allowInteraction: true,
+    },
+    {
+      title: '1. Practice student',
+      body: 'The guide loads an existing [Practice] SIMULATION student so you can try the workflow safely. Changes while the Guide is open are previews only and are not saved to real records.',
+      openTab: 'academic-record',
+      target: '[data-tour="page-academic-record"]',
+      allowInteraction: true,
+      requireBeforeNext: '[data-tour="evaluation-summary"]',
+      requireMessage: 'Loading the practice student. Please wait.',
+      blockedButtonLabel: 'Loading sample…',
+    },
+    {
+      title: '2. Confirm irregular standing',
+      body: 'Check academic status, credited/lacking units, Curriculum, Program, Year, and Semester. For irregulars, status should show Irregular — that is who you evaluate manually.',
+      openTab: 'academic-record',
+      target:
+        '[data-tour="evaluation-summary"], [data-tour="evaluation-standing"], [data-tour="page-academic-record"]',
+    },
+    {
+      title: '3. Record grades',
+      body: 'In the curriculum table, enter or correct grades. Green check = passed, red X = failed, reset when needed. Failed or incomplete subjects keep a student irregular and block auto-promotion.',
+      openTab: 'academic-record',
+      target: '[data-tour="evaluation-grades"], [data-tour="page-academic-record"]',
+    },
+    {
+      title: '4. Save grade changes',
+      body: 'When the floating save bar appears, click Save All Changes before promoting so prerequisites and standing use the latest results.',
+      openTab: 'academic-record',
+      target:
+        '[data-tour="evaluation-save"], [data-tour="evaluation-grades"], [data-tour="page-academic-record"]',
+    },
+    {
+      title: '5. Promote (manual for irregulars)',
+      body: 'Regulars who cleared the term are promoted automatically. For irregulars, click Promote to next semester to set the next standing yourself. Open that window before continuing — Guide mode will not save the promotion.',
+      openTab: 'academic-record',
+      target:
+        '[data-tour="promote-student"], [data-tour="evaluation-summary"], [data-tour="page-academic-record"]',
+      allowInteraction: true,
+      requireBeforeNext: '[data-tour="promote-review"]',
+      requireMessage: 'Click Promote to next semester before continuing.',
+      blockedButtonLabel: 'Open promote first',
+    },
+    {
+      title: '6. Review next term',
+      body: 'Review next-term subjects, prerequisites, and units. Pick a track or elective if required, enter the evaluator name, then Save. In Guide mode, Save only closes the preview.',
+      openTab: 'academic-record',
+      target:
+        '[data-tour="promote-review"], [data-tour="promote-student"], [data-tour="evaluation-summary"], [data-tour="page-academic-record"]',
+      allowInteraction: true,
+      requireBeforeNext:
+        '[data-tour="page-academic-record"][data-guide-promotion-saved="true"]',
+      requireMessage: 'Click Save in the promotion preview before continuing.',
+      blockedButtonLabel: 'Save preview first',
+    },
+    {
+      title: '7. Open Subject placement',
+      body: 'Irregular loads often need a custom mix of current and backlog subjects. Click Subject placement at the lower-right to build the term load.',
+      openTab: 'academic-record',
+      target:
+        '[data-tour="subject-placement"], [data-tour="evaluation-summary"], [data-tour="page-academic-record"]',
+      allowInteraction: true,
+      requireBeforeNext: '[data-tour="subject-placement-panel"]',
+      requireMessage: 'Open Subject placement before continuing.',
+      blockedButtonLabel: 'Open placement first',
+    },
+    {
+      title: '8. Build the term load',
+      body: 'Check Take for subjects to enroll and Drop for deferred ones. Prior subjects need met prerequisites and must be offered; stay within the unit cap. Preview-only while the Guide is open.',
+      openTab: 'academic-record',
+      target:
+        '[data-tour="subject-placement-panel"], [data-tour="subject-placement"], [data-tour="page-academic-record"]',
+      allowInteraction: true,
+    },
+    {
+      title: '9. Save subject placement',
+      body: 'Click Save load plan to finish. In Guide mode this closes the preview without writing the load plan.',
+      openTab: 'academic-record',
+      target:
+        '[data-tour="save-load-plan"], [data-tour="subject-placement-panel"], [data-tour="subject-placement"], [data-tour="page-academic-record"]',
+      allowInteraction: true,
+    },
+    {
+      title: 'Evaluation complete',
+      body: 'Recheck Year/Semester, irregular vs regular status, remaining units, and This term load. Open Evaluated students later to review stored irregular evaluations.',
+      openTab: 'academic-record',
+      target: '[data-tour="evaluation-summary"]',
+    },
+    {
+      title: 'Guide anytime',
+      body: 'Click Guide next to Logout anytime you need this irregular-evaluation walkthrough again.',
+      target: '[data-tour="guide-button"]',
+    },
+  ];
 }
 
 /**
@@ -95,84 +215,7 @@ function tourStepsForRole(role) {
   }
 
   if (r === 'dean') {
-    return [
-      {
-        title: 'How it works',
-        body: 'Welcome to the Dean Portal. Each step opens a module and explains what you can do inside it.',
-        target: null,
-      },
-      {
-        title: 'Sidebar modules',
-        body: 'Use this left menu to switch modules. Only items your role can access are listed.',
-        target: '[data-tour="portal-sidebar"]',
-        spotlight: 'sidebar',
-      },
-      {
-        title: 'Dashboard',
-        body: 'Student counts, evaluated records, evaluator count, quick actions, and recent activity.',
-        openTab: 'dean-dashboard',
-        target: '[data-tour="page-dean-dashboard"]',
-      },
-      {
-        title: 'Analytics',
-        body: 'Charts and lists for at-risk students, fail rates, and decision-oriented reports.',
-        openTab: 'dean-analytics',
-        target: '[data-tour="page-dean-analytics"]',
-      },
-      {
-        title: 'Evaluate students',
-        body: 'Search and open academic records to evaluate standing, grades, and curriculum progress.',
-        openTab: 'academic-record',
-        target: '[data-tour="page-academic-record"]',
-      },
-      {
-        title: 'Evaluated students',
-        body: 'Review students whose academic-record evaluations are already completed and stored.',
-        openTab: 'evaluated-students',
-        target: '[data-tour="page-evaluated-students"]',
-      },
-      {
-        title: 'User management',
-        body: 'Create and manage staff accounts when your permissions allow it.',
-        openTab: 'user-management',
-        target: '[data-tour="page-user-management"]',
-      },
-      {
-        title: 'Student management',
-        body: 'Add/edit students, or import SIS CSV. Preview first, then use Fix row for issues.',
-        openTab: 'student-management',
-        target: '[data-tour="page-student-management"]',
-      },
-      {
-        title: 'Curriculum',
-        body: 'Organize year levels, semesters, subjects, and prerequisites used for evaluation.',
-        openTab: 'admin-curriculum',
-        target: '[data-tour="page-curriculum"]',
-      },
-      {
-        title: 'Elective slots',
-        body: 'Configure elective slot rules used when placing electives.',
-        openTab: 'elective-slots',
-        target: '[data-tour="page-elective-slots"]',
-      },
-      {
-        title: 'Student information',
-        body: 'Open student information records used for credit evaluation.',
-        openTab: 'system-mgmt',
-        target: '[data-tour="page-student-information"]',
-      },
-      {
-        title: 'My Profile',
-        body: 'Review and update your dean profile details from this page.',
-        openTab: 'profile',
-        target: '[data-tour="page-profile"]',
-      },
-      {
-        title: 'Guide anytime',
-        body: 'Reopen this tour anytime with Guide next to Logout.',
-        target: '[data-tour="guide-button"]',
-      },
-    ];
+    return evaluationWalkthroughSteps({ portalName: 'Dean Portal' });
   }
 
   if (r === 'admin') {
@@ -227,175 +270,12 @@ function tourStepsForRole(role) {
   }
 
   if (r === 'adviser' || r === 'evaluator' || r === 'faculty') {
-    return [
-      {
-        title: 'How it works',
-        body: 'Welcome to the Adviser Portal. Each step opens a module and explains what is inside.',
-        target: null,
-      },
-      {
-        title: 'Sidebar',
-        body: 'Switch between Dashboard, evaluation lists, Analytics, and Profile from here.',
-        target: '[data-tour="portal-sidebar"]',
-        spotlight: 'sidebar',
-      },
-      {
-        title: 'Dashboard',
-        body: 'Your starting overview for evaluation work and shortcuts into student lists.',
-        openTab: 'dashboard',
-        target:
-          '[data-tour="page-dean-dashboard"], [data-tour="page-staff-dashboard"], [data-tour="page-evaluator-dashboard"]',
-      },
-      {
-        title: 'Evaluate a student',
-        body: 'Pick a student who still needs evaluation and review their academic record here.',
-        openTab: 'academic-record',
-        target: '[data-tour="page-academic-record"]',
-      },
-      {
-        title: 'Evaluated students',
-        body: 'Open completed evaluations you have already stored for follow-up or review.',
-        openTab: 'evaluated-students',
-        target: '[data-tour="page-evaluated-students"]',
-      },
-      {
-        title: 'Analytics',
-        body: 'View workload and evaluation-related charts when this module is available to you.',
-        openTab: 'analytics',
-        target: '[data-tour="page-dean-analytics"], [data-tour="page-evaluator-analytics"]',
-      },
-      {
-        title: 'My Profile',
-        body: 'Update your account and profile details on this page.',
-        openTab: 'profile',
-        target: '[data-tour="page-profile"], [data-tour="page-faculty-profile"]',
-      },
-      {
-        title: 'Guide anytime',
-        body: 'Click Guide next to Logout to replay this walkthrough.',
-        target: '[data-tour="guide-button"]',
-      },
-    ];
+    return evaluationWalkthroughSteps({ portalName: 'Adviser Portal' });
   }
 
   if (r === 'program head' || r === 'secretary') {
     const title = r === 'program head' ? 'Program Head' : 'Secretary';
-    return [
-      {
-        title: 'How it works',
-        body: `Welcome to the ${title} portal. Steps open your modules and explain what is inside.`,
-        target: null,
-      },
-      {
-        title: 'Sidebar modules',
-        body: 'Open Dashboard, Evaluation, Curriculum, and other assigned modules from the left menu.',
-        target: '[data-tour="portal-sidebar"]',
-        spotlight: 'sidebar',
-      },
-      {
-        title: 'Dashboard',
-        body: 'Overview of students and evaluation activity in your scope.',
-        openTab: 'dashboard',
-        target: '[data-tour="page-dean-dashboard"], [data-tour="page-staff-dashboard"], .portal-shell__content',
-      },
-      {
-        title: 'Evaluate students',
-        body: 'Open Student under Evaluation. This is where you select a student, record results, promote their standing, and assign the next subject load.',
-        openTab: 'academic-record',
-        target: '[data-tour="page-academic-record"]',
-      },
-      {
-        title: '1. Practice student',
-        body: 'The guide automatically loads an existing [Practice] SIMULATION student. All following actions are demonstrations and will not modify real student records or save guide changes to the database.',
-        openTab: 'academic-record',
-        target: '[data-tour="page-academic-record"]',
-        allowInteraction: true,
-        requireBeforeNext: '[data-tour="evaluation-summary"]',
-        requireMessage: 'Loading the practice student. Please wait.',
-        blockedButtonLabel: 'Loading sample…',
-      },
-      {
-        title: '2. Verify current standing',
-        body: 'Review the student status, earned and remaining units, then verify the Curriculum, Program, Year, and Semester. These controls identify the standing you are evaluating.',
-        openTab: 'academic-record',
-        target:
-          '[data-tour="evaluation-summary"], [data-tour="evaluation-standing"], [data-tour="page-academic-record"]',
-      },
-      {
-        title: '3. Record the evaluation',
-        body: 'In the curriculum table, enter or correct each grade. Use the green check to mark a subject passed, the red X for failed, and reset when needed. These results determine earned units, prerequisites, and regular or irregular status.',
-        openTab: 'academic-record',
-        target: '[data-tour="evaluation-grades"], [data-tour="page-academic-record"]',
-      },
-      {
-        title: '4. Save grade changes',
-        body: 'When the floating save bar appears, click Save All Changes. Save before promoting so the system uses the latest grades and prerequisite results.',
-        openTab: 'academic-record',
-        target:
-          '[data-tour="evaluation-save"], [data-tour="evaluation-grades"], [data-tour="page-academic-record"]',
-      },
-      {
-        title: '5. Promote the student',
-        body: 'Click the highlighted Promote to next semester button. You must open the promotion window before the guide can continue. Guide actions are previews and will not be saved to the system.',
-        openTab: 'academic-record',
-        target:
-          '[data-tour="promote-student"], [data-tour="evaluation-summary"], [data-tour="page-academic-record"]',
-        allowInteraction: true,
-        requireBeforeNext: '[data-tour="promote-review"]',
-        requireMessage: 'Click Promote to next semester before continuing.',
-        blockedButtonLabel: 'Open promote first',
-      },
-      {
-        title: '6. Review and confirm',
-        body: 'Review the next-term subjects, prerequisites, and total units. Choose a required track or elective, enter the evaluator name, then click Save. In Guide mode, Save only closes this preview and does not change the student.',
-        openTab: 'academic-record',
-        target:
-          '[data-tour="promote-review"], [data-tour="promote-student"], [data-tour="evaluation-summary"], [data-tour="page-academic-record"]',
-        allowInteraction: true,
-        requireBeforeNext:
-          '[data-tour="page-academic-record"][data-guide-promotion-saved="true"]',
-        requireMessage: 'Click Save in the promotion preview before continuing.',
-        blockedButtonLabel: 'Save preview first',
-      },
-      {
-        title: '7. Open Subject placement',
-        body: 'Click the highlighted Subject placement button at the lower-right. You must open the panel before continuing.',
-        openTab: 'academic-record',
-        target:
-          '[data-tour="subject-placement"], [data-tour="evaluation-summary"], [data-tour="page-academic-record"]',
-        allowInteraction: true,
-        requireBeforeNext: '[data-tour="subject-placement-panel"]',
-        requireMessage: 'Open Subject placement before continuing.',
-        blockedButtonLabel: 'Open placement first',
-      },
-      {
-        title: '8. Build the term load',
-        body: 'Check Take for included subjects and Drop for deferred subjects. Prior subjects must satisfy prerequisites and be offered this standing; keep the total within the unit cap. These choices remain preview-only during the guide.',
-        openTab: 'academic-record',
-        target:
-          '[data-tour="subject-placement-panel"], [data-tour="subject-placement"], [data-tour="page-academic-record"]',
-        allowInteraction: true,
-      },
-      {
-        title: '9. Save subject placement',
-        body: 'Click Save load plan to complete the walkthrough. In Guide mode, this closes the preview without writing the load plan to the system.',
-        openTab: 'academic-record',
-        target:
-          '[data-tour="save-load-plan"], [data-tour="subject-placement-panel"], [data-tour="subject-placement"], [data-tour="page-academic-record"]',
-        allowInteraction: true,
-      },
-      {
-        title: 'Evaluation complete',
-        body: 'Recheck the new Year and Semester, student status, remaining units, and This term load summary. You can download the evaluation or open Evaluated students for later review.',
-        openTab: 'academic-record',
-        target: '[data-tour="evaluation-summary"]',
-      },
-      {
-        title: 'Guide anytime',
-        body: 'Reopen help with Guide next to Logout.',
-        target: '[data-tour="guide-button"]',
-      },
-    ];
+    return evaluationWalkthroughSteps({ portalName: `${title} portal` });
   }
 
   return [
