@@ -8324,63 +8324,15 @@ const StudentEvaluationView = ({
       : isEvaluatedModule
         ? `${filteredStudents.length} stored`
         : `${filteredStudents.length} students`;
-  // Only clear when Year / Standing filters exclude this student — not when
-  // typing in the search box temporarily empties the API result list.
-  useEffect(() => {
-    if (!selectedStudent?.student_id) return;
-    // Restored stub may only have an ID until evaluation payload arrives.
-    const yearId =
-      selectedStudent.year_level_id ?? data?.student?.year_level_id;
-    const academicStatus =
-      selectedStudent.academic_status ??
-      data?.student?.academic_status ??
-      data?.computed_academic_status;
-    if (yearId === undefined && academicStatus === undefined && !data?.student) {
-      return;
-    }
-
-    if (listYearLevelFilter === '__unassigned__') {
-      if (yearId != null && yearId !== '') {
-        clearSelectedEvaluationStudent();
-        return;
-      }
-    } else if (listYearLevelFilter) {
-      if (String(yearId ?? '') !== String(listYearLevelFilter)) {
-        clearSelectedEvaluationStudent();
-        return;
-      }
-    }
-
-    if (!listStandingFilter) return;
-
-    const isIrregular = /^irregular$/i.test(String(academicStatus || '').trim());
-    const isUnevaluated = !(
-      selectedStudent.academic_record_evaluated ??
-      data?.student?.academic_record_evaluated
-    );
-    let matches = true;
-    if (listStandingFilter === 'unevaluated') matches = isUnevaluated;
-    else if (listStandingFilter === 'irregular') matches = isIrregular;
-    else if (listStandingFilter === 'unevaluated_irregular') matches = isUnevaluated && isIrregular;
-
-    if (!matches) {
-      clearSelectedEvaluationStudent();
-    }
-  }, [
-    listYearLevelFilter,
-    listStandingFilter,
-    selectedStudent,
-    data?.student?.year_level_id,
-    data?.student?.academic_status,
-    data?.student?.academic_record_evaluated,
-    data?.computed_academic_status,
-    clearSelectedEvaluationStudent,
-  ]);
+  // Do not auto-clear the open student when Year/Standing filters no longer match
+  // (e.g. after Promote they leave Unevaluated). Keep their curriculum on screen
+  // until the dean picks another student or clears the search selection.
 
   const studentDropdownOptions = (() => {
     const map = new Map();
     filteredStudents.forEach((student) => map.set(String(student.student_id), student));
-    // Keep the current pick visible in the combobox even while search results are loading.
+    // Keep the current pick visible in the combobox even while search results are loading
+    // or after Promote removes them from the active Standing filter.
     if (selectedStudent?.student_id != null) {
       map.set(String(selectedStudent.student_id), selectedStudent);
     }
