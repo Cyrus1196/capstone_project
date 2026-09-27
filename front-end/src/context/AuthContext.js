@@ -6,6 +6,7 @@ import React, {
   useCallback,
 } from 'react';
 import api, { jwtAuth } from '../api/axios';
+import { getOrCreateDeviceFingerprint } from '../utils/deviceFingerprint';
 
 const IDLE_LOGOUT_MS = parseInt(process.env.REACT_APP_IDLE_TIMEOUT_MS || '3600000', 10);
 
@@ -149,15 +150,30 @@ export const AuthProvider = ({ children }) => {
     try {
       const response = await api.post(
         '/login',
-        { email, password },
+        {
+          email,
+          password,
+          device_fingerprint: getOrCreateDeviceFingerprint(),
+        },
         { showLoading: true, loadingMessage: 'Signing in…' }
       );
-      
+
+      if (response.data?.requires_device_otp) {
+        return {
+          success: false,
+          requiresDeviceOtp: true,
+          challengeToken: response.data.challenge_token,
+          emailHint: response.data.email_hint,
+          expiresIn: response.data.expires_in,
+          message: response.data.message,
+        };
+      }
+
       // Store JWT token
       if (response.data.access_token) {
         jwtAuth.setToken(response.data.access_token);
       }
-      
+
       setUser(response.data.user);
       applySecurityFromResponse(response.data.security, response.data.user);
       return { success: true, data: response.data };
@@ -165,6 +181,7 @@ export const AuthProvider = ({ children }) => {
       const data = error.response?.data;
       const fromErrors =
         (Array.isArray(data?.errors?.email) && data.errors.email[0]) ||
+        (Array.isArray(data?.errors?.device_fingerprint) && data.errors.device_fingerprint[0]) ||
         (data?.errors && typeof data.errors === 'object' && Object.values(data.errors)[0]?.[0]);
       const status = error.response?.status;
       let msg =
@@ -181,6 +198,65 @@ export const AuthProvider = ({ children }) => {
       return {
         success: false,
         error: msg,
+      };
+    }
+  };
+
+  const verifyDeviceOtp = async (challengeToken, otpCode) => {
+    try {
+      const response = await api.post(
+        '/login/device-otp',
+        {
+          challenge_token: challengeToken,
+          otp_code: otpCode,
+          device_fingerprint: getOrCreateDeviceFingerprint(),
+        },
+        { showLoading: true, loadingMessage: 'Verifying device…' }
+      );
+
+      if (response.data.access_token) {
+        jwtAuth.setToken(response.data.access_token);
+      }
+      setUser(response.data.user);
+      applySecurityFromResponse(response.data.security, response.data.user);
+      return { success: true, data: response.data };
+    } catch (error) {
+      const data = error.response?.data;
+      const fromErrors =
+        (Array.isArray(data?.errors?.otp_code) && data.errors.otp_code[0]) ||
+        (data?.errors && typeof data.errors === 'object' && Object.values(data.errors)[0]?.[0]);
+      return {
+        success: false,
+        error: fromErrors || data?.error || data?.message || error.message || 'Verification failed',
+      };
+    }
+  };
+
+  const resendDeviceOtp = async (challengeToken) => {
+    try {
+      const response = await api.post(
+        '/login/device-otp/resend',
+        {
+          challenge_token: challengeToken,
+          device_fingerprint: getOrCreateDeviceFingerprint(),
+        },
+        { showLoading: true, loadingMessage: 'Sending new code…' }
+      );
+      return {
+        success: true,
+        challengeToken: response.data.challenge_token,
+        emailHint: response.data.email_hint,
+        expiresIn: response.data.expires_in,
+        message: response.data.message,
+      };
+    } catch (error) {
+      const data = error.response?.data;
+      const fromErrors =
+        (Array.isArray(data?.errors?.otp_code) && data.errors.otp_code[0]) ||
+        (data?.errors && typeof data.errors === 'object' && Object.values(data.errors)[0]?.[0]);
+      return {
+        success: false,
+        error: fromErrors || data?.error || data?.message || error.message || 'Could not resend code',
       };
     }
   };
@@ -233,6 +309,8 @@ export const AuthProvider = ({ children }) => {
     sessionWarnAfterIdleMs,
     minPasswordLength,
     login,
+    verifyDeviceOtp,
+    resendDeviceOtp,
     logout,
     applyUser,
     /** Re-fetch /user (e.g. after admin updates your role permissions). */

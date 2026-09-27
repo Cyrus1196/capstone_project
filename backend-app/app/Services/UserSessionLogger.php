@@ -80,7 +80,7 @@ class UserSessionLogger
     /**
      * @return array{ip_address: ?string, user_agent: ?string, browser: string, platform: string, device: string}
      */
-    private static function clientDetails(Request $request): array
+    public static function clientDetails(Request $request): array
     {
         $ua = (string) $request->userAgent();
 

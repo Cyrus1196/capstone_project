@@ -97,6 +97,11 @@ class AccountMailService
      * Falls back to Laravel mailer (smtp/log). If that fails, fall back to log
      * so forgot-password does not hang or 503 forever on Railway.
      */
+    public static function deliverMail(Mailable $mailable, string $toEmail): void
+    {
+        self::deliver($mailable, $toEmail);
+    }
+
     private static function deliver(Mailable $mailable, string $toEmail): void
     {
         $apiKey = trim((string) config('services.brevo.key'));

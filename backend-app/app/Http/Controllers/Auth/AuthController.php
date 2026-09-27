@@ -8,6 +8,7 @@ use App\Models\TblUser;
 use App\Services\AccountMailService;
 use App\Services\AuthSecurity;
 use App\Services\AuthUnitHelpers;
+use App\Services\DeviceLoginChallengeService;
 use App\Services\UserSessionLogger;
 use App\Support\CachedSchema;
 use Illuminate\Http\Request;
@@ -131,6 +132,99 @@ class AuthController extends Controller
             ]);
         }
 
+        $fingerprint = trim((string) $request->input('device_fingerprint', ''));
+
+        if (DeviceLoginChallengeService::requiresDeviceOtp($user)) {
+            if ($fingerprint === '') {
+                throw ValidationException::withMessages([
+                    'device_fingerprint' => ['Device identity is missing. Refresh the page and try again.'],
+                ]);
+            }
+
+            if (! DeviceLoginChallengeService::isTrustedDevice($user, $fingerprint)) {
+                try {
+                    $challenge = DeviceLoginChallengeService::startChallenge($user, $fingerprint, $request);
+                } catch (ValidationException $e) {
+                    throw $e;
+                } catch (\Throwable $e) {
+                    report($e);
+                    throw ValidationException::withMessages([
+                        'email' => ['Could not send the device verification code. Try again shortly or contact an administrator.'],
+                    ]);
+                }
+
+                return response()->json([
+                    'requires_device_otp' => true,
+                    'challenge_token' => $challenge['challenge_token'],
+                    'email_hint' => $challenge['email_hint'],
+                    'expires_in' => $challenge['expires_in'],
+                    'message' => 'Enter the verification code sent to your email to trust this device.',
+                ]);
+            }
+
+            DeviceLoginChallengeService::touchTrustedDevice($user, $fingerprint, $request);
+        }
+
+        return $this->issueLoginSuccessResponse($request, $user);
+    }
+
+    public function verifyDeviceOtp(Request $request)
+    {
+        $request->validate([
+            'challenge_token' => ['required', 'string', 'max:128'],
+            'otp_code' => ['required', 'string', 'max:12'],
+            'device_fingerprint' => ['required', 'string', 'min:8', 'max:128'],
+        ]);
+
+        try {
+            $user = DeviceLoginChallengeService::verifyChallenge(
+                (string) $request->input('challenge_token'),
+                (string) $request->input('otp_code'),
+                (string) $request->input('device_fingerprint'),
+                $request
+            );
+        } catch (ValidationException $e) {
+            $reason = collect($e->errors())->flatten()->first() ?? 'Device verification failed';
+            UserSessionLogger::logFailedLogin($request, null, $reason);
+            throw $e;
+        }
+
+        return $this->issueLoginSuccessResponse($request, $user);
+    }
+
+    public function resendDeviceOtp(Request $request)
+    {
+        $request->validate([
+            'challenge_token' => ['required', 'string', 'max:128'],
+            'device_fingerprint' => ['required', 'string', 'min:8', 'max:128'],
+        ]);
+
+        try {
+            $challenge = DeviceLoginChallengeService::resendChallenge(
+                (string) $request->input('challenge_token'),
+                (string) $request->input('device_fingerprint'),
+                $request
+            );
+        } catch (ValidationException $e) {
+            throw $e;
+        } catch (\Throwable $e) {
+            report($e);
+            throw ValidationException::withMessages([
+                'otp_code' => ['Could not resend the code. Try again shortly.'],
+            ]);
+        }
+
+        return response()->json([
+            'requires_device_otp' => true,
+            'challenge_token' => $challenge['challenge_token'],
+            'email_hint' => $challenge['email_hint'],
+            'expires_in' => $challenge['expires_in'],
+            'message' => 'A new verification code was sent to your email.',
+        ]);
+    }
+
+    private function issueLoginSuccessResponse(Request $request, TblUser $user)
+    {
         $token = AuthUnitHelpers::generateSessionTokenForUser($user);
         UserSessionLogger::logSuccessfulLogin($request, $user, $token);
 

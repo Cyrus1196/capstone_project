@@ -35,6 +35,10 @@ use Illuminate\Support\Facades\Route;
 
 // Login is not IP-throttled. Lockout is per account after wrong passwords (Security Settings).
 Route::post('/login', [AuthController::class, 'login']);
+Route::middleware('throttle:8,1')->group(function () {
+    Route::post('/login/device-otp', [AuthController::class, 'verifyDeviceOtp']);
+    Route::post('/login/device-otp/resend', [AuthController::class, 'resendDeviceOtp']);
+});
 Route::prefix('jwt')->group(function () {
     Route::post('/login', [JwtAuthController::class, 'login']);
     Route::post('/register', [JwtAuthController::class, 'register'])->middleware('throttle:10,1');

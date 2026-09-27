@@ -1,7 +1,7 @@
 import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { useNavigate, Link, useLocation } from 'react-router-dom';
-import { swalError } from '../utils/swal';
+import { swalError, swalInfo } from '../utils/swal';
 import './Login.css';
 
 const publicUrl = process.env.PUBLIC_URL || '';
@@ -33,8 +33,14 @@ const Login = () => {
   const [captchaB, setCaptchaB] = useState(0);
   const [captchaInput, setCaptchaInput] = useState('');
   const [captchaStatus, setCaptchaStatus] = useState('idle');
+  const [deviceOtpStep, setDeviceOtpStep] = useState(false);
+  const [challengeToken, setChallengeToken] = useState('');
+  const [emailHint, setEmailHint] = useState('');
+  const [otpCode, setOtpCode] = useState('');
   const {
     login,
+    verifyDeviceOtp,
+    resendDeviceOtp,
     user,
     loading: authLoading,
     isAdmin,
@@ -94,10 +100,54 @@ const Login = () => {
     }
   }, [authLoading, user, isAdmin, isDean, isFaculty, isProgramHead, isSecretary, navigate]);
 
+  const navigateAfterLogin = (resultUser) => {
+    clearStoredPortalTabs();
+    const userRole = resultUser?.role;
+    const userIsAdmin = resultUser?.is_admin || false;
+
+    if (userIsAdmin || userRole === 'Admin') {
+      navigate('/admin');
+    } else if (userRole === 'Dean') {
+      navigate('/dean');
+    } else if (userRole === 'Program Head') {
+      navigate('/program-head');
+    } else if (userRole === 'Secretary') {
+      navigate('/secretary');
+    } else if (userRole === 'Evaluator' || userRole === 'Adviser') {
+      navigate('/evaluator');
+    } else {
+      navigate('/student');
+    }
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     // Guard before setState — React state updates are async, so double-clicks can fire twice.
     if (submittingRef.current || loading) {
+      return;
+    }
+
+    if (deviceOtpStep) {
+      const code = String(otpCode || '').replace(/\D/g, '');
+      if (code.length !== 6) {
+        await swalError('Code required', 'Enter the 6-digit code from your email.');
+        return;
+      }
+      submittingRef.current = true;
+      setLoading(true);
+      try {
+        const result = await verifyDeviceOtp(challengeToken, code);
+        if (result.success) {
+          setDeviceOtpStep(false);
+          setOtpCode('');
+          navigateAfterLogin(result.data?.user);
+        } else {
+          await swalError('Verification failed', result.error || 'Incorrect or expired code.');
+        }
+      } finally {
+        submittingRef.current = false;
+        setLoading(false);
+      }
       return;
     }
 
@@ -116,24 +166,16 @@ const Login = () => {
     try {
       const result = await login(email, password);
 
-      if (result.success) {
-        clearStoredPortalTabs();
-        const userRole = result.data?.user?.role;
-        const userIsAdmin = result.data?.user?.is_admin || false;
+      if (result.requiresDeviceOtp) {
+        setDeviceOtpStep(true);
+        setChallengeToken(result.challengeToken || '');
+        setEmailHint(result.emailHint || '');
+        setOtpCode('');
+        return;
+      }
 
-        if (userIsAdmin || userRole === 'Admin') {
-          navigate('/admin');
-        } else if (userRole === 'Dean') {
-          navigate('/dean');
-        } else if (userRole === 'Program Head') {
-          navigate('/program-head');
-        } else if (userRole === 'Secretary') {
-          navigate('/secretary');
-        } else if (userRole === 'Evaluator' || userRole === 'Adviser') {
-          navigate('/evaluator');
-        } else {
-          navigate('/student');
-        }
+      if (result.success) {
+        navigateAfterLogin(result.data?.user);
       } else {
         const msg = result.error || 'Login failed. Please check your credentials.';
         await swalError('Login failed', msg);
@@ -143,6 +185,34 @@ const Login = () => {
       submittingRef.current = false;
       setLoading(false);
     }
+  };
+
+  const handleResendOtp = async () => {
+    if (submittingRef.current || loading || !challengeToken) return;
+    submittingRef.current = true;
+    setLoading(true);
+    try {
+      const result = await resendDeviceOtp(challengeToken);
+      if (result.success) {
+        setChallengeToken(result.challengeToken || challengeToken);
+        setEmailHint(result.emailHint || emailHint);
+        setOtpCode('');
+        await swalInfo('Code sent', result.message || 'A new code was sent to your email.');
+      } else {
+        await swalError('Could not resend', result.error || 'Try signing in again.');
+      }
+    } finally {
+      submittingRef.current = false;
+      setLoading(false);
+    }
+  };
+
+  const handleBackFromOtp = () => {
+    setDeviceOtpStep(false);
+    setChallengeToken('');
+    setEmailHint('');
+    setOtpCode('');
+    refreshCaptcha();
   };
 
   return (
@@ -187,13 +257,82 @@ const Login = () => {
             <div className="login-page__card">
               <div className="login-page__card-head">
                 <span className="login-page__eyebrow">Secure access</span>
-                <h1 className="login-page__title">Log in to continue</h1>
+                <h1 className="login-page__title">
+                  {deviceOtpStep ? 'Verify this device' : 'Log in to continue'}
+                </h1>
                 <p className="login-page__lead">
-                  Students: use your Student ID Number. Staff: use your email.
+                  {deviceOtpStep
+                    ? `We emailed a 6-digit code to ${emailHint || 'your email'}. Enter it below to trust this device.`
+                    : 'Students: use your Student ID Number. Staff: use your email.'}
                 </p>
               </div>
 
               <form className="login-page__form" onSubmit={handleSubmit} noValidate>
+                {deviceOtpStep ? (
+                  <>
+                    <div className="login-page__field">
+                      <label htmlFor="login-page-otp">
+                        <span className="login-page__req" aria-hidden>
+                          *
+                        </span>{' '}
+                        Verification code
+                      </label>
+                      <div className="login-page__input-wrap">
+                        <input
+                          id="login-page-otp"
+                          type="text"
+                          inputMode="numeric"
+                          autoComplete="one-time-code"
+                          value={otpCode}
+                          onChange={(e) =>
+                            setOtpCode(e.target.value.replace(/\D/g, '').slice(0, 6))
+                          }
+                          placeholder="6-digit code"
+                          required
+                          disabled={loading}
+                          maxLength={6}
+                        />
+                        <span className="login-page__input-icon" aria-hidden>
+                          <i className="fa-regular fa-envelope" />
+                        </span>
+                      </div>
+                    </div>
+
+                    <button type="submit" disabled={loading} className="login-page__submit" aria-busy={loading}>
+                      {loading ? (
+                        <>
+                          <span className="login-page__submit-spinner" aria-hidden />
+                          <span>Verifying…</span>
+                        </>
+                      ) : (
+                        <>
+                          <span>Verify and continue</span>
+                          <i className="fa-solid fa-arrow-right-long" aria-hidden />
+                        </>
+                      )}
+                    </button>
+
+                    <div className="login-page__otp-actions">
+                      <button
+                        type="button"
+                        className="login-page__forgot-btn"
+                        onClick={() => void handleResendOtp()}
+                        disabled={loading}
+                      >
+                        Resend code
+                      </button>
+                      <button
+                        type="button"
+                        className="login-page__home-link"
+                        onClick={handleBackFromOtp}
+                        disabled={loading}
+                      >
+                        Back to sign in
+                      </button>
+                    </div>
+                  </>
+                ) : (
+                  <>
                 <div className="login-page__field">
                   <label htmlFor="login-page-user">
                     <span className="login-page__req" aria-hidden>
@@ -316,8 +455,11 @@ const Login = () => {
                     </>
                   )}
                 </button>
+                  </>
+                )}
               </form>
 
+              {!deviceOtpStep ? (
               <div className="login-page__card-footer">
                 <button
                   type="button"
@@ -330,6 +472,7 @@ const Login = () => {
                   Back to home
                 </Link>
               </div>
+              ) : null}
             </div>
           </main>
         </div>

@@ -8,6 +8,7 @@ use App\Models\TblUser;
 use App\Services\AccountMailService;
 use App\Services\AuthSecurity;
 use App\Services\AuthUnitHelpers;
+use App\Services\DeviceLoginChallengeService;
 use App\Services\UserSessionLogger;
 use Illuminate\Http\Request;
 use Illuminate\Validation\ValidationException;
@@ -59,6 +60,46 @@ class JwtAuthController extends Controller
                     ],
                 ],
             ], 422);
+        }
+
+        $fingerprint = trim((string) $request->input('device_fingerprint', ''));
+
+        if (DeviceLoginChallengeService::requiresDeviceOtp($user)) {
+            if ($fingerprint === '') {
+                return response()->json([
+                    'error' => 'Device identity is missing. Refresh the page and try again.',
+                    'errors' => [
+                        'device_fingerprint' => ['Device identity is missing. Refresh the page and try again.'],
+                    ],
+                ], 422);
+            }
+
+            if (! DeviceLoginChallengeService::isTrustedDevice($user, $fingerprint)) {
+                try {
+                    $challenge = DeviceLoginChallengeService::startChallenge($user, $fingerprint, $request);
+                } catch (ValidationException $e) {
+                    return response()->json([
+                        'error' => collect($e->errors())->flatten()->first() ?? 'Device verification required',
+                        'errors' => $e->errors(),
+                    ], 422);
+                } catch (\Throwable $e) {
+                    report($e);
+
+                    return response()->json([
+                        'error' => 'Could not send the device verification code. Try again shortly.',
+                    ], 422);
+                }
+
+                return response()->json([
+                    'requires_device_otp' => true,
+                    'challenge_token' => $challenge['challenge_token'],
+                    'email_hint' => $challenge['email_hint'],
+                    'expires_in' => $challenge['expires_in'],
+                    'message' => 'Enter the verification code sent to your email to trust this device.',
+                ]);
+            }
+
+            DeviceLoginChallengeService::touchTrustedDevice($user, $fingerprint, $request);
         }
 
         $token = AuthUnitHelpers::generateSessionTokenForUser($user);
