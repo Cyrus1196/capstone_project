@@ -1177,6 +1177,7 @@
   background: #e0f2fe;
   color: #075985;
   border: 1px solid #bae6fd;
+  white-space: nowrap;
 }
 
 .eval-code-pill-attach {
@@ -2889,12 +2890,16 @@ button.eval-code-pill--elective-trigger {
 
 .student-eval-section--cdoc .eval-year-term-grid .eval-course-table th:nth-child(1),
 .student-eval-section--cdoc .eval-year-term-grid .eval-course-table td:nth-child(1) {
-  width: 18%;
+  width: 22%;
+  min-width: 8.25rem;
+  white-space: nowrap;
+  overflow-wrap: normal;
+  word-break: normal;
 }
 
 .student-eval-section--cdoc .eval-year-term-grid .eval-course-table th:nth-child(2),
 .student-eval-section--cdoc .eval-year-term-grid .eval-course-table td:nth-child(2) {
-  width: 41%;
+  width: 37%;
 }
 
 .student-eval-section--cdoc .eval-year-term-grid .eval-course-table th:nth-child(3),
@@ -2962,11 +2967,14 @@ button.eval-code-pill--elective-trigger {
   align-items: center;
   justify-content: center;
   min-height: 2rem;
-  height: 2rem;
-  padding: 0 0.45rem;
+  height: auto;
+  padding: 0.2rem 0.45rem;
   border-radius: 6px;
   font-size: 0.72rem;
+  line-height: 1.2;
   box-sizing: border-box;
+  white-space: nowrap;
+  max-width: none;
 }
 
 .student-eval-section--cdoc .eval-year-term-grid .eval-units-pill {
@@ -3232,6 +3240,10 @@ button.eval-code-pill--elective-trigger {
     min-height: 1.75rem;
     border-radius: 6px;
     font-size: 0.72rem;
+  }
+
+  .student-eval-section--cdoc .eval-year-term-grid .eval-code-pill {
+    white-space: nowrap;
   }
 
   .student-eval-section--cdoc .eval-year-term-grid .eval-units-pill {
