@@ -6611,26 +6611,7 @@ const StudentEvaluationView = ({
             >
               {`${ordinalYearLabel(
                 yearStandingFromEarnedUnits(summary?.total_units_earned)
-              )} yr standing`}
-            </span>
-          </div>
-          <div className="eval-hero__meta-box">
-            <span className="eval-hero__meta-label">Enrollment</span>
-            <span className="eval-hero__meta-value">
-              {[student?.year_level_name, student?.semester_name]
-                .filter(Boolean)
-                .join(' · ') ||
-                [
-                  evaluationFilterOptions.years.find(
-                    (y) => String(y.id) === String(evalFilterYearId)
-                  )?.label,
-                  (data?.rows || []).find(
-                    (r) => String(r.semester_id) === String(evalFilterSemesterId)
-                  )?.semester_name,
-                ]
-                  .filter(Boolean)
-                  .join(' · ') ||
-                '—'}
+              )} year`}
             </span>
           </div>
           {promotionTargetLabel ? (
