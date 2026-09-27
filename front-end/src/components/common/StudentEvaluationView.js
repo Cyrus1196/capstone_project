@@ -2265,6 +2265,14 @@ const StudentEvaluationView = ({
 
     if (listStandingFilter) {
       list = list.filter((s) => {
+        // Practice dummies are for Guide/testing only — keep them out of Unevaluated queues.
+        if (
+          (listStandingFilter === 'unevaluated' ||
+            listStandingFilter === 'unevaluated_irregular') &&
+          s.is_simulation
+        ) {
+          return false;
+        }
         const isIrregular = /^irregular$/i.test(String(s.academic_status || '').trim());
         const isUnevaluated = !s.academic_record_evaluated;
         if (listStandingFilter === 'unevaluated') return isUnevaluated;
@@ -8457,11 +8465,11 @@ const StudentEvaluationView = ({
                 value={listStandingFilter}
                 onChange={(e) => setListStandingFilter(e.target.value)}
                 aria-label="Filter by evaluation standing"
-                title="Unevaluated = system did not auto-evaluate/promote them when the semester changed (incomplete, irregular, or missed). Review and promote manually."
+                title="Unevaluated = system did not auto-evaluate/promote when the semester changed. Review and promote manually. Practice students are excluded."
               >
                 <option value="">All students</option>
                 <option value="irregular">Irregular</option>
-                <option value="unevaluated">Unevaluated (needs manual)</option>
+                <option value="unevaluated">Unevaluated</option>
                 <option value="unevaluated_irregular">Unevaluated irregular</option>
               </select>
             </label>
