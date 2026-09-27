@@ -295,7 +295,6 @@ const AuditLogsManagement = () => {
                 <th>User</th>
                 <th>Action</th>
                 <th>Table</th>
-                <th>Record ID</th>
                 <th>Summary</th>
                 <th>Timestamp</th>
                 <th>Trail</th>
@@ -304,7 +303,7 @@ const AuditLogsManagement = () => {
             <tbody>
               {rows.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="no-data">
+                  <td colSpan={6} className="no-data">
                     No audit entries yet. Changes to users, profiles, evaluations, enrollments, and related records
                     will appear here.
                   </td>
@@ -320,7 +319,6 @@ const AuditLogsManagement = () => {
                       <td>
                         <code>{item.table_name || '—'}</code>
                       </td>
-                      <td>{item.record_id ?? '—'}</td>
                       <td>{summarizeEntry(item)}</td>
                       <td>{formatTs(item.action_timestamp)}</td>
                       <td>
@@ -340,7 +338,7 @@ const AuditLogsManagement = () => {
                   return [
                     mainRow,
                     <tr key={`${id}-detail`} className="audit-trail-row">
-                      <td colSpan={7}>
+                      <td colSpan={6}>
                         <div className="audit-trail-panel">
                           <h4>Previous values</h4>
                           {item.old_value != null && item.old_value !== '' ? (

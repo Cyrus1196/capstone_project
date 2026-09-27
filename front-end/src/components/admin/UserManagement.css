@@ -63,7 +63,7 @@
 }
 
 .status-toggle-button {
-  margin-left: 0.5rem;
+  margin-left: 0;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -75,6 +75,8 @@
   border: 1px solid transparent;
   cursor: pointer;
   background: #fff;
+  white-space: nowrap;
+  flex-shrink: 0;
   transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
 }
 
@@ -207,11 +209,12 @@
   border-collapse: collapse;
   border-spacing: 0;
   background: transparent;
-  min-width: 760px;
+  min-width: 720px;
+  table-layout: auto;
 }
 
 .user-management--students .data-table {
-  min-width: 920px;
+  min-width: 880px;
 }
 
 .data-table th, .data-table td {
@@ -228,9 +231,22 @@
   padding: 0.7rem 0.75rem;
 }
 
-.user-management--students .data-table th:nth-child(5),
-.user-management--students .data-table td:nth-child(5) {
-  min-width: 190px;
+.data-table .email-cell {
+  max-width: 220px;
+  word-break: break-word;
+}
+
+.data-table .program-cell {
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.data-table .actions-cell {
+  width: 1%;
+  white-space: nowrap;
+  vertical-align: middle;
 }
 
 .data-table thead th {
@@ -290,15 +306,17 @@
   min-width: 80px;
 }
 
-/* Action buttons — keep flex on an inner wrapper, never on <td> (breaks row borders) */
+/* Action buttons — keep side-by-side; never stack (avoids overlapping look) */
 .actions {
-  display: flex;
-  gap: 6px;
+  display: inline-flex;
+  gap: 0.4rem;
   align-items: center;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
+  flex-direction: row;
 }
 
-td.actions {
+td.actions,
+td.actions-cell {
   display: table-cell;
 }
 
@@ -311,10 +329,12 @@ td.actions {
   border-radius: 999px;
   background: #f1f5f9;
   border: 1px solid #e2e8f0;
+  white-space: nowrap;
 }
 
 .user-management--students .actions {
   flex-wrap: nowrap;
+  flex-direction: row;
 }
 
 .edit-button, .delete-button {
@@ -324,6 +344,8 @@ td.actions {
   cursor: pointer;
   font-size: 13px;
   font-weight: 500;
+  white-space: nowrap;
+  flex-shrink: 0;
   transition: all 0.2s ease;
 }
 
@@ -579,17 +601,22 @@ td.actions {
   }
   
   .data-table {
-    min-width: 600px;
+    min-width: 640px;
   }
-  
+
+  .data-table .program-cell {
+    max-width: 160px;
+  }
+
   .actions {
-    flex-direction: column;
-    gap: 4px;
+    flex-direction: row;
+    flex-wrap: nowrap;
+    gap: 0.35rem;
   }
-  
-  .edit-button, .delete-button {
+
+  .edit-button, .delete-button, .status-toggle-button {
     font-size: 12px;
-    padding: 4px 6px;
+    padding: 4px 8px;
   }
 }
 

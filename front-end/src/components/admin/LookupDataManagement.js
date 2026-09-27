@@ -2797,7 +2797,7 @@ const LookupDataManagement = ({
       yearLevels: ['Year Level', 'Status'],
       semesters: ['Semester Name', 'Status'],
       roles: ['Role Name', 'Access Level', 'Description', 'Status'],
-      campus: ['ID', 'Campus Name', 'Status'],
+      campus: ['Campus Name', 'Status'],
       academicYears: ['Academic Year Name', 'Status'],
       requisites: ['Type', 'Subject', 'Required Subject'],
       tracks: ['Track Code', 'Track Name', 'Status'],
@@ -2842,7 +2842,7 @@ const LookupDataManagement = ({
           item.description || '-',
           lookupItemIsActive(item) ? 'Active' : 'Inactive',
         ],
-        campus: [item.campus_id, item.campus_name, lookupItemIsActive(item) ? 'Active' : 'Inactive'],
+        campus: [item.campus_name, lookupItemIsActive(item) ? 'Active' : 'Inactive'],
         academicYears: [item.name || item.academic_year_name || '-', item.status || '-'],
         requisites: [
           item.requisite_type || item.type || '-',

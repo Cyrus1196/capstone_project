@@ -280,7 +280,9 @@
 .lookup-data-grid__cell--actions .actions {
   width: 100%;
   flex-direction: row;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
+  gap: 0.4rem;
+  align-items: center;
 }
 
 .lookup-data-grid__empty {
@@ -313,7 +315,7 @@
   }
 
   .lookup-data-grid--with-actions .lookup-data-grid__head {
-    grid-template-columns: repeat(var(--lookup-data-cols), minmax(0, 1fr)) minmax(140px, auto);
+    grid-template-columns: repeat(var(--lookup-data-cols), minmax(0, 1fr)) minmax(200px, auto);
   }
 
   .lookup-data-grid__th {
@@ -344,7 +346,7 @@
   }
 
   .lookup-data-grid--with-actions .lookup-data-grid__row {
-    grid-template-columns: repeat(var(--lookup-data-cols), minmax(0, 1fr)) minmax(140px, auto);
+    grid-template-columns: repeat(var(--lookup-data-cols), minmax(0, 1fr)) minmax(200px, auto);
   }
 
   .lookup-data-grid__row:hover {
@@ -400,7 +402,7 @@
 }
 
 .lookup-data-grid.lookup-data-grid--scroll-table.lookup-data-grid--with-actions .lookup-data-grid__head {
-  grid-template-columns: repeat(var(--lookup-data-cols), minmax(0, 1fr)) minmax(120px, auto);
+  grid-template-columns: repeat(var(--lookup-data-cols), minmax(0, 1fr)) minmax(200px, auto);
 }
 
 .lookup-data-grid.lookup-data-grid--scroll-table .lookup-data-grid__th {
@@ -430,7 +432,7 @@
 }
 
 .lookup-data-grid.lookup-data-grid--scroll-table.lookup-data-grid--with-actions .lookup-data-grid__row {
-  grid-template-columns: repeat(var(--lookup-data-cols), minmax(0, 1fr)) minmax(120px, auto);
+  grid-template-columns: repeat(var(--lookup-data-cols), minmax(0, 1fr)) minmax(200px, auto);
 }
 
 .lookup-data-grid.lookup-data-grid--scroll-table .lookup-data-grid__row:hover {
@@ -455,8 +457,10 @@
 .lookup-data-grid.lookup-data-grid--scroll-table .lookup-data-grid__cell--actions .actions {
   justify-content: flex-end;
   width: auto;
-  flex-wrap: wrap;
-  max-width: 280px;
+  flex-wrap: nowrap;
+  flex-direction: row;
+  max-width: none;
+  white-space: nowrap;
 }
 
 .lookup-data-grid.lookup-data-grid--scroll-table .lookup-data-grid__empty {
@@ -478,8 +482,11 @@
 }
 
 .actions {
-  display: flex;
+  display: inline-flex;
   gap: 0.5rem;
+  align-items: center;
+  flex-wrap: nowrap;
+  flex-direction: row;
 }
 
 /* Row action buttons styled by adminCrudTheme.css */
@@ -539,7 +546,9 @@
   }
 
   .actions {
-    flex-direction: column;
+    flex-direction: row;
+    flex-wrap: nowrap;
+    gap: 0.4rem;
   }
 
   .app-dialog {

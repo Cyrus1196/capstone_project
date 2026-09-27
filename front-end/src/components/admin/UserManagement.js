@@ -277,7 +277,12 @@ const UserManagement = ({ userScope = 'staff' }) => {
         (user.email && user.email.toLowerCase().includes(term)) ||
         (user.contact_number && user.contact_number.includes(term)) ||
         (user.role && user.role.role_name && user.role.role_name.toLowerCase().includes(term)) ||
-        (user.user_id && user.user_id.toString().includes(term)) ||
+        (user.program?.program_name &&
+          user.program.program_name.toLowerCase().includes(term)) ||
+        (user.faculty_profile?.program?.program_name &&
+          user.faculty_profile.program.program_name.toLowerCase().includes(term)) ||
+        (user.facultyProfile?.program?.program_name &&
+          user.facultyProfile.program.program_name.toLowerCase().includes(term)) ||
         studentDisplayName(user).toLowerCase().includes(term) ||
         studentIdNumberOf(user).toLowerCase().includes(term)
       );
@@ -1098,7 +1103,7 @@ const UserManagement = ({ userScope = 'staff' }) => {
             placeholder={
               userScope === 'students'
                 ? 'Search by name, student ID, or email...'
-                : 'Search by email, contact number, ID, or role...'
+                : 'Search by email, contact, role, or program...'
             }
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
@@ -1156,23 +1161,31 @@ const UserManagement = ({ userScope = 'staff' }) => {
                   <>
                     <th>Name</th>
                     <th>Student ID</th>
+                    <th>Role</th>
+                    <th>Program</th>
+                    <th>Status</th>
+                    <th>Email</th>
+                    <th>Contact</th>
+                    <th>Access</th>
+                    <th>Actions</th>
                   </>
                 ) : (
-                  <th>ID</th>
+                  <>
+                    <th>Email</th>
+                    <th>Role</th>
+                    <th>Program</th>
+                    <th>Status</th>
+                    <th>Contact</th>
+                    <th>Access</th>
+                    <th>Actions</th>
+                  </>
                 )}
-                <th>Email</th>
-                <th>Contact Number</th>
-                <th>Role</th>
-                <th>Program</th>
-                <th>Access Level</th>
-                <th>Status</th>
-                <th>Actions</th>
               </tr>
             </thead>
             <tbody>
               {filteredUsers.length === 0 ? (
                 <tr>
-                  <td colSpan={userScope === 'students' ? 9 : 8} className="no-data">
+                  <td colSpan={userScope === 'students' ? 9 : 7} className="no-data">
                     {users.length === 0 ? 'No users found' : 'No users match your filters'}
                   </td>
                 </tr>
@@ -1221,25 +1234,44 @@ const UserManagement = ({ userScope = 'staff' }) => {
                         <>
                           <td>{studentDisplayName(user) || '-'}</td>
                           <td>{studentIdNumberOf(user) || '-'}</td>
+                          <td>{getRoleName(user.role_id)}</td>
+                          <td className="program-cell" title={getProgramName()}>
+                            {getProgramName()}
+                          </td>
+                          <td>
+                            <span className={`status-badge ${user.status === 'active' ? 'active' : 'inactive'}`}>
+                              {user.status === 'active' ? 'Active' : 'Inactive'}
+                            </span>
+                          </td>
+                          <td className="email-cell">{user.email || '-'}</td>
+                          <td>{user.contact_number || '-'}</td>
+                          <td>
+                            <span className="access-level-badge">
+                              {getAccessLevelName(user)}
+                            </span>
+                          </td>
                         </>
                       ) : (
-                        <td>{user.user_id || user.id || '-'}</td>
+                        <>
+                          <td className="email-cell">{user.email || '-'}</td>
+                          <td>{getRoleName(user.role_id)}</td>
+                          <td className="program-cell" title={getProgramName()}>
+                            {getProgramName()}
+                          </td>
+                          <td>
+                            <span className={`status-badge ${user.status === 'active' ? 'active' : 'inactive'}`}>
+                              {user.status === 'active' ? 'Active' : 'Inactive'}
+                            </span>
+                          </td>
+                          <td>{user.contact_number || '-'}</td>
+                          <td>
+                            <span className="access-level-badge">
+                              {getAccessLevelName(user)}
+                            </span>
+                          </td>
+                        </>
                       )}
-                      <td>{user.email || '-'}</td>
-                      <td>{user.contact_number || '-'}</td>
-                      <td>{getRoleName(user.role_id)}</td>
-                      <td>{getProgramName()}</td>
-                      <td>
-                        <span className="access-level-badge">
-                          {getAccessLevelName(user)}
-                        </span>
-                      </td>
-                      <td>
-                        <span className={`status-badge ${user.status === 'active' ? 'active' : 'inactive'}`}>
-                          {user.status === 'active' ? 'Active' : 'Inactive'}
-                        </span>
-                      </td>
-                      <td>
+                      <td className="actions-cell">
                         <div className="actions">
                         {canEditUsers ? (
                           <button

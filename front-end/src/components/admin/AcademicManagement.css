@@ -111,8 +111,11 @@
 }
 
 .actions {
-  display: flex;
+  display: inline-flex;
   gap: 8px;
+  align-items: center;
+  flex-wrap: nowrap;
+  flex-direction: row;
 }
 
 .edit-button,
@@ -122,6 +125,8 @@
   border-radius: 4px;
   cursor: pointer;
   font-size: 12px;
+  white-space: nowrap;
+  flex-shrink: 0;
   transition: background-color 0.2s;
 }
 

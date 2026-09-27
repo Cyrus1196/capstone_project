@@ -471,6 +471,43 @@
   border-color: #f87171;
 }
 
+/* Keep row action buttons side-by-side across admin tables */
+.lookup-data-management .actions,
+.curriculum-management .actions,
+.academic-management .actions,
+.elective-slot-management .actions,
+.user-management .actions,
+.credit-evaluation-management .actions,
+.backup-management .actions {
+  display: inline-flex;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.lookup-data-management .edit-button,
+.lookup-data-management .delete-button,
+.lookup-data-management .deactivate-button,
+.lookup-data-management .activate-button,
+.lookup-data-management .lookup-action,
+.curriculum-management .edit-button,
+.curriculum-management .delete-button,
+.academic-management .edit-button,
+.academic-management .delete-button,
+.elective-slot-management .edit-button,
+.elective-slot-management .delete-button,
+.elective-slot-management .manage-button,
+.elective-slot-management .remove-button,
+.user-management .edit-button,
+.user-management .delete-button,
+.user-management .status-toggle-button,
+.credit-evaluation-management .edit-button,
+.credit-evaluation-management .delete-button {
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
 @media (max-width: 640px) {
   .lookup-data-management .app-dialog,
   .curriculum-management .modal-content,
