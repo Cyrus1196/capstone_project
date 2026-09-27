@@ -8037,11 +8037,22 @@ const StudentEvaluationView = ({
   const studentDropdownOptions = (() => {
     const map = new Map();
     filteredStudents.forEach((student) => map.set(String(student.student_id), student));
-    if (selectedStudent?.student_id != null) {
-      map.set(String(selectedStudent.student_id), selectedStudent);
-    }
     return [...map.values()];
   })();
+
+  // Drop the current student when Year / Standing filters no longer include them.
+  useEffect(() => {
+    if (!selectedStudent?.student_id) return;
+    const stillInFilter = filteredStudents.some(
+      (s) => String(s.student_id) === String(selectedStudent.student_id)
+    );
+    if (stillInFilter) return;
+    setSelectedStudent(null);
+    setBaselineData(null);
+    setData(null);
+    setPendingSimName(null);
+    setError('');
+  }, [filteredStudents, selectedStudent?.student_id]);
 
   return (
     <div
@@ -8156,6 +8167,23 @@ const StudentEvaluationView = ({
                 className="eval-student-searchable-select"
                 value={selectedStudent?.student_id != null ? String(selectedStudent.student_id) : ''}
                 onChange={async (value) => {
+                  if (!value) {
+                    if (hasUnsavedChanges) {
+                      const confirmed = await swalConfirm(
+                        'Unsaved Changes',
+                        `You have ${unsavedChangeCount} unsaved change(s). Discard them?`,
+                        'Discard',
+                        'Cancel'
+                      );
+                      if (!confirmed) return;
+                    }
+                    setSelectedStudent(null);
+                    setBaselineData(null);
+                    setData(null);
+                    setPendingSimName(null);
+                    setError('');
+                    return;
+                  }
                   const student = studentDropdownOptions.find(
                     (option) => String(option.student_id) === String(value)
                   );

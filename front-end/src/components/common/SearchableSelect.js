@@ -5,6 +5,7 @@ import './SearchableSelect.css';
  * Combobox: type in the field to filter; dropdown lists matches only (no nested search box).
  * `value` / option `value` are compared as strings; `onChange` receives the option's `value` as a string (or "").
  * Optional `onQueryChange` lets parents run server-side search while typing.
+ * Set `clearable` (default: true when not required) to show an X and allow emptying the value.
  */
 export default function SearchableSelect({
   id: idProp,
@@ -16,6 +17,7 @@ export default function SearchableSelect({
   disabled = false,
   className = '',
   required = false,
+  clearable: clearableProp,
   allowCustomValue = false,
   onQueryChange,
   'aria-label': ariaLabel,
@@ -33,7 +35,9 @@ export default function SearchableSelect({
   const onQueryChangeRef = useRef(onQueryChange);
   onQueryChangeRef.current = onQueryChange;
 
+  const clearable = clearableProp !== undefined ? Boolean(clearableProp) : !required;
   const strValue = value === '' || value == null ? '' : String(value);
+  const canClear = clearable && !disabled && strValue !== '';
 
   const selectedLabel = useMemo(() => {
     if (strValue === '') return '';
@@ -195,11 +199,15 @@ export default function SearchableSelect({
       return;
     }
 
-    // Typing / backspace on a closed selected field: open and start a fresh filter.
+    // Typing / backspace on a closed selected field: clear or start a fresh filter.
     if (!open && strValue !== '') {
       if (e.key === 'Backspace' || e.key === 'Delete') {
         e.preventDefault();
-        openMenu('');
+        if (canClear) {
+          pick('');
+        } else {
+          openMenu('');
+        }
         return;
       }
       if (e.key.length === 1 && !e.ctrlKey && !e.metaKey && !e.altKey) {
@@ -253,6 +261,26 @@ export default function SearchableSelect({
           onKeyDown={handleInputKeyDown}
           autoComplete="off"
         />
+        {canClear ? (
+          <button
+            type="button"
+            className="searchable-select__clear"
+            tabIndex={-1}
+            aria-label="Clear selection"
+            title="Clear selection"
+            onMouseDown={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+            }}
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              pick('');
+            }}
+          >
+            ×
+          </button>
+        ) : null}
         <button
           type="button"
           className="searchable-select__toggle"
@@ -281,7 +309,7 @@ export default function SearchableSelect({
             role="listbox"
             aria-labelledby={ariaLabelledBy || id}
           >
-            {!required && strValue !== '' && (
+            {canClear && (
               <li role="presentation">
                 <button
                   type="button"

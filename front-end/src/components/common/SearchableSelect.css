@@ -85,6 +85,29 @@
   color: #555;
 }
 
+.searchable-select__clear {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.75rem;
+  height: 1.75rem;
+  margin: 0 0.1rem 0 0;
+  padding: 0;
+  border: none;
+  border-radius: 999px;
+  background: transparent;
+  cursor: pointer;
+  color: #64748b;
+  font-size: 1.2rem;
+  line-height: 1;
+}
+
+.searchable-select__clear:hover {
+  background: #f1f5f9;
+  color: #0f172a;
+}
+
 .searchable-select__toggle:disabled {
   cursor: not-allowed;
 }
