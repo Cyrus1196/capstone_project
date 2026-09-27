@@ -6604,21 +6604,43 @@ const StudentEvaluationView = ({
             </span>
           </div>
           <div className="eval-hero__meta-box">
-            <span className="eval-hero__meta-label">Promotion date</span>
+            <span className="eval-hero__meta-label">Standing</span>
             <span className="eval-hero__meta-value">
-              {promotedAtLabel || '—'}
+              {[student?.year_level_name, student?.semester_name]
+                .filter(Boolean)
+                .join(' · ') ||
+                student?.standing_label ||
+                [
+                  evaluationFilterOptions.years.find(
+                    (y) => String(y.id) === String(evalFilterYearId)
+                  )?.label,
+                  (data?.rows || []).find(
+                    (r) => String(r.semester_id) === String(evalFilterSemesterId)
+                  )?.semester_name,
+                ]
+                  .filter(Boolean)
+                  .join(' · ') ||
+                '—'}
             </span>
           </div>
           <div className="eval-hero__meta-box">
-            <span className="eval-hero__meta-label">Student type</span>
+            <span className="eval-hero__meta-label">Curriculum</span>
             <span className="eval-hero__meta-value">
-              {entryType || 'Not set'}
+              {data?.curriculum?.label ||
+                data?.curriculum?.curriculum_name ||
+                evaluationFilterOptions.curricula?.[0]?.label ||
+                '—'}
             </span>
           </div>
           {promotionTargetLabel ? (
             <div className="eval-hero__meta-box">
               <span className="eval-hero__meta-label">Next term</span>
               <span className="eval-hero__meta-value">{promotionTargetLabel}</span>
+            </div>
+          ) : promotedAtLabel ? (
+            <div className="eval-hero__meta-box">
+              <span className="eval-hero__meta-label">Promoted on</span>
+              <span className="eval-hero__meta-value">{promotedAtLabel}</span>
             </div>
           ) : null}
         </div>

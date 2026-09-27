@@ -338,7 +338,7 @@ const Login = () => {
                     <span className="login-page__req" aria-hidden>
                       *
                     </span>{' '}
-                    Email / Your Email
+                    Username
                   </label>
                   <div className="login-page__input-wrap">
                     <input
@@ -346,7 +346,7 @@ const Login = () => {
                       type="text"
                       value={email}
                       onChange={(e) => setEmail(e.target.value)}
-                      placeholder="Student ID, Employee ID, or Admin email"
+                      placeholder="Your Email"
                       required
                       autoComplete="username"
                       disabled={loading}
