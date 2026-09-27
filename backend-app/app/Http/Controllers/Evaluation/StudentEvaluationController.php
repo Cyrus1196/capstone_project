@@ -309,9 +309,17 @@ class StudentEvaluationController extends Controller
                         $lastCompletedByStudent[$sid] = $row->completed_at;
                     }
                     $notes = (string) ($row->notes ?? '');
-                    // Auto-promote logs must not clear Irregulars from the Unevaluated queue —
-                    // those students still need manual promote / Complete.
-                    if (! str_contains($notes, 'Auto-promoted on semester activation')) {
+                    $notesTrim = trim($notes);
+                    // Irregular queue: only real irregular manual promote / Complete.
+                    // Ignore auto-promote and Regular-era "Semester promotion" leftovers.
+                    if (str_contains($notes, 'Irregular manual promotion')) {
+                        $manualEvaluatedStudentIds[$sid] = true;
+                    } elseif ($notesTrim === '') {
+                        $manualEvaluatedStudentIds[$sid] = true;
+                    } elseif (
+                        ! str_contains($notes, 'Auto-promoted on semester activation')
+                        && ! str_contains($notes, 'Semester promotion')
+                    ) {
                         $manualEvaluatedStudentIds[$sid] = true;
                     }
                 }
@@ -348,9 +356,9 @@ class StudentEvaluationController extends Controller
                 $lastAt = $lastCompletedByStudent[$sid] ?? null;
                 $status = strtolower(trim((string) ($student->academic_status ?? '')));
                 $isIrregular = $status === 'irregular';
-                // Regulars: auto-promote OR any completion log = evaluated.
-                // Irregulars: only staff Complete / manual "Semester promotion" counts —
-                // leftover auto-promote rows from when they were Regular must not hide them.
+                // Unevaluated = not yet staff-evaluated for this standing.
+                // Regulars: auto-promote OR any completion log.
+                // Irregulars: only Irregular manual promote / Complete (see above).
                 $autoPromotedRegular = ! $isIrregular && ! empty($student->promoted_next_sem_at);
                 $isEvaluated = $isIrregular
                     ? isset($manualEvaluatedStudentIds[$sid])
@@ -593,9 +601,14 @@ class StudentEvaluationController extends Controller
             $profile->save();
 
             $builder->syncStudentProfileFromCurriculumProgress($profile);
+            $profile->refresh();
 
+            $statusAfter = strtolower(trim((string) ($profile->academic_status ?? '')));
+            $isIrregularPromote = $statusAfter === 'irregular';
             $promotionNote = sprintf(
-                'Semester promotion — target year level %d, semester %d. Evaluated by: %s',
+                ($isIrregularPromote
+                    ? 'Irregular manual promotion — target year level %d, semester %d. Evaluated by: %s'
+                    : 'Semester promotion — target year level %d, semester %d. Evaluated by: %s'),
                 (int) $validated['target_year_level_id'],
                 (int) $validated['target_semester_id'],
                 $evaluatorName

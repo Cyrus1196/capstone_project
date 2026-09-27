@@ -8485,7 +8485,7 @@ const StudentEvaluationView = ({
                 value={listStandingFilter}
                 onChange={(e) => setListStandingFilter(e.target.value)}
                 aria-label="Filter by evaluation standing"
-                title="Unevaluated = system did not auto-evaluate/promote when the semester changed. Review and promote manually. Practice students are excluded."
+                title="Unevaluated = not yet staff-evaluated (missed auto-promote or still needs review). Unevaluated irregular = Irregular students who still need manual Promote/Complete. Practice students are excluded."
               >
                 <option value="">All students</option>
                 <option value="irregular">Irregular</option>

@@ -581,7 +581,12 @@ class EvaluationReportController extends Controller
             ->whereIn('student_id', (clone $studentBase)->select('student_id'))
             ->where(function ($q) {
                 $q->whereNull('notes')
-                    ->orWhere('notes', 'not like', '%Auto-promoted on semester activation%');
+                    ->orWhere('notes', '')
+                    ->orWhere('notes', 'like', '%Irregular manual promotion%')
+                    ->orWhere(function ($inner) {
+                        $inner->where('notes', 'not like', '%Auto-promoted on semester activation%')
+                            ->where('notes', 'not like', '%Semester promotion%');
+                    });
             })
             ->distinct()
             ->pluck('student_id')
@@ -740,7 +745,12 @@ class EvaluationReportController extends Controller
             ->whereIn('student_id', (clone $studentBase)->select('student_id'))
             ->where(function ($q) {
                 $q->whereNull('notes')
-                    ->orWhere('notes', 'not like', '%Auto-promoted on semester activation%');
+                    ->orWhere('notes', '')
+                    ->orWhere('notes', 'like', '%Irregular manual promotion%')
+                    ->orWhere(function ($inner) {
+                        $inner->where('notes', 'not like', '%Auto-promoted on semester activation%')
+                            ->where('notes', 'not like', '%Semester promotion%');
+                    });
             })
             ->distinct()
             ->pluck('student_id')

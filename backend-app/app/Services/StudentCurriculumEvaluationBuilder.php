@@ -1106,12 +1106,11 @@ class StudentCurriculumEvaluationBuilder
                 $profile->academic_status = $computed;
                 $changed = true;
 
-                // Regular → Irregular: drop auto-promote "evaluated" logs so they reappear
-                // in Unevaluated / Unevaluated irregular for manual promote.
+                // Regular → Irregular: clear prior evaluate/promote logs so they
+                // reappear under Unevaluated / Unevaluated irregular for manual work.
                 if ($computed === 'Irregular' && $profile->student_id) {
                     AcademicRecordEvaluationComplete::query()
                         ->where('student_id', $profile->student_id)
-                        ->where('notes', 'like', '%Auto-promoted on semester activation%')
                         ->delete();
                 }
             }
