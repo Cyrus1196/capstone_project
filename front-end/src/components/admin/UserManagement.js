@@ -1760,40 +1760,18 @@ const UserManagement = ({ userScope = 'staff' }) => {
                     )}
                   </div>
                   <div className="form-group">
-                    <label>
-                      {isStudentForm()
-                        ? 'Email (optional)'
-                        : isEmployeeIdLoginRole()
-                          ? 'Email (verification & password reset)'
-                          : 'Email'}
-                    </label>
+                    <label>{isStudentForm() ? 'Email (optional)' : 'Email'}</label>
                     <input
                       type="email"
-                      aria-label={
-                        isStudentForm()
-                          ? 'Student email (optional)'
-                          : isEmployeeIdLoginRole()
-                            ? 'Email for verification and password reset'
-                            : 'Email'
-                      }
+                      aria-label={isStudentForm() ? 'Student email (optional)' : 'Email'}
                       value={formData.email || ''}
                       onChange={(e) => setFormData({ ...formData, email: e.target.value })}
                       required={!isStudentForm()}
-                      placeholder={
-                        isStudentForm()
-                          ? 'student@example.com — add later if unknown'
-                          : isEmployeeIdLoginRole()
-                            ? 'Used for OTP, verification, and password reset only'
-                            : undefined
-                      }
+                      placeholder={isStudentForm() ? 'student@example.com — add later if unknown' : undefined}
                     />
                     {isStudentForm() ? (
                       <small style={{ color: '#666', fontSize: '0.85rem', display: 'block', marginTop: '0.25rem' }}>
                         Students sign in with their Student ID, not email. Add a contact email here or via CSV import.
-                      </small>
-                    ) : isEmployeeIdLoginRole() ? (
-                      <small style={{ color: '#666', fontSize: '0.85rem', display: 'block', marginTop: '0.25rem' }}>
-                        Not used to sign in. Codes and reset links are sent to this address.
                       </small>
                     ) : null}
                   </div>
