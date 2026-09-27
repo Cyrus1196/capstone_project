@@ -328,8 +328,10 @@ class StudentEvaluationController extends Controller
 
                 $lastAt = $lastCompletedByStudent[$student->student_id] ?? null;
                 $status = strtolower(trim((string) ($student->academic_status ?? '')));
+                // "Evaluated" = system auto-promoted on semester activate, OR staff logged a
+                // completion / manual promote. Everyone else stays "Unevaluated" for manual fix
+                // (incomplete load, irregular, missed auto-run, data issues).
                 $autoPromotedRegular = $status !== 'irregular' && ! empty($student->promoted_next_sem_at);
-                // Completion log OR successful semester-activation auto-promote counts as evaluated.
                 $isEvaluated = $lastAt !== null || $autoPromotedRegular;
                 $effectiveYearLevelId = $this->effectiveEvaluationYearLevelId($student);
                 $effectiveYearLevelName = $student->yearLevel?->year_level;

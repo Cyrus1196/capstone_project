@@ -82,7 +82,7 @@ function evaluationWalkthroughSteps({ portalName = 'portal' } = {}) {
     },
     {
       title: 'Focus on irregulars',
-      body: 'Use Standing and choose Unevaluated irregular (or Irregular). That hides regulars who were already auto-evaluated and shows the students who need your review.',
+      body: 'Use Standing → Unevaluated (or Unevaluated irregular). That list is for students the system did not auto-evaluate/promote when the semester changed — incomplete loads, irregulars, or missed auto-runs. Promote those manually. Regulars who auto-promoted successfully leave this list.',
       openTab: 'academic-record',
       target:
         '[data-tour="evaluation-standing-filter"], [data-tour="evaluation-student-selector"], [data-tour="page-academic-record"]',

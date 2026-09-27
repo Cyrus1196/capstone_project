@@ -8457,11 +8457,11 @@ const StudentEvaluationView = ({
                 value={listStandingFilter}
                 onChange={(e) => setListStandingFilter(e.target.value)}
                 aria-label="Filter by evaluation standing"
-                title="Filter by evaluation status and/or irregular standing"
+                title="Unevaluated = system did not auto-evaluate/promote them when the semester changed (incomplete, irregular, or missed). Review and promote manually."
               >
                 <option value="">All students</option>
                 <option value="irregular">Irregular</option>
-                <option value="unevaluated">Unevaluated</option>
+                <option value="unevaluated">Unevaluated (needs manual)</option>
                 <option value="unevaluated_irregular">Unevaluated irregular</option>
               </select>
             </label>
