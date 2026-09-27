@@ -8460,8 +8460,8 @@ const StudentEvaluationView = ({
                 title="Filter by evaluation status and/or irregular standing"
               >
                 <option value="">All students</option>
-                <option value="unevaluated">Unevaluated</option>
                 <option value="irregular">Irregular</option>
+                <option value="unevaluated">Unevaluated</option>
                 <option value="unevaluated_irregular">Unevaluated irregular</option>
               </select>
             </label>
