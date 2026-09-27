@@ -1125,6 +1125,15 @@ const StudentEvaluationView = ({
   variant = 'default',
 }) => {
   const { user, isAdmin, isFaculty, isProgramHead, isDean, hasAnyPermission } = useAuth();
+  const evaluatorFullName = useMemo(() => {
+    const display = String(user?.display_name || '').trim();
+    if (display) return display;
+    const first = String(user?.first_name || user?.fname || '').trim();
+    const last = String(user?.last_name || user?.lname || '').trim();
+    const joined = [first, last].filter(Boolean).join(' ').trim();
+    if (joined) return joined;
+    return String(user?.email || '').trim();
+  }, [user?.display_name, user?.first_name, user?.fname, user?.last_name, user?.lname, user?.email]);
   const { open: systemGuideOpen } = useSystemGuide();
   const canEdit = !!(isAdmin || isFaculty || isProgramHead || hasAnyPermission(EVALUATION_WORK_PERMS));
   /** Former Evaluator role is now Adviser (Evaluator voided). */
@@ -1213,7 +1222,7 @@ const StudentEvaluationView = ({
   }, [evaluationDraftStorageKey]);
 
   const [listYearLevelFilter, setListYearLevelFilter] = useState('');
-  /** '' | unevaluated | irregular | unevaluated_irregular */
+  /** '' | irregular */
   const [listStandingFilter, setListStandingFilter] = useState('');
   const [evalFilterCurriculumId, setEvalFilterCurriculumId] = useState('');
   const [evalFilterYearId, setEvalFilterYearId] = useState('');
@@ -5530,7 +5539,7 @@ const StudentEvaluationView = ({
       }
       const body = {
         student_id: data.student.student_id,
-        evaluated_by: String(evaluatedBy || user?.email || '').trim(),
+        evaluated_by: String(evaluatedBy || evaluatorFullName || user?.email || '').trim(),
         target_year_level_id: Number(nextPromotionTerm.year_level_id),
         target_semester_id: Number(nextPromotionTerm.semester_id),
       };
@@ -5609,6 +5618,7 @@ const StudentEvaluationView = ({
       nextPromotionTerm,
       selectedStudent,
       user?.email,
+      evaluatorFullName,
       fetchStudentList,
       searchTerm,
       applySavedEvaluation,
@@ -5641,13 +5651,13 @@ const StudentEvaluationView = ({
     if (alreadyAtTarget && !systemGuideOpen) {
       // Re-post: backend refreshes standing to the target without duplicating the log.
       void runPromoteNextSemester({
-        evaluatedBy: String(user?.email || '').trim() || 'dean',
+        evaluatedBy: evaluatorFullName || String(user?.email || '').trim() || 'Staff',
         trackId: data?.student?.track_id,
         silentIfAlreadyPromoted: false,
       });
       return;
     }
-    setPromoteEvaluatedBy(String(user?.email || '').trim());
+    setPromoteEvaluatedBy(evaluatorFullName || String(user?.email || '').trim());
     setPromoteModalTrackId(
       data?.student?.track_id != null && data.student.track_id !== ''
         ? String(data.student.track_id)
@@ -5660,6 +5670,7 @@ const StudentEvaluationView = ({
     systemGuideOpen,
     nextPromotionTerm,
     user?.email,
+    evaluatorFullName,
     data?.student?.track_id,
     data?.student?.promoted_next_sem_at,
     data?.student?.promotion_target_year_level_id,
@@ -6377,9 +6388,11 @@ const StudentEvaluationView = ({
       }
     }
     const promotionTargetLabel = (() => {
-      if (!isPromotedNextSem) return '';
       const targetY = student?.promotion_target_year_level_id;
       const targetS = student?.promotion_target_semester_id;
+      if (targetY == null || targetS == null) return '';
+      // Show next term whenever a promotion target exists (not only when badge logic passes).
+      if (!promotedAtRaw && !isPromotedNextSem) return '';
       const term = orderedCurriculumTerms.find(
         (t) =>
           String(t.year_level_id) === String(targetY) &&
@@ -6587,7 +6600,7 @@ const StudentEvaluationView = ({
           <div className="eval-hero__meta-box">
             <span className="eval-hero__meta-label">Evaluated by</span>
             <span className="eval-hero__meta-value">
-              {evaluatedByLabel || (isPromotedNextSem ? '—' : 'Not evaluated yet')}
+              {evaluatedByLabel || (promotedAtLabel || isPromotedNextSem ? '—' : 'Not evaluated yet')}
             </span>
           </div>
           <div className="eval-hero__meta-box">
@@ -6597,13 +6610,17 @@ const StudentEvaluationView = ({
             </span>
           </div>
           <div className="eval-hero__meta-box">
-            <span className="eval-hero__meta-label">
-              {promotionTargetLabel ? 'Next term' : 'Student type'}
-            </span>
+            <span className="eval-hero__meta-label">Student type</span>
             <span className="eval-hero__meta-value">
-              {promotionTargetLabel || entryType || '—'}
+              {entryType || 'Not set'}
             </span>
           </div>
+          {promotionTargetLabel ? (
+            <div className="eval-hero__meta-box">
+              <span className="eval-hero__meta-label">Next term</span>
+              <span className="eval-hero__meta-value">{promotionTargetLabel}</span>
+            </div>
+          ) : null}
         </div>
 
         <div className="eval-metrics-strip">
@@ -8259,12 +8276,10 @@ const StudentEvaluationView = ({
                 value={listStandingFilter}
                 onChange={(e) => setListStandingFilter(e.target.value)}
                 aria-label="Filter by evaluation standing"
-                title="Filter students who still need evaluation and/or are irregular"
+                title="Filter by Regular roster or Irregular only"
               >
                 <option value="">All students</option>
-                <option value="unevaluated">Unevaluated</option>
                 <option value="irregular">Irregular</option>
-                <option value="unevaluated_irregular">Unevaluated irregular</option>
               </select>
             </label>
 
@@ -9066,7 +9081,6 @@ const StudentEvaluationView = ({
         rows={promotionTableRows}
         totalUnits={promotionModalTotalUnits}
         evaluatedBy={promoteEvaluatedBy}
-        onEvaluatedByChange={(e) => setPromoteEvaluatedBy(e.target.value)}
         trackPickerVisible={nextTermNeedsTrackPicker && promoteModalTrackOptions.length > 0}
         trackPickerRequired={promotionTrackPickRequired}
         trackPickerOptions={promoteModalTrackOptions}

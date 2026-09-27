@@ -1106,16 +1106,9 @@ class StudentCurriculumEvaluationBuilder
             }
         }
 
-        if ($computed === 'Irregular') {
-            if ($profile->promoted_next_sem_at !== null) {
-                $profile->promoted_next_sem_at = null;
-                $changed = true;
-            }
-            if ($profile->promoted_next_sem_by !== null) {
-                $profile->promoted_next_sem_by = null;
-                $changed = true;
-            }
-        }
+        // Keep promoted_next_sem_at / promoted_next_sem_by for Irregular students.
+        // Manual "Promote to next semester" sets those fields; clearing them here
+        // wiped Promotion date on the evaluation hero after every promote save.
 
         if (! $changed) {
             return false;

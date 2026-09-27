@@ -1,4 +1,4 @@
-/* Figma-style “promote to next semester” modal — aligns with Curriculum Evaluation greens + pills */
+/* Promote to next semester — review modal */
 .promote-modal-overlay {
   position: fixed;
   inset: 0;
@@ -7,19 +7,19 @@
   align-items: center;
   justify-content: center;
   padding: 1rem;
-  background: rgba(15, 23, 42, 0.45);
-  backdrop-filter: blur(2px);
+  background: rgba(15, 23, 42, 0.5);
+  backdrop-filter: blur(3px);
 }
 
 .promote-modal {
-  width: min(920px, 100%);
-  max-height: min(92vh, 900px);
+  width: min(960px, 100%);
+  max-height: min(92vh, 920px);
   display: flex;
   flex-direction: column;
-  background: #eef2ef;
-  border-radius: 18px;
-  box-shadow: 0 24px 60px rgba(15, 23, 42, 0.25);
-  border: 1px solid rgba(45, 135, 90, 0.18);
+  background: #f7faf8;
+  border-radius: 20px;
+  box-shadow: 0 28px 64px rgba(15, 23, 42, 0.28);
+  border: 1px solid rgba(45, 135, 90, 0.2);
   overflow: hidden;
   font-family:
     "DM Sans",
@@ -35,18 +35,47 @@
   align-items: flex-start;
   justify-content: space-between;
   gap: 1rem;
-  padding: 1.1rem 1.25rem 0.85rem;
-  border-bottom: 1px solid rgba(45, 135, 90, 0.12);
-  background: linear-gradient(180deg, #f4faf6 0%, #eef2ef 100%);
+  padding: 1.15rem 1.35rem 1rem;
+  border-bottom: 1px solid rgba(45, 135, 90, 0.14);
+  background:
+    linear-gradient(135deg, rgba(22, 163, 74, 0.12) 0%, transparent 42%),
+    linear-gradient(180deg, #ffffff 0%, #f3f8f5 100%);
+}
+
+.promote-modal__head-text {
+  min-width: 0;
+  flex: 1;
+}
+
+.promote-modal__eyebrow {
+  margin: 0 0 0.35rem;
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: #15803d;
 }
 
 .promote-modal__title {
   margin: 0;
-  font-size: 1.2rem;
+  font-size: 1.28rem;
   font-weight: 800;
   color: #0f172a;
   letter-spacing: -0.02em;
   line-height: 1.25;
+}
+
+.promote-modal__subtitle {
+  margin: 0.45rem 0 0;
+  font-size: 0.88rem;
+  line-height: 1.45;
+  color: #475569;
+  max-width: 42rem;
+}
+
+.promote-modal__subtitle strong {
+  color: #14532d;
+  font-weight: 700;
 }
 
 .promote-modal__close {
@@ -75,58 +104,52 @@
 
 .promote-modal__meta-bar {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 0.65rem;
-  padding: 0.85rem 1.25rem;
-  background: linear-gradient(90deg, #d8f3e4 0%, #c8ead8 50%, #d8f3e4 100%);
-  border-bottom: 1px solid rgba(45, 135, 90, 0.15);
+  padding: 0.9rem 1.35rem;
+  background: #dff5e8;
+  border-bottom: 1px solid rgba(45, 135, 90, 0.16);
 }
 
 .promote-modal__meta-item {
   display: flex;
   flex-direction: column;
-  gap: 0.2rem;
+  gap: 0.25rem;
   min-width: 0;
 }
 
 .promote-modal__meta-label {
   font-size: 0.65rem;
-  font-weight: 700;
+  font-weight: 800;
   letter-spacing: 0.08em;
   text-transform: uppercase;
   color: #166534;
-  display: flex;
-  align-items: center;
-  gap: 0.35rem;
-}
-
-.promote-modal__meta-label i {
-  opacity: 0.85;
-  font-size: 0.75rem;
 }
 
 .promote-modal__meta-value {
-  font-size: 0.88rem;
+  font-size: 0.86rem;
   font-weight: 700;
   color: #14532d;
   background: #fff;
   border-radius: 10px;
-  padding: 0.4rem 0.55rem;
-  border: 1px solid rgba(45, 135, 90, 0.2);
+  padding: 0.45rem 0.6rem;
+  border: 1px solid rgba(45, 135, 90, 0.22);
   box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+  overflow-wrap: anywhere;
 }
 
 .promote-modal__body {
   flex: 1;
   overflow: auto;
-  padding: 0.85rem 1.25rem 1rem;
+  padding: 0.95rem 1.35rem 1.1rem;
 }
 
 .promote-modal__table-wrap {
-  border-radius: 12px;
+  border-radius: 14px;
   overflow: hidden;
-  border: 1px solid #cbd5e1;
+  border: 1px solid #c5d4cc;
   background: #fff;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.05);
 }
 
 .promote-modal__table {
@@ -137,10 +160,10 @@
 }
 
 .promote-modal__table thead th {
-  background: #2f3e46;
+  background: #1f3d2f;
   color: #fff;
   text-align: left;
-  padding: 0.55rem 0.65rem;
+  padding: 0.6rem 0.7rem;
   font-weight: 700;
   font-size: 0.72rem;
   letter-spacing: 0.06em;
@@ -180,13 +203,23 @@
 }
 
 .promote-modal__table tbody td {
-  padding: 0.5rem 0.65rem;
-  border-top: 1px solid #e2e8f0;
+  padding: 0.55rem 0.7rem;
+  border-top: 1px solid #e8eee9;
   color: #1e293b;
 }
 
+.promote-modal__table tbody tr:nth-child(even) td {
+  background: #fbfcfb;
+}
+
+.promote-modal__empty {
+  padding: 1.1rem;
+  color: #64748b;
+  font-style: italic;
+}
+
 .promote-modal__row--blocked td {
-  background: #fff1f2;
+  background: #fff1f2 !important;
   color: #7f1d1d;
 }
 
@@ -317,21 +350,30 @@
   align-items: flex-end;
   justify-content: space-between;
   gap: 1rem;
-  padding: 0.9rem 1.25rem 1.15rem;
-  border-top: 1px solid rgba(45, 135, 90, 0.12);
-  background: #f4faf6;
+  padding: 1rem 1.35rem 1.2rem;
+  border-top: 1px solid rgba(45, 135, 90, 0.14);
+  background: #ffffff;
+}
+
+.promote-modal__foot-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.75rem 1rem;
+  margin-left: auto;
 }
 
 .promote-modal__total {
-  margin-left: auto;
   font-size: 0.88rem;
   font-weight: 700;
   color: #334155;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
 }
 
 .promote-modal__total-badge {
   display: inline-block;
-  margin-left: 0.35rem;
   padding: 0.2rem 0.55rem;
   border-radius: 999px;
   background: #e0f2fe;
@@ -341,32 +383,45 @@
 
 .promote-modal__eval-row {
   display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.5rem 0.75rem;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.35rem;
   flex: 1;
-  min-width: 200px;
+  min-width: 220px;
+  max-width: 360px;
 }
 
 .promote-modal__eval-row label {
-  font-size: 0.78rem;
-  font-weight: 700;
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
   color: #475569;
 }
 
 .promote-modal__eval-input {
-  flex: 1;
-  min-width: 160px;
-  max-width: 320px;
-  padding: 0.5rem 0.65rem;
+  width: 100%;
+  padding: 0.55rem 0.7rem;
   border-radius: 10px;
   border: 1px solid #cbd5e1;
   font: inherit;
-  font-size: 0.88rem;
+  font-size: 0.92rem;
+  font-weight: 600;
+  color: #0f172a;
+  background: #fff;
+}
+
+.promote-modal__eval-input--locked,
+.promote-modal__eval-input:disabled {
+  background: #eef2f0;
+  color: #1e293b;
+  border-color: #c5d0c9;
+  cursor: not-allowed;
+  opacity: 1;
 }
 
 .promote-modal__save {
-  padding: 0.65rem 1.6rem;
+  padding: 0.7rem 1.55rem;
   border: none;
   border-radius: 12px;
   background: #16a34a;
@@ -390,7 +445,7 @@
   margin-top: 1rem;
   padding: 0.85rem 1rem;
   border-radius: 12px;
-  background: rgba(255, 255, 255, 0.75);
+  background: rgba(255, 255, 255, 0.85);
   border: 1px solid rgba(45, 135, 90, 0.2);
 }
 
@@ -427,13 +482,24 @@
   line-height: 1.4;
 }
 
+@media (max-width: 720px) {
+  .promote-modal__meta-bar {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
 @media (max-width: 640px) {
   .promote-modal__foot {
     flex-direction: column;
     align-items: stretch;
   }
 
-  .promote-modal__total {
+  .promote-modal__eval-row {
+    max-width: none;
+  }
+
+  .promote-modal__foot-actions {
     margin-left: 0;
+    justify-content: space-between;
   }
 }

@@ -12,39 +12,8 @@ function electiveChoiceLabel(c) {
 }
 
 /**
- * @param {{
- *   open: boolean,
- *   onClose: () => void,
- *   onSave: () => void | Promise<void>,
- *   saving: boolean,
- *   studentName: string,
- *   curriculumLabel: string,
- *   programLabel: string,
- *   yearLabel: string,
- *   semesterLabel: string,
- *   rows: Array<{
- *     penCode: string,
- *     title: string,
- *     units: string|number,
- *     prerequisite: string,
- *     eligible?: boolean,
- *     unmetPrerequisites?: Array<string>,
- *     electivePending?: boolean,
- *     electiveChoices?: Array<Record<string, unknown>>,
- *     isElectiveFour?: boolean,
- *     electiveSubjectChoices?: Array<Record<string, unknown>>,
- *   }>,
- *   totalUnits: number,
- *   evaluatedBy: string,
- *   onEvaluatedByChange: (e: import('react').ChangeEvent<HTMLInputElement>) => void,
- *   trackPickerVisible?: boolean,
- *   trackPickerRequired?: boolean,
- *   trackPickerOptions?: Array<{ value: string, label: string }>,
- *   trackPickerValue?: string,
- *   onTrackPickerChange?: (e: import('react').ChangeEvent<HTMLSelectElement>) => void,
- *   elective4SubjectValue?: string,
- *   onElective4SubjectChange?: (e: import('react').ChangeEvent<HTMLSelectElement>) => void,
- * }} props
+ * Promote-to-next-semester review dialog.
+ * Evaluated by is locked to the signed-in staff name (first + last).
  */
 const PromoteSemesterModal = ({
   open,
@@ -59,7 +28,6 @@ const PromoteSemesterModal = ({
   rows,
   totalUnits,
   evaluatedBy,
-  onEvaluatedByChange,
   trackPickerVisible = false,
   trackPickerRequired = false,
   trackPickerOptions = [],
@@ -104,9 +72,19 @@ const PromoteSemesterModal = ({
         onClick={(e) => e.stopPropagation()}
       >
         <div className="promote-modal__head">
-          <h2 id="promote-modal-title" className="promote-modal__title">
-            {studentName}
-          </h2>
+          <div className="promote-modal__head-text">
+            <p className="promote-modal__eyebrow">Promote to next semester</p>
+            <h2 id="promote-modal-title" className="promote-modal__title">
+              {studentName}
+            </h2>
+            <p className="promote-modal__subtitle">
+              Review the load for{' '}
+              <strong>
+                {[yearLabel, semesterLabel].filter((v) => v && v !== '—').join(' · ') || 'the next term'}
+              </strong>
+              , then save to update standing.
+            </p>
+          </div>
           <button
             ref={closeButtonRef}
             type="button"
@@ -120,31 +98,19 @@ const PromoteSemesterModal = ({
 
         <div className="promote-modal__meta-bar">
           <div className="promote-modal__meta-item">
-            <span className="promote-modal__meta-label">
-              <i className="fa-regular fa-calendar" aria-hidden />
-              Curriculum
-            </span>
+            <span className="promote-modal__meta-label">Curriculum</span>
             <span className="promote-modal__meta-value">{curriculumLabel || '—'}</span>
           </div>
           <div className="promote-modal__meta-item">
-            <span className="promote-modal__meta-label">
-              <i className="fa-solid fa-graduation-cap" aria-hidden />
-              Program
-            </span>
+            <span className="promote-modal__meta-label">Program</span>
             <span className="promote-modal__meta-value">{programLabel || '—'}</span>
           </div>
           <div className="promote-modal__meta-item">
-            <span className="promote-modal__meta-label">
-              <i className="fa-regular fa-clock" aria-hidden />
-              Year
-            </span>
+            <span className="promote-modal__meta-label">Year</span>
             <span className="promote-modal__meta-value">{yearLabel || '—'}</span>
           </div>
           <div className="promote-modal__meta-item">
-            <span className="promote-modal__meta-label">
-              <i className="fa-regular fa-bookmark" aria-hidden />
-              Semester
-            </span>
+            <span className="promote-modal__meta-label">Semester</span>
             <span className="promote-modal__meta-value">{semesterLabel || '—'}</span>
           </div>
         </div>
@@ -163,7 +129,7 @@ const PromoteSemesterModal = ({
               <tbody>
                 {rows.length === 0 ? (
                   <tr>
-                    <td colSpan={4} style={{ padding: '1rem', color: '#64748b', fontStyle: 'italic' }}>
+                    <td colSpan={4} className="promote-modal__empty">
                       No courses for this term in the curriculum.
                     </td>
                   </tr>
@@ -284,7 +250,6 @@ const PromoteSemesterModal = ({
           {showBottomTrackPanel ? (
             <div className="promote-modal__track-panel">
               <label className="promote-modal__track-label" htmlFor="promote-modal-track">
-                <i className="fa-solid fa-route" aria-hidden />
                 Track (elective slot)
                 {trackPickerRequired ? <span className="promote-modal__req"> *</span> : null}
               </label>
@@ -313,29 +278,33 @@ const PromoteSemesterModal = ({
 
         <div className="promote-modal__foot">
           <div className="promote-modal__eval-row">
-            <label htmlFor="promote-evaluated-by">Evaluated by:</label>
+            <label htmlFor="promote-evaluated-by">Evaluated by</label>
             <input
               id="promote-evaluated-by"
               type="text"
-              className="promote-modal__eval-input"
-              value={evaluatedBy}
-              onChange={onEvaluatedByChange}
-              placeholder="Name of evaluator"
-              autoComplete="name"
+              className="promote-modal__eval-input promote-modal__eval-input--locked"
+              value={evaluatedBy || '—'}
+              readOnly
+              disabled
+              tabIndex={-1}
+              aria-readonly="true"
+              title="Filled automatically from your account name"
             />
           </div>
-          <div className="promote-modal__total">
-            Total Units:
-            <span className="promote-modal__total-badge">{totalUnits}</span>
+          <div className="promote-modal__foot-actions">
+            <div className="promote-modal__total">
+              Total units
+              <span className="promote-modal__total-badge">{totalUnits}</span>
+            </div>
+            <button
+              type="button"
+              className="promote-modal__save"
+              onClick={() => void onSave()}
+              disabled={saving}
+            >
+              {saving ? 'Saving…' : 'Save promotion'}
+            </button>
           </div>
-          <button
-            type="button"
-            className="promote-modal__save"
-            onClick={() => void onSave()}
-            disabled={saving}
-          >
-            {saving ? 'Saving…' : 'Save'}
-          </button>
         </div>
       </div>
     </div>
