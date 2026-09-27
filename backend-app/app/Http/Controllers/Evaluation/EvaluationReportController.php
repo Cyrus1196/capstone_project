@@ -53,6 +53,13 @@ class EvaluationReportController extends Controller
     /** Scope student queries: Dean → assigned department; PH/Secretary → assigned program. */
     private function applyDeanProgramScope(Builder $query, Request $request, $user): void
     {
+        // Practice / simulation dummies are for Guide walkthroughs only — never count in dashboards or reports.
+        if (CachedSchema::hasColumn('tbl_student_profile', 'is_simulation')) {
+            $query->where(function ($q) {
+                $q->where('is_simulation', false)->orWhereNull('is_simulation');
+            });
+        }
+
         if ($user->hasRole('Dean') && ! $user->isAdmin()) {
             $deanProfile = DeanProfile::where('user_id', $user->user_id)->first();
             if ($deanProfile && $deanProfile->department_id) {
