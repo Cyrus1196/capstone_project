@@ -20,6 +20,7 @@ use App\Services\ImportTabularFileReader;
 use App\Services\SisGradeDeliberationImportParser;
 use App\Services\StudentCurriculumEvaluationBuilder;
 use App\Services\StudentLoginProvisioner;
+use App\Services\StudentTrackFromImportAssigner;
 use App\Services\SubjectImportResolver;
 use App\Support\InputGuards;
 use Carbon\Carbon;
@@ -915,6 +916,7 @@ class CsvImportController extends Controller
             $this->finalizeIncDeadlineForCsvEvaluation($payload, $row, $evaluation);
             $evaluation->fill($payload);
             $evaluation->save();
+            app(StudentTrackFromImportAssigner::class)->assignIfMissing($profile, $subject);
             app(StudentCurriculumEvaluationBuilder::class)->syncStudentProfileFromCurriculumProgress($profile);
 
             return;
@@ -942,6 +944,7 @@ class CsvImportController extends Controller
                 ? (int) $profile->current_program
                 : null,
         ], $payload));
+        app(StudentTrackFromImportAssigner::class)->assignIfMissing($profile, $subject);
         app(StudentCurriculumEvaluationBuilder::class)->syncStudentProfileFromCurriculumProgress($profile);
     }
 
