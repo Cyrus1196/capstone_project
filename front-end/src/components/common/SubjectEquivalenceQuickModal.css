@@ -61,20 +61,23 @@
 
 .seq-equiv-dialog__close {
   flex-shrink: 0;
-  width: 36px;
-  height: 36px;
-  border: 1px solid var(--seq-line);
-  border-radius: 10px;
-  background: #fff;
-  color: #475569;
-  font-size: 1.25rem;
+  width: auto;
+  height: auto;
+  padding: 0;
+  margin: 0;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  color: #64748b;
+  font-size: 1.85rem;
   line-height: 1;
   cursor: pointer;
+  box-shadow: none;
 }
 
 .seq-equiv-dialog__close:hover {
-  background: #f8fafc;
-  color: var(--seq-green-dark);
+  background: transparent;
+  color: #0f172a;
 }
 
 .seq-equiv-dialog__body {

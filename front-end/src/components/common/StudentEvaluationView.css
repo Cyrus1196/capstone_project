@@ -117,15 +117,23 @@
 }
 
 .eval-download-modal__close {
-  width: 2.1rem;
-  height: 2.1rem;
-  border: 0;
-  border-radius: 999px;
-  background: #f1f5f9;
-  color: #334155;
-  font-size: 1.35rem;
+  width: auto;
+  height: auto;
+  padding: 0;
+  margin: 0;
+  border: none;
+  border-radius: 0;
+  background: transparent;
+  color: #64748b;
+  font-size: 1.85rem;
   line-height: 1;
   cursor: pointer;
+  box-shadow: none;
+}
+
+.eval-download-modal__close:hover {
+  background: transparent;
+  color: #0f172a;
 }
 
 .eval-download-modal__body {
@@ -4269,10 +4277,20 @@ button.eval-code-pill--elective-trigger {
   border: none;
   background: transparent;
   color: #64748b;
-  font-size: 1.45rem;
+  font-size: 1.85rem;
   line-height: 1;
   cursor: pointer;
-  padding: 0.1rem 0.35rem;
+  padding: 0;
+  margin: 0;
+  width: auto;
+  height: auto;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.eval-standing-fab-panel__close:hover {
+  background: transparent;
+  color: #0f172a;
 }
 
 .eval-standing-fab-panel__list {

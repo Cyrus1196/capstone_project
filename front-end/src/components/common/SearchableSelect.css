@@ -90,21 +90,22 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 1.75rem;
-  height: 1.75rem;
-  margin: 0 0.1rem 0 0;
+  width: auto;
+  height: auto;
+  margin: 0 0.15rem 0 0;
   padding: 0;
   border: none;
-  border-radius: 999px;
+  border-radius: 0;
   background: transparent;
   cursor: pointer;
   color: #64748b;
-  font-size: 1.2rem;
+  font-size: 1.35rem;
   line-height: 1;
+  box-shadow: none;
 }
 
 .searchable-select__clear:hover {
-  background: #f1f5f9;
+  background: transparent;
   color: #0f172a;
 }
 

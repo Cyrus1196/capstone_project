@@ -334,21 +334,26 @@
 }
 
 .close-button {
-  background: none;
+  background: transparent;
   border: none;
-  font-size: 24px;
+  font-size: 1.85rem;
   cursor: pointer;
-  color: #666;
+  color: #64748b;
   padding: 0;
-  width: 30px;
-  height: 30px;
-  display: flex;
+  margin: 0;
+  width: auto;
+  height: auto;
+  display: inline-flex;
   align-items: center;
   justify-content: center;
+  line-height: 1;
+  border-radius: 0;
+  box-shadow: none;
 }
 
 .close-button:hover {
-  color: #333;
+  background: transparent;
+  color: #0f172a;
 }
 
 .modal-form {

@@ -719,12 +719,23 @@
 }
 
 .csv-fix-modal-close {
-  border: 0;
+  border: none;
   background: transparent;
-  font-size: 1.5rem;
+  font-size: 1.85rem;
   line-height: 1;
   cursor: pointer;
   color: #64748b;
+  padding: 0;
+  margin: 0;
+  width: auto;
+  height: auto;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.csv-fix-modal-close:hover {
+  background: transparent;
+  color: #0f172a;
 }
 
 .csv-fix-modal-body {

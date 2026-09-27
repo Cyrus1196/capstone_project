@@ -968,19 +968,21 @@
 }
 
 .role-modal-close {
-  background: none;
+  background: transparent;
   border: none;
-  font-size: 1.5rem;
+  font-size: 1.85rem;
   color: #64748b;
   cursor: pointer;
-  padding: 4px;
+  padding: 0;
+  margin: 0;
   line-height: 1;
-  border-radius: 6px;
-  transition: all 0.15s;
+  border-radius: 0;
+  box-shadow: none;
+  transition: color 0.15s;
 }
 
 .role-modal-close:hover {
-  background: #f1f5f9;
+  background: transparent;
   color: #0f172a;
 }
 

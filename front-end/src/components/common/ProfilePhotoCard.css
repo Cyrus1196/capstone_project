@@ -157,20 +157,23 @@
 }
 
 .profile-photo-modal__close {
-  width: 34px;
-  height: 34px;
+  width: auto;
+  height: auto;
+  padding: 0;
+  margin: 0;
   border: none;
-  border-radius: 8px;
+  border-radius: 0;
   background: transparent;
-  font-size: 1.35rem;
+  font-size: 1.85rem;
   line-height: 1;
   cursor: pointer;
-  color: #6b7280;
+  color: #64748b;
+  box-shadow: none;
 }
 
 .profile-photo-modal__close:hover {
-  background: #f3f4f6;
-  color: #111;
+  background: transparent;
+  color: #0f172a;
 }
 
 .profile-photo-modal__stage {
