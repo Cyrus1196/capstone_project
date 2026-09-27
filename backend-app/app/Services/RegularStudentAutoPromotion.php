@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Models\AcademicRecordEvaluationComplete;
 use App\Models\StudentProfile;
 use App\Support\CachedSchema;
 
@@ -153,6 +154,28 @@ class RegularStudentAutoPromotion
         $profile->standing_term_load = null;
         $profile->standing_deferred_keys = [];
         $profile->save();
+
+        // Mark as evaluated so Curriculum Evaluation "Unevaluated" no longer lists them.
+        $alreadyLogged = AcademicRecordEvaluationComplete::query()
+            ->where('student_id', $profile->student_id)
+            ->where('notes', 'like', sprintf(
+                '%%Auto-promoted on semester activation — target year level %d, semester %d%%',
+                $newY,
+                $newS
+            ))
+            ->exists();
+        if (! $alreadyLogged) {
+            AcademicRecordEvaluationComplete::create([
+                'student_id' => $profile->student_id,
+                'completed_at' => now(),
+                'completed_by' => $actorUserId,
+                'notes' => sprintf(
+                    'Auto-promoted on semester activation — target year level %d, semester %d.',
+                    $newY,
+                    $newS
+                ),
+            ]);
+        }
 
         return 'promoted';
     }

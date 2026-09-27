@@ -288,6 +288,7 @@ class StudentEvaluationController extends Controller
                     'Current_Program',
                     'year_level_id',
                     'promotion_target_year_level_id',
+                    'promoted_next_sem_at',
                     'is_simulation',
                 ]);
 
@@ -326,6 +327,10 @@ class StudentEvaluationController extends Controller
                 );
 
                 $lastAt = $lastCompletedByStudent[$student->student_id] ?? null;
+                $status = strtolower(trim((string) ($student->academic_status ?? '')));
+                $autoPromotedRegular = $status !== 'irregular' && ! empty($student->promoted_next_sem_at);
+                // Completion log OR successful semester-activation auto-promote counts as evaluated.
+                $isEvaluated = $lastAt !== null || $autoPromotedRegular;
                 $effectiveYearLevelId = $this->effectiveEvaluationYearLevelId($student);
                 $effectiveYearLevelName = $student->yearLevel?->year_level;
                 if (
@@ -349,7 +354,7 @@ class StudentEvaluationController extends Controller
                     'year_level_id' => $effectiveYearLevelId,
                     'year_level_name' => $effectiveYearLevelName,
                     'academic_record_completed_at' => $lastAt,
-                    'academic_record_evaluated' => $lastAt !== null,
+                    'academic_record_evaluated' => $isEvaluated,
                     'is_simulation' => (bool) ($student->is_simulation ?? false),
                 ];
             });
