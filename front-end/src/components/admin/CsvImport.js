@@ -241,6 +241,11 @@ function issueIsSatisfied(issue, fix, subjectCodeSet) {
   if (issue.field === 'student_id_number') {
     return String(fix.student_id_number || '').trim() !== '';
   }
+  if (issue.field === 'evaluation_status') {
+    const allowed = new Set(['passed', 'failed', 'ongoing', 'dropped', 'incomplete', 'inc', 'complete']);
+    const v = String(fix.evaluation_status || '').trim().toLowerCase();
+    return allowed.has(v);
+  }
 
   const val = fix[issue.field];
   return val !== undefined && val !== null && String(val).trim() !== '';
@@ -268,6 +273,7 @@ function rowEffectiveIssue(row, rowFixes, subjectCodeSet) {
     if (fix.program_id) parts.push(`Program id ${fix.program_id}`);
     if (fix.year_level_id) parts.push(`Year level id ${fix.year_level_id}`);
     if (fix._sis_student_name) parts.push(`Name: ${fix._sis_student_name}`);
+    if (fix.evaluation_status) parts.push(`Status → ${fix.evaluation_status}`);
     return `${parts.join('; ')}. Ready to import.`;
   }
   if (row.valid) return '—';
@@ -739,6 +745,18 @@ const CsvImport = ({
             count: 0,
             sampleRow: row,
             bulkKeys: { session: keys.session },
+          });
+        }
+        groups.get(k).count += 1;
+      }
+      if (keys.evaluation_status) {
+        const k = `status:${keys.evaluation_status}`;
+        if (!groups.has(k)) {
+          groups.set(k, {
+            label: `Status “${keys.evaluation_status}”`,
+            count: 0,
+            sampleRow: row,
+            bulkKeys: { evaluation_status: keys.evaluation_status },
           });
         }
         groups.get(k).count += 1;
@@ -1400,6 +1418,27 @@ const CsvImport = ({
                       emptyLabel="Select year level…"
                       aria-label="Year level"
                     />
+                  ) : null}
+
+                  {issue.type === 'select' && issue.field === 'evaluation_status' ? (
+                    <select
+                      className="csv-fix-text"
+                      value={fixFormValues.evaluation_status || ''}
+                      onChange={(e) =>
+                        setFixFormValues((prev) => ({
+                          ...prev,
+                          evaluation_status: e.target.value,
+                        }))
+                      }
+                      aria-label="Evaluation status"
+                    >
+                      <option value="">Select status…</option>
+                      {(issue.options || []).map((opt) => (
+                        <option key={opt.value} value={opt.value}>
+                          {opt.label || opt.value}
+                        </option>
+                      ))}
+                    </select>
                   ) : null}
 
                   {issue.type === 'text' ? (

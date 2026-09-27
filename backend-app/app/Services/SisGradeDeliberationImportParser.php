@@ -636,6 +636,17 @@ class SisGradeDeliberationImportParser
         $r = strtolower(trim((string) $remarks));
         $g = strtoupper(trim((string) $gradeCol));
 
+        // SIS "NO CREDIT" / grade NC — treat as failed (no credit earned).
+        if (
+            $g === 'NC'
+            || $r === 'nc'
+            || $r === 'n/c'
+            || str_contains($r, 'no credit')
+            || str_contains($r, 'nocredit')
+        ) {
+            return 'failed';
+        }
+
         if ($r === 'passed' || $r === 'pass' || $r === 'complete') {
             return 'passed';
         }
@@ -648,14 +659,20 @@ class SisGradeDeliberationImportParser
         if (str_contains($r, 'inc') || $r === 'incomplete') {
             return 'incomplete';
         }
-        if ($r === 'ongoing' || $r === 'ongoing') {
+        if ($r === 'ongoing') {
             return 'ongoing';
         }
-        if ($g === 'COMPLETE') {
+        if ($g === 'COMPLETE' || $r === 'complete') {
             return 'complete';
         }
 
-        return $r !== '' ? $r : null;
+        // Never pass through raw REMARKS text — validator only allows known statuses.
+        $allowed = ['passed', 'failed', 'ongoing', 'dropped', 'incomplete', 'inc', 'complete'];
+        if (in_array($r, $allowed, true)) {
+            return $r === 'inc' ? 'incomplete' : $r;
+        }
+
+        return null;
     }
 
     /**

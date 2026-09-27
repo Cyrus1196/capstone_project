@@ -2059,6 +2059,10 @@ class CsvImportController extends Controller
             $row['student_id_number'] = trim((string) $fix['student_id_number']);
         }
 
+        if (! empty($fix['evaluation_status'])) {
+            $row['evaluation_status'] = strtolower(trim((string) $fix['evaluation_status']));
+        }
+
         return $row;
     }
 
@@ -2189,6 +2193,28 @@ class CsvImportController extends Controller
             ];
         }
 
+        if ($this->rowNeedsEvaluationStatusFix($row, $errors)) {
+            $rawStatus = trim((string) ($row['evaluation_status'] ?? ''));
+            $issues[] = [
+                'field' => 'evaluation_status',
+                'label' => 'Evaluation status (from REMARKS)',
+                'type' => 'select',
+                'import_value' => $rawStatus !== '' ? $rawStatus : '— blank / unrecognized —',
+                'required' => true,
+                'options' => [
+                    ['value' => 'passed', 'label' => 'passed'],
+                    ['value' => 'failed', 'label' => 'failed (use for NO CREDIT / NC)'],
+                    ['value' => 'incomplete', 'label' => 'incomplete'],
+                    ['value' => 'dropped', 'label' => 'dropped'],
+                    ['value' => 'complete', 'label' => 'complete'],
+                    ['value' => 'ongoing', 'label' => 'ongoing'],
+                ],
+            ];
+            if ($rawStatus !== '') {
+                $bulkKeys['evaluation_status'] = $rawStatus;
+            }
+        }
+
         if ($issues === []) {
             return null;
         }
@@ -2198,6 +2224,26 @@ class CsvImportController extends Controller
             'issues' => $issues,
             'bulk_keys' => $bulkKeys,
         ];
+    }
+
+    /**
+     * @param  list<string>  $errors
+     */
+    private function rowNeedsEvaluationStatusFix(array $row, array $errors): bool
+    {
+        foreach ($errors as $error) {
+            if (str_contains(strtolower((string) $error), 'evaluation status')) {
+                return true;
+            }
+        }
+
+        $status = strtolower(trim((string) ($row['evaluation_status'] ?? '')));
+        if ($status === '') {
+            return false;
+        }
+        $allowed = ['passed', 'failed', 'ongoing', 'dropped', 'incomplete', 'inc', 'complete'];
+
+        return ! in_array($status, $allowed, true);
     }
 
     /**
