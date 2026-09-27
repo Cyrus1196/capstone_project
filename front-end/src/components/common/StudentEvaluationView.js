@@ -3856,6 +3856,13 @@ const StudentEvaluationView = ({
       );
       return;
     }
+
+    // No edits: treat Save as "keep as is" and close (instructors expect this, not only ×).
+    if (!standingLoadDirty) {
+      setCurrentStandingPanelOpen(false);
+      return;
+    }
+
     if (!evalFilterYearId || !evalFilterSemesterId) {
       await swalError('Could not save load plan', 'Set year / semester standing first.');
       return;
@@ -4020,6 +4027,7 @@ const StudentEvaluationView = ({
   }, [
     canEditEvaluationRows,
     systemGuideOpen,
+    standingLoadDirty,
     data?.student?.student_id,
     data?.rows,
     standingLoadDeferred,
@@ -8693,9 +8701,12 @@ const StudentEvaluationView = ({
                           type="button"
                           className="btn-primary"
                           data-tour="save-load-plan"
-                          disabled={
-                            standingLoadSaving || (!systemGuideOpen && !standingLoadDirty)
+                          title={
+                            standingLoadDirty
+                              ? 'Save changes to this load plan'
+                              : 'Keep current plan and close'
                           }
+                          disabled={standingLoadSaving}
                           onClick={() => void persistStandingLoadPlan()}
                         >
                           {standingLoadSaving ? 'Saving…' : 'Save load plan'}
