@@ -6605,11 +6605,21 @@ const StudentEvaluationView = ({
           </div>
           <div className="eval-hero__meta-box">
             <span className="eval-hero__meta-label">Standing</span>
+            <span
+              className="eval-hero__meta-value"
+              title={`From earned units (${summary?.total_units_earned ?? 0}): 46→2nd, 94→3rd, 132→4th`}
+            >
+              {`${ordinalYearLabel(
+                yearStandingFromEarnedUnits(summary?.total_units_earned)
+              )} yr standing`}
+            </span>
+          </div>
+          <div className="eval-hero__meta-box">
+            <span className="eval-hero__meta-label">Enrollment</span>
             <span className="eval-hero__meta-value">
               {[student?.year_level_name, student?.semester_name]
                 .filter(Boolean)
                 .join(' · ') ||
-                student?.standing_label ||
                 [
                   evaluationFilterOptions.years.find(
                     (y) => String(y.id) === String(evalFilterYearId)
@@ -6620,15 +6630,6 @@ const StudentEvaluationView = ({
                 ]
                   .filter(Boolean)
                   .join(' · ') ||
-                '—'}
-            </span>
-          </div>
-          <div className="eval-hero__meta-box">
-            <span className="eval-hero__meta-label">Curriculum</span>
-            <span className="eval-hero__meta-value">
-              {data?.curriculum?.label ||
-                data?.curriculum?.curriculum_name ||
-                evaluationFilterOptions.curricula?.[0]?.label ||
                 '—'}
             </span>
           </div>

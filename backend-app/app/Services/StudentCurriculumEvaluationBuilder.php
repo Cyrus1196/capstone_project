@@ -9,6 +9,7 @@ use App\Models\OfferedSubject;
 use App\Models\Program;
 use App\Models\Semester;
 use App\Models\StudentProfile;
+use App\Models\TblUser;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -1330,7 +1331,7 @@ class StudentCurriculumEvaluationBuilder
                 : null,
             'promoted_next_sem_at' => $profile->promoted_next_sem_at?->toIso8601String(),
             'promoted_next_sem_by' => $profile->promoted_next_sem_by,
-            'promotion_evaluated_by' => $profile->promotion_evaluated_by,
+            'promotion_evaluated_by' => $this->resolvePromotionEvaluatorName($profile),
             'promotion_target_year_level_id' => $profile->promotion_target_year_level_id,
             'promotion_target_semester_id' => $profile->promotion_target_semester_id,
             'standing_deferred_keys' => array_values(array_filter(array_map(
@@ -1346,6 +1347,42 @@ class StudentCurriculumEvaluationBuilder
             ))),
             'is_simulation' => (bool) ($profile->is_simulation ?? false),
         ];
+    }
+
+    /**
+     * Prefer the promoting staff member's first + last name over a stored email.
+     */
+    private function resolvePromotionEvaluatorName(StudentProfile $profile): ?string
+    {
+        $byUserId = $profile->promoted_next_sem_by !== null
+            ? (int) $profile->promoted_next_sem_by
+            : null;
+        if ($byUserId) {
+            $promoter = TblUser::query()->find($byUserId);
+            if ($promoter) {
+                $name = trim($promoter->displayName());
+                if ($name !== '' && ! str_contains($name, '@')) {
+                    return $name;
+                }
+            }
+        }
+
+        $stored = trim((string) ($profile->promotion_evaluated_by ?? ''));
+        if ($stored === '') {
+            return null;
+        }
+
+        if (str_contains($stored, '@')) {
+            $byEmail = TblUser::query()->whereEmail($stored)->first();
+            if ($byEmail) {
+                $name = trim($byEmail->displayName());
+                if ($name !== '' && ! str_contains($name, '@')) {
+                    return $name;
+                }
+            }
+        }
+
+        return $stored;
     }
 
     /**

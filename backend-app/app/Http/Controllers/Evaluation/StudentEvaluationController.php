@@ -525,7 +525,7 @@ class StudentEvaluationController extends Controller
                 }
                 $profile->promoted_next_sem_at = $profile->promoted_next_sem_at ?? now();
                 $profile->promoted_next_sem_by = $profile->promoted_next_sem_by ?? $user->user_id;
-                $profile->promotion_evaluated_by = $validated['evaluated_by'];
+                $profile->promotion_evaluated_by = $user->displayName();
                 $profile->year_level_id = $targetY;
                 $profile->semester_id = $targetS;
                 $profile->promotion_target_year_level_id = $targetY;
@@ -549,9 +549,14 @@ class StudentEvaluationController extends Controller
                 $profile->track_id = (int) $validated['track_id'];
             }
 
+            $evaluatorName = trim($user->displayName());
+            if ($evaluatorName === '') {
+                $evaluatorName = trim((string) ($validated['evaluated_by'] ?? ''));
+            }
+
             $profile->promoted_next_sem_at = now();
             $profile->promoted_next_sem_by = $user->user_id;
-            $profile->promotion_evaluated_by = $validated['evaluated_by'];
+            $profile->promotion_evaluated_by = $evaluatorName;
             $profile->year_level_id = (int) $validated['target_year_level_id'];
             $profile->semester_id = (int) $validated['target_semester_id'];
             $profile->promotion_target_year_level_id = (int) $validated['target_year_level_id'];
@@ -564,7 +569,7 @@ class StudentEvaluationController extends Controller
                 'Semester promotion — target year level %d, semester %d. Evaluated by: %s',
                 (int) $validated['target_year_level_id'],
                 (int) $validated['target_semester_id'],
-                $validated['evaluated_by']
+                $evaluatorName
             );
 
             AcademicRecordEvaluationComplete::create([
