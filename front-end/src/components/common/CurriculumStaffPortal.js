@@ -1,23 +1,13 @@
-import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useRef, useCallback, Suspense, lazy } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { useNavigate } from 'react-router-dom';
 import PortalSidebar from './PortalSidebar';
 import PortalSidebarUserFooter from './PortalSidebarUserFooter';
 import { GuideButton } from './SystemGuide';
 import { userDisplayName } from '../../utils/userDisplayName';
-import StudentEvaluationView from './StudentEvaluationView';
 import EvaluatorDashboard from '../faculty/EvaluatorDashboard';
 import DeanDashboard from '../dean/DeanDashboard';
-import EvaluatorAnalytics from '../faculty/EvaluatorAnalytics';
-import DeanAnalytics from '../dean/DeanAnalytics';
 import ProgramHeadProfile from '../program_head/ProgramHeadProfile';
-import LookupDataManagement from '../admin/LookupDataManagement';
-import UserManagement from '../admin/UserManagement';
-import StudentManagement from '../admin/StudentManagement';
-import DataImportExport from '../admin/DataImportExport';
-import CurriculumManagement from '../admin/CurriculumManagement';
-import ElectiveSlotManagement from '../admin/ElectiveSlotManagement';
-import AcademicManagement from '../admin/AcademicManagement';
 import {
   ACADEMIC_MANAGEMENT_TAB_PERMISSIONS,
   CURRICULUM_HEADERS_TAB_PERMISSIONS,
@@ -37,6 +27,25 @@ import {
 } from '../../config/lookupDataSidebarPanels';
 import '../faculty/FacultyPanel.css';
 import '../program_head/ProgramHeadPanel.css';
+
+/** Heavy tabs — load only when opened so portal shell paints quickly. */
+const StudentEvaluationView = lazy(() => import('./StudentEvaluationView'));
+const EvaluatorAnalytics = lazy(() => import('../faculty/EvaluatorAnalytics'));
+const DeanAnalytics = lazy(() => import('../dean/DeanAnalytics'));
+const LookupDataManagement = lazy(() => import('../admin/LookupDataManagement'));
+const UserManagement = lazy(() => import('../admin/UserManagement'));
+const StudentManagement = lazy(() => import('../admin/StudentManagement'));
+const DataImportExport = lazy(() => import('../admin/DataImportExport'));
+const CurriculumManagement = lazy(() => import('../admin/CurriculumManagement'));
+const ElectiveSlotManagement = lazy(() => import('../admin/ElectiveSlotManagement'));
+const AcademicManagement = lazy(() => import('../admin/AcademicManagement'));
+
+const TabFallback = () => (
+  <div className="app-route-fallback" role="status" aria-live="polite">
+    <span className="app-route-fallback__spinner" aria-hidden />
+    <span>Loading…</span>
+  </div>
+);
 
 function readStoredStaffTab(key) {
   try {
@@ -415,6 +424,7 @@ const CurriculumStaffPortal = ({
 
         <main id="main-content" className="portal-shell__content faculty-content" tabIndex="-1">
           <h1 className="sr-only">{activeTab.replaceAll('-', ' ')}</h1>
+          <Suspense fallback={<TabFallback />}>
           {activeTab === 'dashboard' && (showEvalModules || showEvaluationReportsTab) && (
             showEvaluationReportsTab ? (
               <DeanDashboard
@@ -474,6 +484,7 @@ const CurriculumStaffPortal = ({
             <EvaluatorAnalytics showEvalModules={showEvalModules} onNavigate={setActiveTab} />
           )}
           {activeTab === 'profile' && <ProgramHeadProfile />}
+          </Suspense>
         </main>
       </div>
     </div>

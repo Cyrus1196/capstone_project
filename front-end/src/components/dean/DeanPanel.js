@@ -1,19 +1,9 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, Suspense, lazy } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { useNavigate, useLocation } from 'react-router-dom';
 import api from '../../api/axios';
 import DeanProfile from './DeanProfile';
 import DeanDashboard from './DeanDashboard';
-import DeanAnalytics from './DeanAnalytics';
-import ElectiveSlotManagement from '../admin/ElectiveSlotManagement';
-import AcademicManagement from '../admin/AcademicManagement';
-import UserManagement from '../admin/UserManagement';
-import StudentManagement from '../admin/StudentManagement';
-import DataImportExport from '../admin/DataImportExport';
-import LookupDataManagement from '../admin/LookupDataManagement';
-import CurriculumManagement from '../admin/CurriculumManagement';
-import SecuritySettings from '../admin/SecuritySettings';
-import StudentEvaluationView from '../common/StudentEvaluationView';
 import {
   ACADEMIC_MANAGEMENT_TAB_PERMISSIONS,
   CURRICULUM_HEADERS_TAB_PERMISSIONS,
@@ -37,6 +27,25 @@ import {
   parseLookupSidebarChildId,
 } from '../../config/lookupDataSidebarPanels';
 import './DeanPanel.css';
+
+/** Heavy admin/eval screens — load only when the tab is opened (keeps /dean first paint fast). */
+const DeanAnalytics = lazy(() => import('./DeanAnalytics'));
+const ElectiveSlotManagement = lazy(() => import('../admin/ElectiveSlotManagement'));
+const AcademicManagement = lazy(() => import('../admin/AcademicManagement'));
+const UserManagement = lazy(() => import('../admin/UserManagement'));
+const StudentManagement = lazy(() => import('../admin/StudentManagement'));
+const DataImportExport = lazy(() => import('../admin/DataImportExport'));
+const LookupDataManagement = lazy(() => import('../admin/LookupDataManagement'));
+const CurriculumManagement = lazy(() => import('../admin/CurriculumManagement'));
+const SecuritySettings = lazy(() => import('../admin/SecuritySettings'));
+const StudentEvaluationView = lazy(() => import('../common/StudentEvaluationView'));
+
+const TabFallback = () => (
+  <div className="app-route-fallback" role="status" aria-live="polite">
+    <span className="app-route-fallback__spinner" aria-hidden />
+    <span>Loading…</span>
+  </div>
+);
 
 const DEAN_ACTIVE_TAB_STORAGE_KEY = 'deanPortalActiveTab';
 
@@ -396,6 +405,7 @@ const DeanPanel = () => {
         </header>
 
         <main id="main-content" className="portal-shell__content dean-content dean-content--shell" tabIndex="-1">
+        <Suspense fallback={<TabFallback />}>
         {activeTab === 'dean-dashboard' && showStudentEvalTabs && (
           <DeanDashboard
             onNavigate={setActiveTab}
@@ -450,6 +460,7 @@ const DeanPanel = () => {
         )}
         {activeTab === 'security-settings' && showSecurityTab && <SecuritySettings />}
         {activeTab === 'profile' && <DeanProfile deanProfile={deanProfile} onUpdate={fetchDeanProfile} />}
+        </Suspense>
         </main>
       </div>
     </div>

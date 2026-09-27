@@ -1,17 +1,25 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, Suspense, lazy } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { useNavigate } from 'react-router-dom';
 import api from '../../api/axios';
 import FacultyProfile from './FacultyProfile';
-import StudentEvaluationView from '../common/StudentEvaluationView';
 import EvaluatorDashboard from './EvaluatorDashboard';
-import EvaluatorAnalytics from './EvaluatorAnalytics';
 import PortalSidebar from '../common/PortalSidebar';
 import PortalSidebarUserFooter from '../common/PortalSidebarUserFooter';
 import { GuideButton } from '../common/SystemGuide';
 import { STUDENT_EVALUATION_TAB_PERMISSIONS } from '../../config/adminPanelTabs';
 import { userDisplayName } from '../../utils/userDisplayName';
 import './FacultyPanel.css';
+
+const StudentEvaluationView = lazy(() => import('../common/StudentEvaluationView'));
+const EvaluatorAnalytics = lazy(() => import('./EvaluatorAnalytics'));
+
+const TabFallback = () => (
+  <div className="app-route-fallback" role="status" aria-live="polite">
+    <span className="app-route-fallback__spinner" aria-hidden />
+    <span>Loading…</span>
+  </div>
+);
 
 const FACULTY_ACTIVE_TAB_STORAGE_KEY = 'facultyPortalActiveTab';
 
@@ -178,6 +186,7 @@ const FacultyPanel = () => {
 
         <main id="main-content" className="portal-shell__content faculty-content" tabIndex="-1">
           <h1 className="sr-only">{activeTab.replaceAll('-', ' ')}</h1>
+          <Suspense fallback={<TabFallback />}>
           {activeTab === 'dashboard' && (
             <EvaluatorDashboard
               onNavigate={setActiveTab}
@@ -195,6 +204,7 @@ const FacultyPanel = () => {
           {activeTab === 'profile' && (
             <FacultyProfile facultyProfile={facultyProfile} onUpdate={fetchFacultyProfile} />
           )}
+          </Suspense>
         </main>
       </div>
     </div>

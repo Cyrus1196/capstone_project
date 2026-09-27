@@ -1,17 +1,6 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, Suspense, lazy } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { useNavigate } from 'react-router-dom';
-import UserManagement from './UserManagement';
-import RoleSettings from './RoleSettings';
-import CurriculumManagement from './CurriculumManagement';
-import LookupDataManagement from './LookupDataManagement';
-import AcademicManagement from './AcademicManagement';
-import ElectiveSlotManagement from './ElectiveSlotManagement';
-import StudentManagement from './StudentManagement';
-import DataImportExport from './DataImportExport';
-import SecuritySettings from './SecuritySettings';
-import AuditLogsManagement from './AuditLogsManagement';
-import BackupManagement from './BackupManagement';
 import AdminDashboard from './AdminDashboard';
 import { ADMIN_PANEL_TABS, ADMIN_SIDEBAR_GROUPS } from '../../config/adminPanelTabs';
 import {
@@ -24,6 +13,26 @@ import PortalSidebarUserFooter from '../common/PortalSidebarUserFooter';
 import { GuideButton } from '../common/SystemGuide';
 import { userDisplayName } from '../../utils/userDisplayName';
 import './AdminPanel.css';
+
+/** Heavy admin screens — load only when the tab is opened. */
+const UserManagement = lazy(() => import('./UserManagement'));
+const RoleSettings = lazy(() => import('./RoleSettings'));
+const CurriculumManagement = lazy(() => import('./CurriculumManagement'));
+const LookupDataManagement = lazy(() => import('./LookupDataManagement'));
+const AcademicManagement = lazy(() => import('./AcademicManagement'));
+const ElectiveSlotManagement = lazy(() => import('./ElectiveSlotManagement'));
+const StudentManagement = lazy(() => import('./StudentManagement'));
+const DataImportExport = lazy(() => import('./DataImportExport'));
+const SecuritySettings = lazy(() => import('./SecuritySettings'));
+const AuditLogsManagement = lazy(() => import('./AuditLogsManagement'));
+const BackupManagement = lazy(() => import('./BackupManagement'));
+
+const TabFallback = () => (
+  <div className="app-route-fallback" role="status" aria-live="polite">
+    <span className="app-route-fallback__spinner" aria-hidden />
+    <span>Loading…</span>
+  </div>
+);
 
 const ADMIN_ACTIVE_TAB_STORAGE_KEY = 'adminPortalActiveTab';
 const ADMIN_LOOKUP_SUB_PANEL_STORAGE_KEY = 'adminLookupSubPanel';
@@ -266,6 +275,7 @@ const AdminPanel = () => {
           </div>
         ) : (
           <main id="main-content" className="portal-shell__content admin-content" tabIndex="-1">
+            <Suspense fallback={<TabFallback />}>
             {activeTab === 'dashboard' && <AdminDashboard onNavigate={setActiveTab} />}
             {activeTab === 'lookup' && (
               <LookupDataManagement
@@ -293,6 +303,7 @@ const AdminPanel = () => {
             {activeTab === 'security' && <SecuritySettings />}
             {activeTab === 'audit-logs' && <AuditLogsManagement />}
             {activeTab === 'backup' && <BackupManagement />}
+            </Suspense>
           </main>
         )}
       </div>
