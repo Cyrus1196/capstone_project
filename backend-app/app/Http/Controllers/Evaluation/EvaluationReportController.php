@@ -579,6 +579,10 @@ class EvaluationReportController extends Controller
 
         $evaluatedIds = AcademicRecordEvaluationComplete::query()
             ->whereIn('student_id', (clone $studentBase)->select('student_id'))
+            ->where(function ($q) {
+                $q->whereNull('notes')
+                    ->orWhere('notes', 'not like', '%Auto-promoted on semester activation%');
+            })
             ->distinct()
             ->pluck('student_id')
             ->map(fn ($id) => (int) $id)
@@ -734,6 +738,10 @@ class EvaluationReportController extends Controller
 
         $evaluatedIds = AcademicRecordEvaluationComplete::query()
             ->whereIn('student_id', (clone $studentBase)->select('student_id'))
+            ->where(function ($q) {
+                $q->whereNull('notes')
+                    ->orWhere('notes', 'not like', '%Auto-promoted on semester activation%');
+            })
             ->distinct()
             ->pluck('student_id')
             ->map(fn ($id) => (int) $id)

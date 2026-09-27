@@ -294,13 +294,27 @@ class StudentEvaluationController extends Controller
 
             $studentIds = $students->pluck('student_id')->all();
             $lastCompletedByStudent = [];
+            /** @var array<int, true> student_ids with a staff Complete / manual promote (not auto-promote leftovers) */
+            $manualEvaluatedStudentIds = [];
             if ($studentIds !== []) {
-                $lastCompletedByStudent = AcademicRecordEvaluationComplete::query()
-                    ->select('student_id', DB::raw('MAX(completed_at) as last_completed_at'))
+                $completionRows = AcademicRecordEvaluationComplete::query()
+                    ->select('student_id', 'completed_at', 'notes')
                     ->whereIn('student_id', $studentIds)
-                    ->groupBy('student_id')
-                    ->pluck('last_completed_at', 'student_id')
-                    ->all();
+                    ->orderByDesc('completed_at')
+                    ->get();
+
+                foreach ($completionRows as $row) {
+                    $sid = (int) $row->student_id;
+                    if (! array_key_exists($sid, $lastCompletedByStudent)) {
+                        $lastCompletedByStudent[$sid] = $row->completed_at;
+                    }
+                    $notes = (string) ($row->notes ?? '');
+                    // Auto-promote logs must not clear Irregulars from the Unevaluated queue —
+                    // those students still need manual promote / Complete.
+                    if (! str_contains($notes, 'Auto-promoted on semester activation')) {
+                        $manualEvaluatedStudentIds[$sid] = true;
+                    }
+                }
             }
 
             $extraYearIds = [];
@@ -319,20 +333,28 @@ class StudentEvaluationController extends Controller
                     ->whereIn('year_level_id', array_values(array_unique($extraYearIds)))
                     ->pluck('year_level', 'year_level_id');
 
-            $students = $students->map(function ($student) use ($lastCompletedByStudent, $extraYearNames) {
+            $students = $students->map(function ($student) use (
+                $lastCompletedByStudent,
+                $manualEvaluatedStudentIds,
+                $extraYearNames
+            ) {
                 $fullName = trim(
                     ($student->last_name ? $student->last_name.', ' : '').
                     ($student->first_name ?? '').
                     ($student->middle_name ? ' '.$student->middle_name : '')
                 );
 
-                $lastAt = $lastCompletedByStudent[$student->student_id] ?? null;
+                $sid = (int) $student->student_id;
+                $lastAt = $lastCompletedByStudent[$sid] ?? null;
                 $status = strtolower(trim((string) ($student->academic_status ?? '')));
-                // "Evaluated" = system auto-promoted on semester activate, OR staff logged a
-                // completion / manual promote. Everyone else stays "Unevaluated" for manual fix
-                // (incomplete load, irregular, missed auto-run, data issues).
-                $autoPromotedRegular = $status !== 'irregular' && ! empty($student->promoted_next_sem_at);
-                $isEvaluated = $lastAt !== null || $autoPromotedRegular;
+                $isIrregular = $status === 'irregular';
+                // Regulars: auto-promote OR any completion log = evaluated.
+                // Irregulars: only staff Complete / manual "Semester promotion" counts —
+                // leftover auto-promote rows from when they were Regular must not hide them.
+                $autoPromotedRegular = ! $isIrregular && ! empty($student->promoted_next_sem_at);
+                $isEvaluated = $isIrregular
+                    ? isset($manualEvaluatedStudentIds[$sid])
+                    : ($lastAt !== null || $autoPromotedRegular);
                 $effectiveYearLevelId = $this->effectiveEvaluationYearLevelId($student);
                 $effectiveYearLevelName = $student->yearLevel?->year_level;
                 if (

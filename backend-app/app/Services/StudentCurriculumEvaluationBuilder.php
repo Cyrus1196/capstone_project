@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Models\Curriculum;
 use App\Models\CurriculumHeader;
 use App\Models\Evaluation;
+use App\Models\AcademicRecordEvaluationComplete;
 use App\Models\OfferedSubject;
 use App\Models\Program;
 use App\Models\Semester;
@@ -1104,6 +1105,15 @@ class StudentCurriculumEvaluationBuilder
             if ($currentAcad !== $computed) {
                 $profile->academic_status = $computed;
                 $changed = true;
+
+                // Regular → Irregular: drop auto-promote "evaluated" logs so they reappear
+                // in Unevaluated / Unevaluated irregular for manual promote.
+                if ($computed === 'Irregular' && $profile->student_id) {
+                    AcademicRecordEvaluationComplete::query()
+                        ->where('student_id', $profile->student_id)
+                        ->where('notes', 'like', '%Auto-promoted on semester activation%')
+                        ->delete();
+                }
             }
         }
 
