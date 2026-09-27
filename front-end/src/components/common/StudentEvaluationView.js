@@ -2972,12 +2972,56 @@ const StudentEvaluationView = ({
       return;
     }
 
-    setStandingLoadDeferred(new Set(savedDeferred));
+    // Always force-drop ineligible rows so take counts stay correct even when
+    // saved deferred_keys is empty / stale.
+    const deferred = new Set(savedDeferred);
+    currentStandingSubjects.forEach((row) => {
+      const key = getEvaluationRowKey(row);
+      if (
+        standingLoadBlockedByPrereq(
+          row,
+          mergedRowsForPrereq,
+          majorStandingOverrideKeys,
+          enrollmentYearStandingOrd
+        )
+      ) {
+        deferred.add(key);
+        return;
+      }
+      const isCurrent =
+        String(row.year_level_id) === String(evalFilterYearId) &&
+        String(row.semester_id) === String(evalFilterSemesterId);
+      if (!isCurrent) {
+        // Prior/backlog: drop unless offered (OFFSEM) or same-semester (Semestral).
+        // priorStandingTakeGate is declared below — use the shared gate helper here.
+        const sid = row?.subject_id;
+        const offered =
+          sid != null &&
+          sid !== '' &&
+          (Array.isArray(data?.offered_subjects) ? data.offered_subjects : []).some((o) => {
+            if (String(o?.status || 'active').toLowerCase() !== 'active') return false;
+            if (String(o.subject_id) !== String(sid)) return false;
+            const standingSem = String(evalFilterSemesterId || '');
+            if (
+              standingSem &&
+              o.semester_id != null &&
+              String(o.semester_id) !== standingSem
+            ) {
+              return false;
+            }
+            return true;
+          });
+        const gate = standingPriorTakeGate(row, evalFilterSemesterId, offered);
+        if (!gate.ok) deferred.add(key);
+      }
+    });
+    setStandingLoadDeferred(deferred);
     setStandingLoadDirty(false);
   }, [
     data?.student?.student_id,
     JSON.stringify(data?.student?.standing_deferred_keys || []),
     JSON.stringify(data?.student?.standing_term_load || null),
+    data?.offered_subjects,
     isIrregularStudent,
     currentStandingSubjects,
     evalFilterYearId,
@@ -3676,9 +3720,27 @@ const StudentEvaluationView = ({
       evalFilterSemesterId,
       semLabel === '—' ? '' : semLabel
     );
-    const toTake = currentStandingSubjects.filter(
-      (row) => !standingLoadDeferred.has(getEvaluationRowKey(row))
-    );
+    // Only count eligible TAKE rows — Not eligible / Not offered never count toward
+    // take total or units (even if they are missing from standingLoadDeferred).
+    const toTake = currentStandingSubjects.filter((row) => {
+      const key = getEvaluationRowKey(row);
+      if (standingLoadDeferred.has(key)) return false;
+      if (
+        standingLoadBlockedByPrereq(
+          row,
+          mergedRowsForPrereq,
+          majorStandingOverrideKeys,
+          enrollmentYearStandingOrd
+        )
+      ) {
+        return false;
+      }
+      const isCurrent =
+        String(row.year_level_id) === String(evalFilterYearId) &&
+        String(row.semester_id) === String(evalFilterSemesterId);
+      if (!isCurrent && !priorStandingTakeGate(row).ok) return false;
+      return true;
+    });
     const units = toTake.reduce((sum, row) => sum + (Number(row.units) || 0), 0);
     const yearNum = Number(evalFilterYearId);
     const unitCap =
@@ -3707,6 +3769,10 @@ const StudentEvaluationView = ({
     data?.curriculum?.label,
     currentStandingSubjects,
     standingLoadDeferred,
+    mergedRowsForPrereq,
+    majorStandingOverrideKeys,
+    enrollmentYearStandingOrd,
+    priorStandingTakeGate,
   ]);
 
   const savedTermLoadSummary = useMemo(() => {
@@ -8691,7 +8757,28 @@ const StudentEvaluationView = ({
                             const keys = Array.isArray(data?.student?.standing_deferred_keys)
                               ? data.student.standing_deferred_keys.map(String)
                               : [];
-                            setStandingLoadDeferred(new Set(keys));
+                            const next = new Set(keys);
+                            currentStandingSubjects.forEach((row) => {
+                              const key = getEvaluationRowKey(row);
+                              if (
+                                standingLoadBlockedByPrereq(
+                                  row,
+                                  mergedRowsForPrereq,
+                                  majorStandingOverrideKeys,
+                                  enrollmentYearStandingOrd
+                                )
+                              ) {
+                                next.add(key);
+                                return;
+                              }
+                              const isCurrent =
+                                String(row.year_level_id) === String(evalFilterYearId) &&
+                                String(row.semester_id) === String(evalFilterSemesterId);
+                              if (!isCurrent && !priorStandingTakeGate(row).ok) {
+                                next.add(key);
+                              }
+                            });
+                            setStandingLoadDeferred(next);
                             setStandingLoadDirty(false);
                           }}
                         >
