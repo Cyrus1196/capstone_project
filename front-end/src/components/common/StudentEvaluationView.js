@@ -1284,7 +1284,7 @@ const StudentEvaluationView = ({
   }, [evaluationDraftStorageKey]);
 
   const [listYearLevelFilter, setListYearLevelFilter] = useState('');
-  /** '' | irregular */
+  /** '' | unevaluated | irregular | unevaluated_irregular */
   const [listStandingFilter, setListStandingFilter] = useState('');
   const [evalFilterCurriculumId, setEvalFilterCurriculumId] = useState('');
   const [evalFilterYearId, setEvalFilterYearId] = useState('');
@@ -8457,10 +8457,12 @@ const StudentEvaluationView = ({
                 value={listStandingFilter}
                 onChange={(e) => setListStandingFilter(e.target.value)}
                 aria-label="Filter by evaluation standing"
-                title="Filter by Regular roster or Irregular only"
+                title="Filter by evaluation status and/or irregular standing"
               >
                 <option value="">All students</option>
+                <option value="unevaluated">Unevaluated</option>
                 <option value="irregular">Irregular</option>
+                <option value="unevaluated_irregular">Unevaluated irregular</option>
               </select>
             </label>
 
