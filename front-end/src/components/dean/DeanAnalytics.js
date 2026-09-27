@@ -383,7 +383,7 @@ const DeanAnalytics = ({ showEvalModules, lockedProgramId = null }) => {
                     <i className="fa-solid fa-calendar-week" aria-hidden />
                   </div>
                   <div className="dean-metric-card__body">
-                    <div className="dean-metric-card__label">This week (Mon–Fri)</div>
+                    <div className="dean-metric-card__label">This week</div>
                     <div className="dean-metric-card__value">
                       {data?.workload?.week_total ?? 0}
                     </div>
@@ -404,7 +404,7 @@ const DeanAnalytics = ({ showEvalModules, lockedProgramId = null }) => {
               <p className="dean-analytics__insight">{data?.workload?.insight}</p>
               <div className="dean-chart-card">
                 <h3 className="dean-chart-card__title">
-                  Evaluations completed per day (Mon–Fri)
+                  Evaluations completed per day (this week)
                 </h3>
                 <p className="dean-chart-card__sub">{data?.workload?.week_label}</p>
                 <BarChart items={data?.workload?.by_weekday || []} />

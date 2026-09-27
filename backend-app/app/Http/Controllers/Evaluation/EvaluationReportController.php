@@ -862,27 +862,31 @@ class EvaluationReportController extends Controller
 
     private function buildWorkloadSection(Builder $studentBase, $program): array
     {
-        $tz = config('app.timezone') ?: 'Asia/Manila';
+        // Campus ops are PH time; app default may be UTC on Railway.
+        $tz = 'Asia/Manila';
         $today = now($tz)->startOfDay();
-        $weekStart = $today->copy()->startOfWeek(Carbon::MONDAY);
-        $weekEnd = $weekStart->copy()->addDays(4)->endOfDay(); // Mon–Fri
+        $weekStart = $today->copy()->startOfWeek(Carbon::MONDAY)->startOfDay();
+        $weekEnd = $today->copy()->endOfWeek(Carbon::SUNDAY)->endOfDay();
 
         $completions = AcademicRecordEvaluationComplete::query()
             ->whereIn('student_id', (clone $studentBase)->select('student_id'))
-            ->whereBetween('completed_at', [$weekStart, $weekEnd])
+            ->whereBetween('completed_at', [
+                $weekStart->copy()->utc(),
+                $weekEnd->copy()->utc(),
+            ])
             ->get(['completed_at', 'student_id']);
 
         $byDow = [
-            1 => 0, 2 => 0, 3 => 0, 4 => 0, 5 => 0,
+            1 => 0, 2 => 0, 3 => 0, 4 => 0, 5 => 0, 6 => 0, 7 => 0,
         ];
         $todayCount = 0;
         foreach ($completions as $c) {
             if (! $c->completed_at) {
                 continue;
             }
-            $local = $c->completed_at->timezone($tz);
+            $local = $c->completed_at->copy()->timezone($tz);
             $dow = (int) $local->dayOfWeekIso; // 1=Mon … 7=Sun
-            if ($dow >= 1 && $dow <= 5) {
+            if ($dow >= 1 && $dow <= 7) {
                 $byDow[$dow]++;
             }
             if ($local->isSameDay($today)) {
@@ -896,18 +900,25 @@ class EvaluationReportController extends Controller
             ['key' => 'wed', 'label' => 'Wed', 'count' => $byDow[3]],
             ['key' => 'thu', 'label' => 'Thu', 'count' => $byDow[4]],
             ['key' => 'fri', 'label' => 'Fri', 'count' => $byDow[5]],
+            ['key' => 'sat', 'label' => 'Sat', 'count' => $byDow[6]],
+            ['key' => 'sun', 'label' => 'Sun', 'count' => $byDow[7]],
         ];
 
         $code = $program->program_code ?? 'Program';
+        $weekTotal = array_sum($byDow);
 
         return [
             'week_label' => $weekStart->toDateString().' → '.$weekEnd->toDateString(),
             'today_count' => $todayCount,
-            'week_total' => array_sum($byDow),
+            'week_total' => $weekTotal,
             'by_weekday' => $days,
             'insight' => $todayCount > 0
-                ? "{$code} had {$todayCount} evaluation".($todayCount === 1 ? '' : 's').' today — Program Head can summarize for Saturday reporting.'
-                : "No {$code} academic-record evaluations logged today (Mon–Fri workload).",
+                ? "{$code} had {$todayCount} evaluation".($todayCount === 1 ? '' : 's').' today (Promote / Complete logged).'
+                : (
+                    $weekTotal > 0
+                        ? "{$code} has {$weekTotal} evaluation".($weekTotal === 1 ? '' : 's').' this week, but none logged yet today.'
+                        : "No {$code} academic-record evaluations logged this week yet. Workload counts Promote and Complete — saving grades alone is not enough until the student is stored as evaluated."
+                ),
         ];
     }
 
@@ -1212,7 +1223,7 @@ class EvaluationReportController extends Controller
 
     private function buildRushForecast(Builder $studentBase): array
     {
-        $tz = config('app.timezone') ?: 'Asia/Manila';
+        $tz = 'Asia/Manila';
         $today = now($tz)->startOfDay();
         // Calendar weeks: Mon–Sun, ending with the week that contains today.
         $thisWeekStart = $today->copy()->startOfWeek(Carbon::MONDAY);
@@ -1248,7 +1259,10 @@ class EvaluationReportController extends Controller
 
         $completions = AcademicRecordEvaluationComplete::query()
             ->whereIn('student_id', (clone $studentBase)->select('student_id'))
-            ->whereBetween('completed_at', [$windowStart->copy()->startOfDay(), $windowEnd])
+            ->whereBetween('completed_at', [
+                $windowStart->copy()->startOfDay()->utc(),
+                $windowEnd->copy()->utc(),
+            ])
             ->get(['completed_at']);
 
         $emptyDow = [1 => 0, 2 => 0, 3 => 0, 4 => 0, 5 => 0, 6 => 0, 7 => 0];
