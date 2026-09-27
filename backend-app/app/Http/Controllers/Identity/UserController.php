@@ -132,6 +132,19 @@ class UserController extends Controller
                 ], 422);
             }
 
+            if (
+                $role
+                && in_array($role->role_name, AuthController::employeeIdLoginRoles(), true)
+                && $employeeId === null
+            ) {
+                DB::rollBack();
+
+                return response()->json([
+                    'error' => 'Failed to create user',
+                    'message' => 'Employee ID is required. Staff sign in with Employee ID; email is only for verification and password reset.',
+                ], 422);
+            }
+
             if ($this->actorMayManageOnlyStudents($request) && ! $this->isStudentRole($role)) {
                 DB::rollBack();
 
@@ -496,6 +509,19 @@ class UserController extends Controller
                 return response()->json([
                     'error' => 'Failed to update user',
                     'message' => 'This Employee ID is already assigned to another staff account.',
+                ], 422);
+            }
+
+            if (
+                $role
+                && in_array($role->role_name, AuthController::employeeIdLoginRoles(), true)
+                && $employeeId === null
+            ) {
+                DB::rollBack();
+
+                return response()->json([
+                    'error' => 'Failed to update user',
+                    'message' => 'Employee ID is required. Staff sign in with Employee ID; email is only for verification and password reset.',
                 ], 422);
             }
 

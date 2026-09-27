@@ -57,7 +57,83 @@ class AuthController extends Controller
     }
 
     /**
+     * Staff roles that sign in with Employee ID (email is for mail only).
+     *
+     * @return list<string>
+     */
+    public static function employeeIdLoginRoles(): array
+    {
+        return ['Dean', 'Adviser', 'Evaluator', 'Program Head', 'Secretary'];
+    }
+
+    public static function usesEmployeeIdLogin(?TblUser $user): bool
+    {
+        if (! $user) {
+            return false;
+        }
+        $user->loadMissing('role');
+        $roleName = trim((string) ($user->role?->role_name ?? ''));
+        if ($roleName === '') {
+            return false;
+        }
+        foreach (self::employeeIdLoginRoles() as $role) {
+            if (strcasecmp($roleName, $role) === 0) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    public static function resolveStaffEmployeeId(TblUser $user): ?string
+    {
+        $user->loadMissing(['deanProfile', 'facultyProfile', 'programHeadProfile', 'secretaryProfile']);
+        $candidates = [
+            $user->deanProfile?->employee_id,
+            $user->facultyProfile?->employee_id,
+            $user->programHeadProfile?->employee_id,
+            $user->secretaryProfile?->employee_id,
+        ];
+        foreach ($candidates as $id) {
+            $id = trim((string) ($id ?? ''));
+            if ($id !== '') {
+                return $id;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Portal login: staff with an Employee ID must use that ID (not email).
+     * Email remains for password reset / verification / device OTP.
+     */
+    public static function assertPortalLoginUsesEmployeeIdWhenRequired(TblUser $user, string $login): void
+    {
+        if (! self::usesEmployeeIdLogin($user)) {
+            return;
+        }
+
+        $employeeId = self::resolveStaffEmployeeId($user);
+        if ($employeeId === null) {
+            // Legacy accounts without Employee ID can still use email until an admin sets one.
+            return;
+        }
+
+        if (strcasecmp(trim($login), $employeeId) === 0) {
+            return;
+        }
+
+        throw ValidationException::withMessages([
+            'email' => [
+                'Sign in with your Employee ID. Email is only for password reset and verification codes.',
+            ],
+        ]);
+    }
+
+    /**
      * Resolve login by email/username, student ID number, or staff employee ID.
+     * Password reset / verification may still resolve staff by email.
      */
     public static function findUserByLogin(string $login): ?TblUser
     {
@@ -66,17 +142,20 @@ class AuthController extends Controller
             return null;
         }
 
-        $with = ['role', 'department', 'program'];
-        $user = TblUser::whereEmail($login)->with($with)->first();
-        if ($user) {
-            if (CachedSchema::hasColumn('tbl_student_profile', 'is_simulation')) {
-                $sim = $user->studentProfile;
-                if ($sim && ($sim->is_simulation ?? false)) {
-                    return null;
-                }
-            }
+        $with = ['role', 'department', 'program', 'deanProfile', 'facultyProfile', 'programHeadProfile', 'secretaryProfile'];
 
-            return $user;
+        // Prefer Employee ID for staff (primary portal login).
+        $byEmployeeId = TblUser::query()
+            ->with($with)
+            ->where(function ($q) use ($login) {
+                $q->whereHas('deanProfile', fn ($p) => $p->where('employee_id', $login))
+                    ->orWhereHas('facultyProfile', fn ($p) => $p->where('employee_id', $login))
+                    ->orWhereHas('programHeadProfile', fn ($p) => $p->where('employee_id', $login))
+                    ->orWhereHas('secretaryProfile', fn ($p) => $p->where('employee_id', $login));
+            })
+            ->first();
+        if ($byEmployeeId) {
+            return $byEmployeeId;
         }
 
         $byStudentId = TblUser::query()
@@ -94,16 +173,19 @@ class AuthController extends Controller
             return $byStudentId;
         }
 
-        // Staff: Dean / Faculty / Program Head / Secretary employee ID
-        return TblUser::query()
-            ->with($with)
-            ->where(function ($q) use ($login) {
-                $q->whereHas('deanProfile', fn ($p) => $p->where('employee_id', $login))
-                    ->orWhereHas('facultyProfile', fn ($p) => $p->where('employee_id', $login))
-                    ->orWhereHas('programHeadProfile', fn ($p) => $p->where('employee_id', $login))
-                    ->orWhereHas('secretaryProfile', fn ($p) => $p->where('employee_id', $login));
-            })
-            ->first();
+        $user = TblUser::whereEmail($login)->with($with)->first();
+        if ($user) {
+            if (CachedSchema::hasColumn('tbl_student_profile', 'is_simulation')) {
+                $sim = $user->studentProfile;
+                if ($sim && ($sim->is_simulation ?? false)) {
+                    return null;
+                }
+            }
+
+            return $user;
+        }
+
+        return null;
     }
 
     public function login(Request $request)
@@ -121,6 +203,13 @@ class AuthController extends Controller
             throw ValidationException::withMessages([
                 'email' => ['The provided credentials are incorrect.'],
             ]);
+        }
+
+        try {
+            self::assertPortalLoginUsesEmployeeIdWhenRequired($user, $login);
+        } catch (ValidationException $e) {
+            UserSessionLogger::logFailedLogin($request, $login, 'Must use Employee ID');
+            throw $e;
         }
 
         try {

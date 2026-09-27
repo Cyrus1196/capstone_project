@@ -429,6 +429,12 @@ const UserManagement = ({ userScope = 'staff' }) => {
     return ['dean', 'program head', 'secretary'].includes(roleName);
   };
 
+  /** Staff who sign in with Employee ID (email is for mail / reset only). */
+  const isEmployeeIdLoginRole = () => {
+    const roleName = selectedRoleName().toLowerCase();
+    return ['dean', 'adviser', 'evaluator', 'program head', 'secretary'].includes(roleName);
+  };
+
   const handleAdd = () => {
     if (!canCreateUsers) {
       swalError('View only', 'You do not have permission to add users.');
@@ -800,6 +806,14 @@ const UserManagement = ({ userScope = 'staff' }) => {
         if (!shouldRequireTrack) {
           submitData.track_id = '';
         }
+      }
+
+      if (isEmployeeIdLoginRole() && !String(submitData.employee_id || '').trim()) {
+        await swalError(
+          'Employee ID required',
+          'Faculty and staff sign in with their Employee ID. Email is only for verification and password reset.'
+        );
+        return;
       }
 
       if (isDepartmentManagedRole() && !submitData.department_id) {
@@ -1599,131 +1613,7 @@ const UserManagement = ({ userScope = 'staff' }) => {
                 </>
               )}
 
-              {/* Login credentials: auto for new students; editable when editing or for staff */}
-              {!(isStudentForm() && !editingUser) && (
-                <>
-                  <div className="form-group">
-                    <label>{isStudentForm() ? 'Email (optional)' : 'Email'}</label>
-                    <input
-                      type="email"
-                      aria-label={isStudentForm() ? 'Student email (optional)' : 'Email'}
-                      value={formData.email || ''}
-                      onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                      required={!isStudentForm()}
-                      placeholder={isStudentForm() ? 'student@example.com — add later if unknown' : undefined}
-                    />
-                    {isStudentForm() ? (
-                      <small style={{ color: '#666', fontSize: '0.85rem', display: 'block', marginTop: '0.25rem' }}>
-                        Students sign in with their Student ID, not email. Add a contact email here or via CSV import.
-                      </small>
-                    ) : null}
-                  </div>
-                  <div className="form-group">
-                    <label>Password {editingUser && '(leave blank to keep current)'}</label>
-                    <div className="user-password-wrap">
-                      <input
-                        type={showPassword ? 'text' : 'password'}
-                        aria-label="Password"
-                        className={passwordFieldError ? 'input-error' : undefined}
-                        value={formData.password || ''}
-                        onChange={(e) => {
-                          const nextPassword = e.target.value;
-                          setFormData({ ...formData, password: nextPassword });
-                          setPasswordFieldError(
-                            getAdminDirectoryPasswordError(nextPassword, { required: !editingUser })
-                          );
-                        }}
-                        onBlur={() => {
-                          setPasswordFieldError(
-                            getAdminDirectoryPasswordError(formData.password, { required: !editingUser })
-                          );
-                        }}
-                        required={!editingUser}
-                        autoComplete="new-password"
-                        aria-invalid={Boolean(passwordFieldError)}
-                        aria-describedby="user-password-guidance"
-                      />
-                      <button
-                        type="button"
-                        className="user-password-eye"
-                        onClick={() => setShowPassword((v) => !v)}
-                        aria-label={showPassword ? 'Hide password' : 'Show password'}
-                        title={showPassword ? 'Hide password' : 'Show password'}
-                      >
-                        <i
-                          className={showPassword ? 'fa-regular fa-eye-slash' : 'fa-regular fa-eye'}
-                          aria-hidden
-                        />
-                      </button>
-                    </div>
-                    {passwordFieldError ? (
-                      <span id="user-password-guidance" className="field-error" role="alert">
-                        {passwordFieldError}
-                      </span>
-                    ) : editingUser ? (
-                      <span id="user-password-guidance" className="field-hint">
-                        Leave blank to keep the current password.
-                      </span>
-                    ) : (
-                      <span id="user-password-guidance" className="field-hint">
-                        Temporary password is fine here. On first login the user must set a strong password (length,
-                        uppercase, and a symbol).
-                      </span>
-                    )}
-                  </div>
-                  {!isStudentForm() && (
-                  <div className="form-group">
-                    <label>Employee ID</label>
-                    <input
-                      type="text"
-                      aria-label="Employee ID"
-                      value={formData.employee_id || ''}
-                      onChange={(e) =>
-                        setFormData({
-                          ...formData,
-                          employee_id: e.target.value,
-                        })
-                      }
-                      placeholder="Optional — staff can also sign in with this ID"
-                      maxLength={50}
-                    />
-                    <small style={{ color: '#666', fontSize: '0.85rem', marginTop: '0.25rem', display: 'block' }}>
-                      Staff can log in with Employee ID or email. Students use Student ID.
-                    </small>
-                  </div>
-                  )}
-                </>
-              )}
-
-              {isStudentForm() && !editingUser && (
-                <div className="form-group">
-                  <small style={{ color: '#475569', fontSize: '0.9rem', lineHeight: 1.45, display: 'block' }}>
-                    Login username = Student ID Number. Default password = first name + <code>123</code> (lowercase).
-                    The student must change this password on first login.
-                  </small>
-                </div>
-              )}
-
-              {!isStudentForm() && (
-              <div className="form-group">
-                <label>Contact Number</label>
-                <input
-                  type="tel"
-                  aria-label="Contact number"
-                  inputMode="numeric"
-                  autoComplete="tel"
-                  maxLength={11}
-                  value={formData.contact_number || ''}
-                  onChange={(e) =>
-                    setFormData({
-                      ...formData,
-                      contact_number: digitsOnlyContact(e.target.value),
-                    })
-                  }
-                  placeholder="11 digits only (e.g. 09123456789)"
-                />
-              </div>
-              )}
+              {/* Staff: Role first, then Employee ID (portal login), password, email (mail only) */}
               {userScope !== 'students' && (
               <div className="form-group">
                 <label>Role</label>
@@ -1779,6 +1669,164 @@ const UserManagement = ({ userScope = 'staff' }) => {
                 <small style={{ color: '#666', fontSize: '0.85rem', marginTop: '0.25rem', display: 'block' }}>
                   Automatically set based on selected role
                 </small>
+              </div>
+              )}
+
+              {!isStudentForm() && (
+              <div className="form-group">
+                <label>
+                  Faculty / Employee ID{isEmployeeIdLoginRole() ? ' *' : ''}
+                </label>
+                <input
+                  type="text"
+                  aria-label="Faculty or Employee ID"
+                  value={formData.employee_id || ''}
+                  onChange={(e) =>
+                    setFormData({
+                      ...formData,
+                      employee_id: e.target.value,
+                    })
+                  }
+                  placeholder={
+                    isEmployeeIdLoginRole()
+                      ? 'Required — this is their portal login ID'
+                      : 'Optional for Admin'
+                  }
+                  required={isEmployeeIdLoginRole()}
+                  maxLength={50}
+                />
+                <small style={{ color: '#666', fontSize: '0.85rem', marginTop: '0.25rem', display: 'block' }}>
+                  {isEmployeeIdLoginRole()
+                    ? 'Faculty and staff sign in with this ID only. Do not use email on the login screen.'
+                    : 'Admin accounts sign in with email. Employee ID is optional.'}
+                </small>
+              </div>
+              )}
+
+              {/* Login credentials: auto for new students; editable when editing or for staff */}
+              {!(isStudentForm() && !editingUser) && (
+                <>
+                  <div className="form-group">
+                    <label>Password {editingUser && '(leave blank to keep current)'}</label>
+                    <div className="user-password-wrap">
+                      <input
+                        type={showPassword ? 'text' : 'password'}
+                        aria-label="Password"
+                        className={passwordFieldError ? 'input-error' : undefined}
+                        value={formData.password || ''}
+                        onChange={(e) => {
+                          const nextPassword = e.target.value;
+                          setFormData({ ...formData, password: nextPassword });
+                          setPasswordFieldError(
+                            getAdminDirectoryPasswordError(nextPassword, { required: !editingUser })
+                          );
+                        }}
+                        onBlur={() => {
+                          setPasswordFieldError(
+                            getAdminDirectoryPasswordError(formData.password, { required: !editingUser })
+                          );
+                        }}
+                        required={!editingUser}
+                        autoComplete="new-password"
+                        aria-invalid={Boolean(passwordFieldError)}
+                        aria-describedby="user-password-guidance"
+                      />
+                      <button
+                        type="button"
+                        className="user-password-eye"
+                        onClick={() => setShowPassword((v) => !v)}
+                        aria-label={showPassword ? 'Hide password' : 'Show password'}
+                        title={showPassword ? 'Hide password' : 'Show password'}
+                      >
+                        <i
+                          className={showPassword ? 'fa-regular fa-eye-slash' : 'fa-regular fa-eye'}
+                          aria-hidden
+                        />
+                      </button>
+                    </div>
+                    {passwordFieldError ? (
+                      <span id="user-password-guidance" className="field-error" role="alert">
+                        {passwordFieldError}
+                      </span>
+                    ) : editingUser ? (
+                      <span id="user-password-guidance" className="field-hint">
+                        Leave blank to keep the current password.
+                      </span>
+                    ) : (
+                      <span id="user-password-guidance" className="field-hint">
+                        Temporary password is fine here. On first login the user must set a strong password (length,
+                        uppercase, and a symbol).
+                      </span>
+                    )}
+                  </div>
+                  <div className="form-group">
+                    <label>
+                      {isStudentForm()
+                        ? 'Email (optional)'
+                        : isEmployeeIdLoginRole()
+                          ? 'Email (verification & password reset)'
+                          : 'Email'}
+                    </label>
+                    <input
+                      type="email"
+                      aria-label={
+                        isStudentForm()
+                          ? 'Student email (optional)'
+                          : isEmployeeIdLoginRole()
+                            ? 'Email for verification and password reset'
+                            : 'Email'
+                      }
+                      value={formData.email || ''}
+                      onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                      required={!isStudentForm()}
+                      placeholder={
+                        isStudentForm()
+                          ? 'student@example.com — add later if unknown'
+                          : isEmployeeIdLoginRole()
+                            ? 'Used for OTP, verification, and password reset only'
+                            : undefined
+                      }
+                    />
+                    {isStudentForm() ? (
+                      <small style={{ color: '#666', fontSize: '0.85rem', display: 'block', marginTop: '0.25rem' }}>
+                        Students sign in with their Student ID, not email. Add a contact email here or via CSV import.
+                      </small>
+                    ) : isEmployeeIdLoginRole() ? (
+                      <small style={{ color: '#666', fontSize: '0.85rem', display: 'block', marginTop: '0.25rem' }}>
+                        Not used to sign in. Codes and reset links are sent to this address.
+                      </small>
+                    ) : null}
+                  </div>
+                </>
+              )}
+
+              {isStudentForm() && !editingUser && (
+                <div className="form-group">
+                  <small style={{ color: '#475569', fontSize: '0.9rem', lineHeight: 1.45, display: 'block' }}>
+                    Login username = Student ID Number. Default password = first name + <code>123</code> (lowercase).
+                    The student must change this password on first login.
+                  </small>
+                </div>
+              )}
+
+              {!isStudentForm() && (
+              <div className="form-group">
+                <label>Contact Number</label>
+                <input
+                  type="tel"
+                  aria-label="Contact number"
+                  inputMode="numeric"
+                  autoComplete="tel"
+                  maxLength={11}
+                  value={formData.contact_number || ''}
+                  onChange={(e) =>
+                    setFormData({
+                      ...formData,
+                      contact_number: digitsOnlyContact(e.target.value),
+                    })
+                  }
+                  placeholder="11 digits only (e.g. 09123456789)"
+                />
               </div>
               )}
               {!(isStudentForm() && !editingUser) && (

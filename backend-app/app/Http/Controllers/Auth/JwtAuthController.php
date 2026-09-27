@@ -33,6 +33,17 @@ class JwtAuthController extends Controller
         }
 
         try {
+            AuthController::assertPortalLoginUsesEmployeeIdWhenRequired($user, $login);
+        } catch (ValidationException $e) {
+            UserSessionLogger::logFailedLogin($request, $login, 'Must use Employee ID');
+
+            return response()->json([
+                'error' => collect($e->errors())->flatten()->first() ?? 'Sign in with your Employee ID.',
+                'errors' => $e->errors(),
+            ], 422);
+        }
+
+        try {
             AuthSecurity::validateCredentialsForLogin($user, $request->password);
         } catch (ValidationException $e) {
             $msg = collect($e->errors())->flatten()->first() ?? 'Login failed';

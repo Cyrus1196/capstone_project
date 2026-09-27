@@ -263,7 +263,7 @@ const Login = () => {
                 <p className="login-page__lead">
                   {deviceOtpStep
                     ? `We emailed a 6-digit code to ${emailHint || 'your email'}. Enter it below to trust this device.`
-                    : 'Students: Student ID. Staff: email or Employee ID.'}
+                    : 'Students: Student ID. Faculty / staff: Employee ID. Admin: email.'}
                 </p>
               </div>
 
@@ -346,7 +346,7 @@ const Login = () => {
                       type="text"
                       value={email}
                       onChange={(e) => setEmail(e.target.value)}
-                      placeholder="Student ID, email, or Employee ID"
+                      placeholder="Student ID, Employee ID, or Admin email"
                       required
                       autoComplete="username"
                       disabled={loading}
