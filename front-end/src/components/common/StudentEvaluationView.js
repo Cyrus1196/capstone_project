@@ -8034,25 +8034,58 @@ const StudentEvaluationView = ({
       : isEvaluatedModule
         ? `${filteredStudents.length} stored`
         : `${filteredStudents.length} students`;
+  // Only clear when Year / Standing filters exclude this student — not when
+  // typing in the search box temporarily empties the API result list.
+  useEffect(() => {
+    if (!selectedStudent?.student_id) return;
+
+    if (listYearLevelFilter === '__unassigned__') {
+      if (selectedStudent.year_level_id != null && selectedStudent.year_level_id !== '') {
+        setSelectedStudent(null);
+        setBaselineData(null);
+        setData(null);
+        setPendingSimName(null);
+        setError('');
+        return;
+      }
+    } else if (listYearLevelFilter) {
+      if (String(selectedStudent.year_level_id ?? '') !== String(listYearLevelFilter)) {
+        setSelectedStudent(null);
+        setBaselineData(null);
+        setData(null);
+        setPendingSimName(null);
+        setError('');
+        return;
+      }
+    }
+
+    if (!listStandingFilter) return;
+
+    const isIrregular = /^irregular$/i.test(String(selectedStudent.academic_status || '').trim());
+    const isUnevaluated = !selectedStudent.academic_record_evaluated;
+    let matches = true;
+    if (listStandingFilter === 'unevaluated') matches = isUnevaluated;
+    else if (listStandingFilter === 'irregular') matches = isIrregular;
+    else if (listStandingFilter === 'unevaluated_irregular') matches = isUnevaluated && isIrregular;
+
+    if (!matches) {
+      setSelectedStudent(null);
+      setBaselineData(null);
+      setData(null);
+      setPendingSimName(null);
+      setError('');
+    }
+  }, [listYearLevelFilter, listStandingFilter, selectedStudent]);
+
   const studentDropdownOptions = (() => {
     const map = new Map();
     filteredStudents.forEach((student) => map.set(String(student.student_id), student));
+    // Keep the current pick visible in the combobox even while search results are loading.
+    if (selectedStudent?.student_id != null) {
+      map.set(String(selectedStudent.student_id), selectedStudent);
+    }
     return [...map.values()];
   })();
-
-  // Drop the current student when Year / Standing filters no longer include them.
-  useEffect(() => {
-    if (!selectedStudent?.student_id) return;
-    const stillInFilter = filteredStudents.some(
-      (s) => String(s.student_id) === String(selectedStudent.student_id)
-    );
-    if (stillInFilter) return;
-    setSelectedStudent(null);
-    setBaselineData(null);
-    setData(null);
-    setPendingSimName(null);
-    setError('');
-  }, [filteredStudents, selectedStudent?.student_id]);
 
   return (
     <div

@@ -42,8 +42,24 @@ export default function SearchableSelect({
   const selectedLabel = useMemo(() => {
     if (strValue === '') return '';
     const opt = options.find((o) => String(o.value) === strValue);
-    return opt?.label ?? (allowCustomValue ? strValue : '');
+    if (opt?.label) return opt.label;
+    if (allowCustomValue) return strValue;
+    return '';
   }, [strValue, options, allowCustomValue]);
+
+  // Keep showing the last known label if options briefly empty (e.g. server search).
+  const displayLabelRef = useRef('');
+  useEffect(() => {
+    if (strValue === '') {
+      displayLabelRef.current = '';
+      return;
+    }
+    if (selectedLabel) {
+      displayLabelRef.current = selectedLabel;
+    }
+  }, [strValue, selectedLabel]);
+
+  const stableSelectedLabel = selectedLabel || (strValue ? displayLabelRef.current : '');
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -51,8 +67,8 @@ export default function SearchableSelect({
     return options.filter((o) => o.label.toLowerCase().includes(q));
   }, [options, query]);
 
-  const inputDisplay = open ? query : selectedLabel;
-  const inputPlaceholder = selectedLabel && !open ? selectedLabel : emptyLabel || placeholder;
+  const inputDisplay = open ? query : stableSelectedLabel;
+  const inputPlaceholder = stableSelectedLabel && !open ? stableSelectedLabel : emptyLabel || placeholder;
 
   const closeMenu = (opts = {}) => {
     const { commitCustom = false } = opts;
@@ -162,8 +178,9 @@ export default function SearchableSelect({
 
   const handleInputClick = () => {
     if (disabled || open || suppressOpenOnFocusRef.current) return;
-    // Clicking a filled field opens the list so they can change the choice.
-    if (strValue !== '') openMenu(selectedLabel || '');
+    // Clicking a filled field opens the list to pick another — start with an empty
+    // query so server-side search is not run against the display label.
+    if (strValue !== '') openMenu('');
   };
 
   const handleInputKeyDown = (e) => {
@@ -171,13 +188,13 @@ export default function SearchableSelect({
 
     if (e.key === 'ArrowDown') {
       e.preventDefault();
-      if (!open) openMenu(query || selectedLabel || '');
+      if (!open) openMenu(strValue !== '' ? '' : query || selectedLabel || '');
       else focusOption(0);
       return;
     }
     if (e.key === 'ArrowUp') {
       e.preventDefault();
-      if (!open) openMenu(query || selectedLabel || '');
+      if (!open) openMenu(strValue !== '' ? '' : query || selectedLabel || '');
       else focusOption('last');
       return;
     }
@@ -294,7 +311,7 @@ export default function SearchableSelect({
           onClick={() => {
             if (disabled) return;
             if (open) closeMenu();
-            else openMenu(selectedLabel || '');
+            else openMenu(strValue !== '' ? '' : selectedLabel || '');
           }}
         >
           <span className="searchable-select__chevron" aria-hidden />
