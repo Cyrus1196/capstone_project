@@ -1671,6 +1671,27 @@ const UserManagement = ({ userScope = 'staff' }) => {
                       </span>
                     )}
                   </div>
+                  {!isStudentForm() && (
+                  <div className="form-group">
+                    <label>Employee ID</label>
+                    <input
+                      type="text"
+                      aria-label="Employee ID"
+                      value={formData.employee_id || ''}
+                      onChange={(e) =>
+                        setFormData({
+                          ...formData,
+                          employee_id: e.target.value,
+                        })
+                      }
+                      placeholder="Optional — staff can also sign in with this ID"
+                      maxLength={50}
+                    />
+                    <small style={{ color: '#666', fontSize: '0.85rem', marginTop: '0.25rem', display: 'block' }}>
+                      Staff can log in with Employee ID or email. Students use Student ID.
+                    </small>
+                  </div>
+                  )}
                 </>
               )}
 
@@ -1701,27 +1722,6 @@ const UserManagement = ({ userScope = 'staff' }) => {
                   }
                   placeholder="11 digits only (e.g. 09123456789)"
                 />
-              </div>
-              )}
-              {!isStudentForm() && (
-              <div className="form-group">
-                <label>Employee ID</label>
-                <input
-                  type="text"
-                  aria-label="Employee ID"
-                  value={formData.employee_id || ''}
-                  onChange={(e) =>
-                    setFormData({
-                      ...formData,
-                      employee_id: e.target.value,
-                    })
-                  }
-                  placeholder="Optional — staff can also sign in with this ID"
-                  maxLength={50}
-                />
-                <small style={{ color: '#666', fontSize: '0.85rem', marginTop: '0.25rem', display: 'block' }}>
-                  Staff can log in with Employee ID or email. Students use Student ID.
-                </small>
               </div>
               )}
               {userScope !== 'students' && (
