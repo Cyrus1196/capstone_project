@@ -52,7 +52,6 @@ class ProgramHeadController extends Controller
                 'first_name' => 'nullable|string|max:50',
                 'middle_name' => 'nullable|string|max:50',
                 'last_name' => 'nullable|string|max:50',
-                'employee_id' => 'nullable|string|max:50',
                 'specialization' => 'nullable|string|max:255',
             ]);
 
@@ -63,6 +62,7 @@ class ProgramHeadController extends Controller
                     'program_id' => $user->program_id,
                 ]
             );
+            // Employee ID is admin-managed only.
             $profile->update($validated);
             $profile->load(['program.department', 'department']);
 

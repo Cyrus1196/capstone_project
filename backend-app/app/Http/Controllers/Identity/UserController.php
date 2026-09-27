@@ -106,7 +106,10 @@ class UserController extends Controller
             'department_id' => 'nullable|exists:tbl_departments,department_id',
             'status' => 'nullable|string|max:50',
             'program_id' => 'nullable|exists:tbl_program,program_id',
+            'employee_id' => 'nullable|string|max:50',
         ]);
+        $employeeId = trim((string) ($validated['employee_id'] ?? ''));
+        $employeeId = $employeeId !== '' ? $employeeId : null;
 
         DB::beginTransaction();
         try {
@@ -119,6 +122,15 @@ class UserController extends Controller
             $departmentId = $validated['department_id'] ?? null;
             $programId = $validated['program_id'] ?? null;
             $program = $programId ? Program::find($programId) : null;
+
+            if ($employeeId !== null && $this->employeeIdTakenByOtherUser($employeeId)) {
+                DB::rollBack();
+
+                return response()->json([
+                    'error' => 'Failed to create user',
+                    'message' => 'This Employee ID is already assigned to another staff account.',
+                ], 422);
+            }
 
             if ($this->actorMayManageOnlyStudents($request) && ! $this->isStudentRole($role)) {
                 DB::rollBack();
@@ -226,6 +238,7 @@ class UserController extends Controller
                         'user_id' => $user->user_id,
                         'department_id' => $departmentId ? (int) $departmentId : null,
                         'program_id' => $programId ? (int) $programId : null,
+                        'employee_id' => $employeeId,
                     ]);
                     \Log::info('Dean profile created successfully');
                 } catch (\Exception $deanError) {
@@ -244,6 +257,7 @@ class UserController extends Controller
                     [
                         'department_id' => $departmentId ? (int) $departmentId : null,
                         'program_id' => $programId ? (int) $programId : null,
+                        'employee_id' => $employeeId,
                     ]
                 );
             }
@@ -254,6 +268,7 @@ class UserController extends Controller
                     [
                         'department_id' => $departmentId ? (int) $departmentId : null,
                         'program_id' => $programId ? (int) $programId : null,
+                        'employee_id' => $employeeId,
                     ]
                 );
             }
@@ -264,6 +279,7 @@ class UserController extends Controller
                     [
                         'department_id' => $departmentId ? (int) $departmentId : null,
                         'program_id' => $programId ? (int) $programId : null,
+                        'employee_id' => $employeeId,
                     ]
                 );
             }
@@ -458,7 +474,10 @@ class UserController extends Controller
             'department_id' => 'nullable|exists:tbl_departments,department_id',
             'status' => 'nullable|string|max:50',
             'program_id' => 'nullable|exists:tbl_program,program_id',
+            'employee_id' => 'nullable|string|max:50',
         ]);
+        $employeeId = trim((string) ($validated['employee_id'] ?? ''));
+        $employeeId = $employeeId !== '' ? $employeeId : null;
 
         DB::beginTransaction();
         try {
@@ -470,6 +489,15 @@ class UserController extends Controller
             $departmentId = $validated['department_id'] ?? null;
             $programId = $validated['program_id'] ?? null;
             $program = $programId ? Program::find($programId) : null;
+
+            if ($employeeId !== null && $this->employeeIdTakenByOtherUser($employeeId, (int) $user->user_id)) {
+                DB::rollBack();
+
+                return response()->json([
+                    'error' => 'Failed to update user',
+                    'message' => 'This Employee ID is already assigned to another staff account.',
+                ], 422);
+            }
 
             if ($this->actorMayManageOnlyStudents($request) && ! $this->isStudentRole($role)) {
                 DB::rollBack();
@@ -553,12 +581,14 @@ class UserController extends Controller
                 if ($deanProfile) {
                     $deanProfile->department_id = $departmentId;
                     $deanProfile->program_id = $programId;
+                    $deanProfile->employee_id = $employeeId;
                     $deanProfile->save();
                 } else {
                     DeanProfile::create([
                         'user_id' => $user->user_id,
                         'department_id' => $departmentId,
                         'program_id' => $programId,
+                        'employee_id' => $employeeId,
                     ]);
                 }
             } elseif (! $isDean) {
@@ -572,6 +602,7 @@ class UserController extends Controller
                     [
                         'department_id' => $departmentId ? (int) $departmentId : null,
                         'program_id' => $programId ? (int) $programId : null,
+                        'employee_id' => $employeeId,
                     ]
                 );
             } else {
@@ -584,6 +615,7 @@ class UserController extends Controller
                     [
                         'department_id' => $departmentId ? (int) $departmentId : null,
                         'program_id' => $programId ? (int) $programId : null,
+                        'employee_id' => $employeeId,
                     ]
                 );
             } else {
@@ -596,6 +628,7 @@ class UserController extends Controller
                     [
                         'department_id' => $departmentId ? (int) $departmentId : null,
                         'program_id' => $programId ? (int) $programId : null,
+                        'employee_id' => $employeeId,
                     ]
                 );
             } else {
@@ -668,5 +701,29 @@ class UserController extends Controller
         } catch (\Exception $e) {
             return response()->json(['error' => 'Failed to fetch roles', 'message' => $e->getMessage()], 500);
         }
+    }
+
+    /**
+     * Employee ID must be unique across staff profile tables (login identifier).
+     */
+    private function employeeIdTakenByOtherUser(string $employeeId, ?int $ignoreUserId = null): bool
+    {
+        $checks = [
+            DeanProfile::query()->where('employee_id', $employeeId),
+            FacultyProfile::query()->where('employee_id', $employeeId),
+            ProgramHeadProfile::query()->where('employee_id', $employeeId),
+            SecretaryProfile::query()->where('employee_id', $employeeId),
+        ];
+
+        foreach ($checks as $query) {
+            if ($ignoreUserId !== null) {
+                $query->where('user_id', '!=', $ignoreUserId);
+            }
+            if ($query->exists()) {
+                return true;
+            }
+        }
+
+        return false;
     }
 }

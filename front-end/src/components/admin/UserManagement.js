@@ -451,6 +451,7 @@ const UserManagement = ({ userScope = 'staff' }) => {
       access_level_id: userScope === 'students' && studentAccess ? studentAccess : '',
       department_id: '',
       status: 'active',
+      employee_id: '',
       // Student-specific fields
       student_id_number: '',
       first_name: '',
@@ -518,6 +519,16 @@ const UserManagement = ({ userScope = 'staff' }) => {
         user.deanProfile?.department?.department_id ??
         '',
       status: user.status || 'active',
+      employee_id:
+        user.dean_profile?.employee_id ||
+        user.deanProfile?.employee_id ||
+        user.faculty_profile?.employee_id ||
+        user.facultyProfile?.employee_id ||
+        user.program_head_profile?.employee_id ||
+        user.programHeadProfile?.employee_id ||
+        user.secretary_profile?.employee_id ||
+        user.secretaryProfile?.employee_id ||
+        '',
       // Student-specific fields - initialize as empty
       student_id_number: '',
       first_name: '',
@@ -606,6 +617,9 @@ const UserManagement = ({ userScope = 'staff' }) => {
       try {
         const deanResponse = await api.get(`/deans/profile?user_id=${user.user_id}`, { silent: true });
         if (deanResponse.data) {
+          if (deanResponse.data.employee_id) {
+            formDataToSet.employee_id = deanResponse.data.employee_id;
+          }
           if (deanResponse.data.department_id) {
             formDataToSet.department_id = deanResponse.data.department_id;
           } else if (deanResponse.data.program?.department_id) {
@@ -617,6 +631,28 @@ const UserManagement = ({ userScope = 'staff' }) => {
         }
       } catch (error) {
         console.warn('Could not fetch dean profile:', error);
+      }
+    }
+
+    const roleName = String(user.role?.role_name || user.role?.name || '').trim().toLowerCase();
+    if (!formDataToSet.employee_id && user.user_id) {
+      const profileFetch =
+        roleName === 'adviser' || roleName === 'evaluator'
+          ? api.get(`/faculty/profile?user_id=${user.user_id}`, { silent: true })
+          : roleName === 'program head'
+            ? api.get(`/program-heads/profile?user_id=${user.user_id}`, { silent: true })
+            : roleName === 'secretary'
+              ? api.get(`/secretaries/profile?user_id=${user.user_id}`, { silent: true })
+              : null;
+      if (profileFetch) {
+        try {
+          const res = await profileFetch;
+          if (res.data?.employee_id) {
+            formDataToSet.employee_id = res.data.employee_id;
+          }
+        } catch {
+          // profile may not exist yet
+        }
       }
     }
     
@@ -865,6 +901,7 @@ const UserManagement = ({ userScope = 'staff' }) => {
               ? submitData.department_id || null
               : null,
           status: submitData.status,
+          employee_id: String(submitData.employee_id || '').trim() || null,
         };
         if (!userData.password) {
           delete userData.password;
@@ -914,6 +951,7 @@ const UserManagement = ({ userScope = 'staff' }) => {
               ? submitData.department_id || null
               : null,
           status: submitData.status,
+          employee_id: String(submitData.employee_id || '').trim() || null,
         };
 
         // Program is used for Dean legacy fallback, Program Head assignment, and Evaluator/Adviser profile assignment.
@@ -1663,6 +1701,27 @@ const UserManagement = ({ userScope = 'staff' }) => {
                   }
                   placeholder="11 digits only (e.g. 09123456789)"
                 />
+              </div>
+              )}
+              {!isStudentForm() && (
+              <div className="form-group">
+                <label>Employee ID</label>
+                <input
+                  type="text"
+                  aria-label="Employee ID"
+                  value={formData.employee_id || ''}
+                  onChange={(e) =>
+                    setFormData({
+                      ...formData,
+                      employee_id: e.target.value,
+                    })
+                  }
+                  placeholder="Optional — staff can also sign in with this ID"
+                  maxLength={50}
+                />
+                <small style={{ color: '#666', fontSize: '0.85rem', marginTop: '0.25rem', display: 'block' }}>
+                  Staff can log in with Employee ID or email. Students use Student ID.
+                </small>
               </div>
               )}
               {userScope !== 'students' && (

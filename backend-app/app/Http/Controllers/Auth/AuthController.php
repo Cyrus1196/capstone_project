@@ -57,7 +57,7 @@ class AuthController extends Controller
     }
 
     /**
-     * Resolve login by email/username or student ID number.
+     * Resolve login by email/username, student ID number, or staff employee ID.
      */
     public static function findUserByLogin(string $login): ?TblUser
     {
@@ -79,7 +79,7 @@ class AuthController extends Controller
             return $user;
         }
 
-        return TblUser::query()
+        $byStudentId = TblUser::query()
             ->with($with)
             ->whereHas('studentProfile', function ($q) use ($login) {
                 $q->where('student_id_number', $login);
@@ -88,6 +88,20 @@ class AuthController extends Controller
                         $inner->where('is_simulation', false)->orWhereNull('is_simulation');
                     });
                 }
+            })
+            ->first();
+        if ($byStudentId) {
+            return $byStudentId;
+        }
+
+        // Staff: Dean / Faculty / Program Head / Secretary employee ID
+        return TblUser::query()
+            ->with($with)
+            ->where(function ($q) use ($login) {
+                $q->whereHas('deanProfile', fn ($p) => $p->where('employee_id', $login))
+                    ->orWhereHas('facultyProfile', fn ($p) => $p->where('employee_id', $login))
+                    ->orWhereHas('programHeadProfile', fn ($p) => $p->where('employee_id', $login))
+                    ->orWhereHas('secretaryProfile', fn ($p) => $p->where('employee_id', $login));
             })
             ->first();
     }

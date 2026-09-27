@@ -60,7 +60,6 @@ class FacultyController extends Controller
                 'first_name' => 'nullable|string|max:50',
                 'middle_name' => 'nullable|string|max:50',
                 'last_name' => 'nullable|string|max:50',
-                'employee_id' => 'nullable|string|max:50',
                 'specialization' => 'nullable|string|max:255',
             ]);
 

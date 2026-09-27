@@ -119,7 +119,6 @@ const ProgramHeadProfile = () => {
         first_name: formData.first_name,
         middle_name: formData.middle_name,
         last_name: formData.last_name,
-        employee_id: formData.employee_id,
         specialization: formData.specialization,
       };
       const response = staffProfile
@@ -229,9 +228,13 @@ const ProgramHeadProfile = () => {
               id="staff_employee_id"
               name="employee_id"
               value={formData.employee_id}
-              onChange={handleChange}
-              placeholder="Enter employee ID"
+              disabled
+              readOnly
+              placeholder="Set by administrator"
             />
+            <small style={{ color: '#64748b', fontSize: '0.85rem', display: 'block', marginTop: '0.25rem' }}>
+              Used for login. Only an administrator can change this.
+            </small>
           </div>
 
           <div className="form-group">
