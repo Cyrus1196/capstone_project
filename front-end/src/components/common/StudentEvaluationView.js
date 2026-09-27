@@ -6596,75 +6596,104 @@ const StudentEvaluationView = ({
           </div>
         </div>
 
-        <div className="eval-hero__meta-row">
-          <div className="eval-hero__meta-box">
-            <span className="eval-hero__meta-label">Evaluated by</span>
-            <span className="eval-hero__meta-value">
+        <div className="eval-hero__staff-line">
+          <span>
+            <span className="eval-hero__staff-line-label">Evaluated by</span>{' '}
+            <strong>
               {evaluatedByLabel || (promotedAtLabel || isPromotedNextSem ? '—' : 'Not evaluated yet')}
-            </span>
-          </div>
-          <div className="eval-hero__meta-box">
-            <span className="eval-hero__meta-label">Standing</span>
-            <span
-              className="eval-hero__meta-value"
-              title={`From earned units (${summary?.total_units_earned ?? 0}): 46→2nd, 94→3rd, 132→4th`}
-            >
+            </strong>
+          </span>
+          <span className="eval-hero__staff-line-sep" aria-hidden>
+            ·
+          </span>
+          <span
+            title={`From earned units (${summary?.total_units_earned ?? 0}): 46→2nd, 94→3rd, 132→4th`}
+          >
+            <span className="eval-hero__staff-line-label">Standing</span>{' '}
+            <strong>
               {`${ordinalYearLabel(
                 yearStandingFromEarnedUnits(summary?.total_units_earned)
               )} year`}
-            </span>
-          </div>
+            </strong>
+          </span>
           {promotionTargetLabel ? (
-            <div className="eval-hero__meta-box">
-              <span className="eval-hero__meta-label">Next term</span>
-              <span className="eval-hero__meta-value">{promotionTargetLabel}</span>
-            </div>
+            <>
+              <span className="eval-hero__staff-line-sep" aria-hidden>
+                ·
+              </span>
+              <span>
+                <span className="eval-hero__staff-line-label">Next term</span>{' '}
+                <strong>{promotionTargetLabel}</strong>
+              </span>
+            </>
           ) : promotedAtLabel ? (
-            <div className="eval-hero__meta-box">
-              <span className="eval-hero__meta-label">Promoted on</span>
-              <span className="eval-hero__meta-value">{promotedAtLabel}</span>
-            </div>
+            <>
+              <span className="eval-hero__staff-line-sep" aria-hidden>
+                ·
+              </span>
+              <span>
+                <span className="eval-hero__staff-line-label">Promoted on</span>{' '}
+                <strong>{promotedAtLabel}</strong>
+              </span>
+            </>
           ) : null}
         </div>
 
-        <div className="eval-metrics-strip">
-          <span>
-            Curriculum units: <strong>{summary?.total_units_in_curriculum ?? 0}</strong>
-          </span>
-          <span>
-            Earned: <strong>{summary?.total_units_earned ?? 0}</strong>
-          </span>
-          <span>
-            Remaining:{' '}
-            <strong className={summary?.lacking_units > 0 ? 'eval-lacking' : 'eval-ok'}>
-              {summary?.lacking_units ?? 0}
-            </strong>
-          </span>
-          {savedTermLoadSummary ? (
+        <div className="eval-hero__meta-row">
+          <div className="eval-hero__meta-box">
+            <span className="eval-hero__meta-label">Curriculum units</span>
+            <span className="eval-hero__meta-value">
+              {summary?.total_units_in_curriculum ?? 0}
+            </span>
+          </div>
+          <div className="eval-hero__meta-box">
+            <span className="eval-hero__meta-label">Earned</span>
+            <span className="eval-hero__meta-value">{summary?.total_units_earned ?? 0}</span>
+          </div>
+          <div className="eval-hero__meta-box">
+            <span className="eval-hero__meta-label">Remaining</span>
             <span
-              className="eval-metrics-strip__term-load"
-              title={
-                savedTermLoadSummary.codes.length
-                  ? `This term load: ${savedTermLoadSummary.codes.join(', ')}`
-                  : 'Saved subjects-to-take load plan'
-              }
+              className={`eval-hero__meta-value${
+                summary?.lacking_units > 0 ? ' eval-hero__meta-value--alert' : ''
+              }`}
             >
-              This term load:{' '}
-              <strong>
-                {savedTermLoadSummary.takeCount} subject
-                {savedTermLoadSummary.takeCount === 1 ? '' : 's'}
-              </strong>
-              {savedTermLoadSummary.priorCount > 0
-                ? ` · ${savedTermLoadSummary.priorCount} backlog`
-                : ''}
-              {isIrregularStudent ? ' · Irregular pick' : ''}
+              {summary?.lacking_units ?? 0}
             </span>
-          ) : isIrregularStudent ? (
-            <span className="eval-metrics-strip__term-load eval-metrics-strip__term-load--hint">
-              Irregular: open <strong>Subject placement</strong> to pick this term’s load
-            </span>
-          ) : null}
+          </div>
         </div>
+
+        {(savedTermLoadSummary || isIrregularStudent) && (
+          <div
+            className={`eval-hero__flag${
+              isIrregularStudent && !savedTermLoadSummary ? ' eval-hero__flag--hint' : ''
+            }`}
+            role="status"
+          >
+            {savedTermLoadSummary ? (
+              <span
+                title={
+                  savedTermLoadSummary.codes.length
+                    ? `This term load: ${savedTermLoadSummary.codes.join(', ')}`
+                    : 'Saved subjects-to-take load plan'
+                }
+              >
+                This term load:{' '}
+                <strong>
+                  {savedTermLoadSummary.takeCount} subject
+                  {savedTermLoadSummary.takeCount === 1 ? '' : 's'}
+                </strong>
+                {savedTermLoadSummary.priorCount > 0
+                  ? ` · ${savedTermLoadSummary.priorCount} backlog`
+                  : ''}
+                {isIrregularStudent ? ' · Irregular pick' : ''}
+              </span>
+            ) : (
+              <span>
+                Irregular: open <strong>Subject placement</strong> to pick this term’s load
+              </span>
+            )}
+          </div>
+        )}
       </div>
     );
   };
