@@ -1042,41 +1042,53 @@ class EvaluationReportController extends Controller
         $sumUneval = 0;
         $sumAuto = 0;
         $sumPromoted = 0;
+        $sumManual = 0;
         foreach ($yearBuckets as $bucket) {
             $yl = (int) $bucket['year_level_id'];
             $unevalCount = $uneval[$yl] ?? 0;
             $autoCount = $auto[$yl] ?? 0;
+            $manualCount = $manual[$yl] ?? 0;
             $series[] = [
                 'year_level_id' => $yl,
                 'label' => $bucket['label'],
                 'unevaluated' => $unevalCount,
                 'auto_evaluated' => $autoCount,
                 'auto_promoted' => $promoted[$yl] ?? 0,
-                'manual_evaluated' => $manual[$yl] ?? 0,
+                'manual_evaluated' => $manualCount,
                 'incomplete_regular' => $incomplete[$yl] ?? 0,
                 'total_students' => $totals[$yl] ?? 0,
-                'evaluated' => $autoCount + ($manual[$yl] ?? 0),
+                'evaluated' => $autoCount + $manualCount,
             ];
             $sumUneval += $unevalCount;
             $sumAuto += $autoCount;
             $sumPromoted += $promoted[$yl] ?? 0;
+            $sumManual += $manualCount;
             if ($unevalCount > $maxUneval) {
                 $maxUneval = $unevalCount;
                 $maxLabel = $bucket['label'];
             }
         }
 
-        $insight = $maxUneval > 0 && $maxLabel
-            ? "{$maxLabel} still has {$maxUneval} unevaluated student".($maxUneval === 1 ? '' : 's').' (mostly irregular / incomplete load) — those need manual evaluation. Regulars who passed all subjects are counted as auto-evaluated by the system.'
-            : 'No unevaluated irregulars in this program filter. Regulars with a complete passed load are auto-evaluated (and auto-promoted when the next semester is activated).';
+        $insightParts = [];
+        if ($maxUneval > 0 && $maxLabel) {
+            $insightParts[] = "{$maxLabel} still has {$maxUneval} unevaluated student".($maxUneval === 1 ? '' : 's').' (irregular / incomplete load) needing evaluator action.';
+        } else {
+            $insightParts[] = 'No remaining unevaluated irregulars in this program filter.';
+        }
+        if ($sumAuto > 0 || $sumManual > 0) {
+            $insightParts[] = "Evaluated so far: {$sumAuto} auto (system) and {$sumManual} manual (evaluator). Auto-promoted when the next semester is activated: {$sumPromoted}.";
+        } else {
+            $insightParts[] = 'Regulars who pass all subjects are auto-evaluated (and auto-promoted when the next semester is activated). Irregulars are evaluated manually.';
+        }
 
         return [
             'series' => $series,
-            'insight' => $insight,
+            'insight' => implode(' ', $insightParts),
             'totals' => [
                 'unevaluated' => $sumUneval,
                 'auto_evaluated' => $sumAuto,
                 'auto_promoted' => $sumPromoted,
+                'manual_evaluated' => $sumManual,
             ],
         ];
     }

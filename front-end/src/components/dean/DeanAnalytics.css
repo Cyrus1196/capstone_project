@@ -581,6 +581,10 @@ button.dean-vbar__fill:focus-visible {
   background: #ea580c;
 }
 
+.dean-dual-pair__fill--manual {
+  background: #2563eb;
+}
+
 .dean-dual-pair__fill--auto {
   background: #059669;
 }

@@ -69,53 +69,48 @@ function DualBarChart({
   items,
   leftKey = 'last_year',
   rightKey = 'this_year',
+  midKey = null,
   leftLabel = 'Last / previous',
   rightLabel = 'This / current',
+  midLabel = null,
   leftClass = 'dean-dual-pair__fill--last',
   rightClass = 'dean-dual-pair__fill--this',
+  midClass = 'dean-dual-pair__fill--manual',
   emptyText = 'No enrollment totals for this program.',
 }) {
+  const valueKeys = [leftKey, rightKey, ...(midKey ? [midKey] : [])];
   const max = Math.max(
     1,
-    ...items.flatMap((i) => [Number(i[leftKey]) || 0, Number(i[rightKey]) || 0])
+    ...items.flatMap((i) => valueKeys.map((k) => Number(i[k]) || 0))
   );
   if (!items.length) {
     return <p className="dean-analytics__empty">{emptyText}</p>;
   }
+  const renderPair = (item, key, fillClass) => (
+    <div className="dean-dual-pair" key={key}>
+      <div className="dean-dual-pair__track">
+        <div
+          className={`dean-dual-pair__fill ${fillClass}`}
+          style={{
+            width: `${Math.max(
+              Number(item[key]) > 0 ? 6 : 0,
+              ((Number(item[key]) || 0) / max) * 100
+            )}%`,
+          }}
+        />
+      </div>
+      <span className="dean-dual-pair__n">{item[key] ?? 0}</span>
+    </div>
+  );
   return (
     <div className="dean-dual-chart">
       {items.map((item) => (
         <div key={item.year_level_id || item.label} className="dean-dual-row">
           <div className="dean-dual-row__label">{item.label}</div>
           <div className="dean-dual-row__bars">
-            <div className="dean-dual-pair">
-              <div className="dean-dual-pair__track">
-                <div
-                  className={`dean-dual-pair__fill ${leftClass}`}
-                  style={{
-                    width: `${Math.max(
-                      Number(item[leftKey]) > 0 ? 6 : 0,
-                      ((Number(item[leftKey]) || 0) / max) * 100
-                    )}%`,
-                  }}
-                />
-              </div>
-              <span className="dean-dual-pair__n">{item[leftKey] ?? 0}</span>
-            </div>
-            <div className="dean-dual-pair">
-              <div className="dean-dual-pair__track">
-                <div
-                  className={`dean-dual-pair__fill ${rightClass}`}
-                  style={{
-                    width: `${Math.max(
-                      Number(item[rightKey]) > 0 ? 6 : 0,
-                      ((Number(item[rightKey]) || 0) / max) * 100
-                    )}%`,
-                  }}
-                />
-              </div>
-              <span className="dean-dual-pair__n">{item[rightKey] ?? 0}</span>
-            </div>
+            {renderPair(item, leftKey, leftClass)}
+            {midKey ? renderPair(item, midKey, midClass) : null}
+            {renderPair(item, rightKey, rightClass)}
           </div>
         </div>
       ))}
@@ -123,6 +118,11 @@ function DualBarChart({
         <span>
           <i className={`dean-dual-legend__swatch ${leftClass}`} /> {leftLabel}
         </span>
+        {midKey && midLabel ? (
+          <span>
+            <i className={`dean-dual-legend__swatch ${midClass}`} /> {midLabel}
+          </span>
+        ) : null}
         <span>
           <i className={`dean-dual-legend__swatch ${rightClass}`} /> {rightLabel}
         </span>
@@ -467,6 +467,17 @@ const DeanAnalytics = ({ showEvalModules, lockedProgramId = null }) => {
                 </div>
                 <div className="dean-metric-card">
                   <div className="dean-metric-card__icon">
+                    <i className="fa-solid fa-clipboard-check" aria-hidden />
+                  </div>
+                  <div className="dean-metric-card__body">
+                    <div className="dean-metric-card__label">Manually evaluated</div>
+                    <div className="dean-metric-card__value">
+                      {data?.unevaluated_by_year?.totals?.manual_evaluated ?? 0}
+                    </div>
+                  </div>
+                </div>
+                <div className="dean-metric-card">
+                  <div className="dean-metric-card__icon">
                     <i className="fa-solid fa-arrow-up-right-dots" aria-hidden />
                   </div>
                   <div className="dean-metric-card__body">
@@ -495,7 +506,7 @@ const DeanAnalytics = ({ showEvalModules, lockedProgramId = null }) => {
                 </h3>
                 <p className="dean-chart-card__sub">
                   Remaining backlog — irregulars and incomplete loads. Regulars who passed all
-                  subjects are auto-evaluated.
+                  subjects are auto-evaluated; irregulars evaluated by staff count as manual.
                 </p>
                 <BarChart
                   items={(data?.unevaluated_by_year?.series || []).map((r) => ({
@@ -511,6 +522,7 @@ const DeanAnalytics = ({ showEvalModules, lockedProgramId = null }) => {
                       <tr>
                         <th>Year</th>
                         <th>Unevaluated</th>
+                        <th>Manual</th>
                         <th>Auto-evaluated</th>
                         <th>Auto-promoted</th>
                         <th>Total</th>
@@ -523,6 +535,7 @@ const DeanAnalytics = ({ showEvalModules, lockedProgramId = null }) => {
                           <td>
                             <strong>{r.unevaluated}</strong>
                           </td>
+                          <td>{r.manual_evaluated ?? 0}</td>
                           <td>{r.auto_evaluated ?? 0}</td>
                           <td>{r.auto_promoted ?? 0}</td>
                           <td>{r.total_students}</td>
@@ -534,19 +547,23 @@ const DeanAnalytics = ({ showEvalModules, lockedProgramId = null }) => {
               </div>
               <div className="dean-chart-card" style={{ marginTop: '1.25rem' }}>
                 <h3 className="dean-chart-card__title">
-                  Auto-evaluated vs unevaluated
+                  Unevaluated vs manual vs auto-evaluated
                 </h3>
                 <p className="dean-chart-card__sub">
-                  Passed all subjects = automatic evaluation via system. Missing/failed subjects =
-                  unevaluated (manual, usually irregular).
+                  Unevaluated = still needs action. Manual = evaluator completed the evaluation.
+                  Auto = system marked complete (passed all subjects). Auto-promoted is separate
+                  (moved to next term when semester is activated).
                 </p>
                 <DualBarChart
                   items={data?.unevaluated_by_year?.series || []}
                   leftKey="unevaluated"
+                  midKey="manual_evaluated"
                   rightKey="auto_evaluated"
-                  leftLabel="Unevaluated (irregular / incomplete)"
-                  rightLabel="Automatic evaluated via system"
+                  leftLabel="Unevaluated (still needs action)"
+                  midLabel="Manually evaluated (by staff)"
+                  rightLabel="Auto-evaluated (system)"
                   leftClass="dean-dual-pair__fill--uneval"
+                  midClass="dean-dual-pair__fill--manual"
                   rightClass="dean-dual-pair__fill--auto"
                   emptyText="No evaluation totals for this program."
                 />
