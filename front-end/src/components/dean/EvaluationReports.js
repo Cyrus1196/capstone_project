@@ -116,11 +116,9 @@ const EvaluationReports = () => {
             const data = await response.json();
 
             if (response.ok) {
-                // You could open a modal or navigate to a detailed student report view
-                console.log('Student report data:', data);
                 await swalInfo(
                     'Student report',
-                    'Report data loaded. Open the browser console (F12) to inspect the full payload.'
+                    'Student report data loaded successfully.'
                 );
             } else {
                 setError(data.message || 'Failed to fetch student report');
@@ -146,10 +144,9 @@ const EvaluationReports = () => {
             const data = await response.json();
 
             if (response.ok) {
-                console.log('Subject report data:', data);
                 await swalInfo(
                     'Subject report',
-                    'Report data loaded. Open the browser console (F12) to inspect the full payload.'
+                    'Subject report data loaded successfully.'
                 );
             } else {
                 setError(data.message || 'Failed to fetch subject report');

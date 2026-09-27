@@ -835,25 +835,12 @@ const CurriculumManagement = ({ lockedProgramId = null } = {}) => {
       return;
     }
     if (curriculumFetchInFlightRef.current && !force) {
-      console.info('[Curriculum] Skipped duplicate curriculum fetch while one is already running.');
       return;
     }
 
     curriculumFetchInFlightRef.current = true;
     try {
       const response = await api.get('/curriculum', { signal });
-      // Debug: Log elective slots to see if they're loaded
-      const curriculaWithElectives = response.data.filter(c => c.elective_slot_id);
-      if (curriculaWithElectives.length > 0) {
-        console.log('Curriculum with elective slots:', curriculaWithElectives);
-        curriculaWithElectives.forEach(c => {
-          console.log(`Elective Slot ${c.elective_slot_id}:`, {
-            electiveSlot: c.electiveSlot,
-            electiveSubjects: c.electiveSlot?.electiveSubjects,
-            elective_subjects: c.electiveSlot?.elective_subjects
-          });
-        });
-      }
       setCurricula(response.data);
     } catch (error) {
       if (error.name === 'CanceledError' || error.code === 'ERR_CANCELED') {
@@ -872,7 +859,6 @@ const CurriculumManagement = ({ lockedProgramId = null } = {}) => {
       return;
     }
     if (lookupFetchInFlightRef.current && !force) {
-      console.info('[Curriculum] Skipped duplicate lookup fetch while one is already running.');
       return;
     }
 
@@ -1722,15 +1708,6 @@ const CurriculumManagement = ({ lockedProgramId = null } = {}) => {
               ? null
               : Number(row.number_of_hrs),
         };
-      });
-      
-      // Log the data being sent for debugging
-      console.log('Sending curriculum data:', {
-        program_id: bulkFormData.program_id,
-        curriculum_header_id: bulkFormData.curriculum_header_id,
-        year_level: bulkFormData.year_level,
-        semester_id: bulkFormData.semester_id,
-        subjects: subjectsData
       });
       
       // Batch create all curriculum entries at once

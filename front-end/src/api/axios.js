@@ -72,18 +72,14 @@ api.interceptors.request.use(
       }
     }
 
-    if (shouldTrackRequestLoading(config) && !config.__trackLoading) {
+    if (
+      shouldTrackRequestLoading(config) &&
+      !config.__trackLoading
+    ) {
       config.__trackLoading = true;
       beginRequestLoading(loadingMessageFor(config));
     }
 
-    if (
-      process.env.NODE_ENV === 'development' &&
-      process.env.REACT_APP_DEBUG_API === 'true' &&
-      !config?.silent
-    ) {
-      console.log('Making request:', config.method?.toUpperCase(), config.url);
-    }
     return config;
   },
   (error) => {

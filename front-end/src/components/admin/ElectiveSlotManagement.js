@@ -160,18 +160,6 @@ const ElectiveSlotManagement = ({ lockedProgramId = null } = {}) => {
     try {
       setLoading(true);
       const response = await api.get('/elective-slots');
-      console.log('Fetched slots response:', response.data);
-      // Log each slot's electiveSubjects
-      if (response.data && Array.isArray(response.data)) {
-        response.data.forEach(slot => {
-          // Handle both camelCase and snake_case
-          const subjects = slot.electiveSubjects || slot.elective_subjects || [];
-          console.log(`Slot ${slot.elective_slot_id} (${slot.slot_name}):`, {
-            electiveSubjects: subjects,
-            count: subjects.length
-          });
-        });
-      }
       // Normalize the data to use camelCase
       const normalizedSlots = (response.data || [])
         .map((slot) => ({
@@ -312,8 +300,6 @@ const ElectiveSlotManagement = ({ lockedProgramId = null } = {}) => {
       setError('');
       // Fetch the latest slot data with all subjects
       const response = await api.get(`/elective-slots/${slot.elective_slot_id}`);
-      console.log('Fetched slot data:', response.data);
-      console.log('Elective subjects:', response.data.electiveSubjects);
       setSelectedSlot(response.data);
       setShowSubjectModal(true);
     } catch (err) {
@@ -332,8 +318,6 @@ const ElectiveSlotManagement = ({ lockedProgramId = null } = {}) => {
         subject_id: parseInt(subjectId),
         track_id: trackId ? parseInt(trackId) : null,
       });
-      
-      console.log('Assign subject response:', response.data);
       
       // Refresh slots list
       await fetchSlots();

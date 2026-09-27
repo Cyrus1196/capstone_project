@@ -378,7 +378,6 @@ const LookupDataManagement = ({
       return;
     }
     if (lookupFetchInFlightRef.current && !force) {
-      console.info('[Lookup Data] Skipped duplicate lookup fetch while one is already running.');
       return;
     }
 
@@ -599,7 +598,6 @@ const LookupDataManagement = ({
     e.preventDefault();
     if (!canMutateCurrentPanel) return;
     if (isSubmittingRef.current) {
-      console.warn('[Lookup Save] Ignored duplicate submit while request is still running.');
       return;
     }
 
@@ -644,20 +642,8 @@ const LookupDataManagement = ({
         const isPrerequisiteMode = formData.requisite_type === 'prerequisite';
         const hasBulkText = isPrerequisiteMode ? String(formData.bulk_requisite_text || '').trim() : '';
         const parsedText = isPrerequisiteMode ? parsedBulkRequisiteText() : null;
-        console.info('[Requisite Save] Checking prerequisite form...', {
-          subject_id: formData.subject_id,
-          requisite_type: formData.requisite_type,
-          bulk_requisite_text: hasBulkText,
-          parsed_range: parsedText,
-          bulk_group: formData.bulk_requisite_group,
-          manual_required_subjects: formData.required_subjects || [],
-          optional_corequisite_subjects: formData.corequisite_subjects || [],
-        });
 
         if (isPrerequisiteMode && hasBulkText && !parsedText && !isProfessionalBulkRequisiteText() && !isAllSubjectsBeforeTargetRule()) {
-          console.warn('[Requisite Save] Not OK: bulk prerequisite text has invalid format.', {
-            bulk_requisite_text: hasBulkText,
-          });
           setError('Use a saved rule, a year standing rule, or a range like: all subjects from 1st year to 4th year 1st semester.');
           return;
         }
@@ -667,12 +653,7 @@ const LookupDataManagement = ({
         if (shouldApplyBulkRule) {
           try {
             bulkSubjectIds = await getBulkRequisiteSubjectIdsAsync();
-            console.info('[Requisite Save] Bulk range loaded.', {
-              found_subject_count: bulkSubjectIds.length,
-              found_subject_ids: bulkSubjectIds,
-            });
           } catch (bulkError) {
-            console.error('[Requisite Save] Not OK: unable to load curriculum rows for bulk requisites.', bulkError);
             setError('Unable to load curriculum subjects for that range. Please try again.');
             return;
           }
@@ -694,10 +675,6 @@ const LookupDataManagement = ({
         );
 
         if (!formData.subject_id || !formData.requisite_type) {
-          console.warn('[Requisite Save] Not OK: missing subject or requisite type.', {
-            subject_id: formData.subject_id,
-            requisite_type: formData.requisite_type,
-          });
           setError('Subject and Requisite Type are required');
           return;
         }
@@ -712,14 +689,6 @@ const LookupDataManagement = ({
             if (!ok) return;
           } else {
             const hasBulkProgram = formData.bulk_requisite_group?.program_id;
-            console.warn('[Requisite Save] Not OK: no required subjects found.', {
-              has_bulk_text: Boolean(hasBulkText),
-              has_bulk_program: Boolean(hasBulkProgram),
-              bulk_group: formData.bulk_requisite_group,
-              manual_required_subjects: formData.required_subjects || [],
-              bulk_subject_ids: bulkSubjectIds,
-              range_replaces_manual_subjects: shouldApplyBulkRule,
-            });
             setError(
               hasBulkText
                 ? hasBulkProgram
@@ -744,12 +713,6 @@ const LookupDataManagement = ({
         }
 
         const base = '/lookup/requisites';
-        console.info('[Requisite Save] OK to save prerequisite set.', {
-          subject_id: formData.subject_id,
-          requisite_type: formData.requisite_type,
-          required_subject_count: uniqueRequiredSubjects.length,
-          required_subject_ids: uniqueRequiredSubjects,
-        });
 
         if (uniqueRequiredSubjects.length > 0 || editingItem || formData.requisite_type === 'corequisite') {
           await syncRequisitesForSubject({
@@ -773,7 +736,6 @@ const LookupDataManagement = ({
 
         setShowModal(false);
         fetchLookupData({ force: true });
-        console.info('[Requisite Save] Saved prerequisite set successfully.');
         swalToast('success', 'Requisites saved');
         return;
       }
@@ -1082,12 +1044,6 @@ const LookupDataManagement = ({
       new Set(requiredSubjectIds.map((id) => Number(id)).filter(Boolean)),
     );
 
-    console.info('[Requisite Save] Syncing prerequisite rows.', {
-      subject_id: subjectId,
-      requisite_type: requisiteType,
-      required_subject_ids: targetRequiredIds,
-    });
-
     await api.post(`${base}/sync`, {
       subject_id: subjectId,
       requisite_type: requisiteType,
@@ -1379,7 +1335,6 @@ const LookupDataManagement = ({
 
   const addBulkRequisiteSubjects = async () => {
     if (isAddingBulkSubjectsRef.current) {
-      console.warn('[Requisite Bulk Add] Ignored duplicate click while range is still loading.');
       return;
     }
 
