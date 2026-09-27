@@ -6558,12 +6558,9 @@ const StudentEvaluationView = ({
       if (!term) return '';
       return [term.year_level_name, term.semester_name].filter(Boolean).join(' · ');
     })();
-    const showPromoteAction =
-      canEdit &&
-      selectedStudent &&
-      !isEvaluatedModule &&
-      // Manual promote is for irregulars (and Guide preview). Regulars advance via semester auto-promote.
-      (isIrregularStudent || systemGuideOpen);
+    // Always show the button when editing; Regulars see it disabled (manual promote is irregular-only).
+    const showPromoteAction = canEdit && selectedStudent && !isEvaluatedModule;
+    const promoteDisabledForRegular = isRegularStudent && !systemGuideOpen;
 
     return (
       <div
@@ -6724,19 +6721,21 @@ const StudentEvaluationView = ({
                 className="eval-hero__promote-btn"
                 data-tour="promote-student"
                 onClick={openPromoteModal}
-                disabled={!canOpenPromoteModal || promoteSaving}
+                disabled={
+                  promoteDisabledForRegular || !canOpenPromoteModal || promoteSaving
+                }
                 title={
-                  systemGuideOpen
-                    ? 'Guide preview: open promotion without saving (works even if the practice student still looks Regular or has blank grades).'
-                    : isRegularStudent && promotionTrackPickRequired
-                    ? 'Assign a track first, then promote (required for track-based electives).'
-                    : !currentTermCompleteForPromotion
-                      ? 'Complete recorded subjects this standing. Untaken subjects (no grade) can be taken later (summer / next year) and do not block promotion.'
-                      : !nextPromotionTerm
-                        ? 'No next term in the curriculum after this year/semester.'
-                        : isRegularStudent
-                          ? 'Promote this student to the next semester (manual — auto-promote is temporarily off).'
-                          : 'Irregular students must be promoted manually'
+                  promoteDisabledForRegular
+                    ? 'Regular students cannot be promoted manually — use standing / auto-promote.'
+                    : systemGuideOpen
+                      ? 'Guide preview: open promotion without saving (works even if the practice student still looks Regular or has blank grades).'
+                      : isRegularStudent && promotionTrackPickRequired
+                        ? 'Assign a track first, then promote (required for track-based electives).'
+                        : !currentTermCompleteForPromotion
+                          ? 'Complete recorded subjects this standing. Untaken subjects (no grade) can be taken later (summer / next year) and do not block promotion.'
+                          : !nextPromotionTerm
+                            ? 'No next term in the curriculum after this year/semester.'
+                            : 'Irregular students must be promoted manually'
                 }
               >
                 Promote to next semester
