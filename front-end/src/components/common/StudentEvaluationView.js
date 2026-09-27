@@ -1067,6 +1067,62 @@ function evaluationDraftCacheKey(userId, studentId) {
   return `evaluation-unsaved-drafts:v1:${uid}:${studentId}`;
 }
 
+/** Last opened student on Curriculum Evaluation — survives reload / brief disconnect. */
+function evaluationSelectionCacheKey(userId, listMode) {
+  const uid = userId != null && userId !== '' ? String(userId) : 'anon';
+  const mode = listMode != null && listMode !== '' ? String(listMode) : 'need-evaluation';
+  return `evaluation-last-student:v1:${uid}:${mode}`;
+}
+
+function readLastEvaluationSelection(cacheKey) {
+  if (!cacheKey || typeof window === 'undefined') return null;
+  try {
+    const raw = window.localStorage.getItem(cacheKey);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== 'object') return null;
+    const studentIdNumber = String(parsed.student_id_number || '').trim();
+    if (!studentIdNumber) return null;
+    return {
+      student_id: parsed.student_id ?? null,
+      student_id_number: studentIdNumber,
+      listYearLevelFilter:
+        parsed.listYearLevelFilter != null ? String(parsed.listYearLevelFilter) : '',
+      listStandingFilter:
+        parsed.listStandingFilter != null ? String(parsed.listStandingFilter) : '',
+    };
+  } catch {
+    return null;
+  }
+}
+
+function writeLastEvaluationSelection(cacheKey, payload) {
+  if (!cacheKey || typeof window === 'undefined' || !payload?.student_id_number) return;
+  try {
+    window.localStorage.setItem(
+      cacheKey,
+      JSON.stringify({
+        student_id: payload.student_id ?? null,
+        student_id_number: String(payload.student_id_number),
+        listYearLevelFilter: payload.listYearLevelFilter ?? '',
+        listStandingFilter: payload.listStandingFilter ?? '',
+        savedAt: new Date().toISOString(),
+      })
+    );
+  } catch {
+    // Ignore quota / private-mode failures.
+  }
+}
+
+function clearLastEvaluationSelection(cacheKey) {
+  if (!cacheKey || typeof window === 'undefined') return;
+  try {
+    window.localStorage.removeItem(cacheKey);
+  } catch {
+    // ignore
+  }
+}
+
 function readEvaluationDraftCache(cacheKey) {
   if (!cacheKey || typeof window === 'undefined') return null;
   try {
@@ -1167,6 +1223,12 @@ const StudentEvaluationView = ({
   const autoPromoteAttemptRef = useRef('');
   const offsemMigratedRef = useRef('');
   const guideDemoLoadingRef = useRef(false);
+  const selectionRestoredRef = useRef(false);
+
+  const selectionCacheKey = useMemo(
+    () => evaluationSelectionCacheKey(user?.user_id ?? user?.id, listMode),
+    [user?.user_id, user?.id, listMode]
+  );
 
   // Track all drafts and which ones have been modified
   const [drafts, setDrafts] = useState({});
@@ -4752,7 +4814,7 @@ const StudentEvaluationView = ({
   ]);
 
   // Handle student selection from list
-  const handleStudentSelect = async (student) => {
+  const handleStudentSelect = useCallback(async (student) => {
     // Check for unsaved changes
     if (hasUnsavedChanges) {
       const confirmed = await swalConfirm(
@@ -4773,6 +4835,30 @@ const StudentEvaluationView = ({
         skipLoading: true,
       });
       applySavedEvaluation(response.data);
+      const st = response.data?.student;
+      if (st) {
+        setSelectedStudent({
+          ...student,
+          student_id: st.student_id ?? student.student_id,
+          student_id_number: st.student_id_number ?? student.student_id_number,
+          full_name: st.full_name || student.full_name,
+          academic_status: st.academic_status || student.academic_status,
+          year_level_id: st.year_level_id ?? student.year_level_id,
+          program: st.program || student.program,
+          program_name: st.program?.program_name || student.program_name,
+          is_simulation: st.is_simulation ?? student.is_simulation,
+          academic_record_evaluated:
+            st.academic_record_evaluated ?? student.academic_record_evaluated,
+        });
+      }
+      if (selectionCacheKey && (st?.student_id_number || student?.student_id_number)) {
+        writeLastEvaluationSelection(selectionCacheKey, {
+          student_id: st?.student_id ?? student.student_id ?? null,
+          student_id_number: st?.student_id_number ?? student.student_id_number,
+          listYearLevelFilter,
+          listStandingFilter,
+        });
+      }
     } catch (err) {
       console.error('Error fetching student evaluation:', err);
       setBaselineData(null);
@@ -4784,7 +4870,61 @@ const StudentEvaluationView = ({
     } finally {
       setLoading(false);
     }
-  };
+  }, [
+    hasUnsavedChanges,
+    unsavedChangeCount,
+    applySavedEvaluation,
+    selectionCacheKey,
+    listYearLevelFilter,
+    listStandingFilter,
+  ]);
+
+  const clearSelectedEvaluationStudent = useCallback(() => {
+    setSelectedStudent(null);
+    setBaselineData(null);
+    setData(null);
+    setPendingSimName(null);
+    setError('');
+    clearLastEvaluationSelection(selectionCacheKey);
+  }, [selectionCacheKey]);
+
+  // Restore last student + list filters after reload / brief disconnect.
+  useEffect(() => {
+    if (!selectionCacheKey || selectionRestoredRef.current) return;
+    const saved = readLastEvaluationSelection(selectionCacheKey);
+    if (saved?.listYearLevelFilter) {
+      setListYearLevelFilter(saved.listYearLevelFilter);
+    }
+    if (saved?.listStandingFilter) {
+      setListStandingFilter(saved.listStandingFilter);
+    }
+    if (!saved?.student_id_number) {
+      selectionRestoredRef.current = true;
+      return;
+    }
+    selectionRestoredRef.current = true;
+    void handleStudentSelect({
+      student_id: saved.student_id,
+      student_id_number: saved.student_id_number,
+    });
+  }, [selectionCacheKey, handleStudentSelect]);
+
+  // Keep filters in the same cache entry while a student stays open.
+  useEffect(() => {
+    if (!selectionCacheKey || !selectedStudent?.student_id_number) return;
+    writeLastEvaluationSelection(selectionCacheKey, {
+      student_id: selectedStudent.student_id,
+      student_id_number: selectedStudent.student_id_number,
+      listYearLevelFilter,
+      listStandingFilter,
+    });
+  }, [
+    selectionCacheKey,
+    selectedStudent?.student_id,
+    selectedStudent?.student_id_number,
+    listYearLevelFilter,
+    listStandingFilter,
+  ]);
 
   useEffect(() => {
     // Fresh guide session — clear completion gates so auto-advance does not skip steps.
@@ -4945,10 +5085,7 @@ const StudentEvaluationView = ({
     if (!ok) return;
     try {
       await api.delete(`/evaluation/student/simulation-dummy/${sid}`);
-      setSelectedStudent(null);
-      setData(null);
-      setBaselineData(null);
-      setPendingSimName(null);
+      clearSelectedEvaluationStudent();
       await fetchStudentList(searchTerm);
       swalToast('success', 'Simulation dummy removed.');
     } catch (err) {
@@ -4964,6 +5101,7 @@ const StudentEvaluationView = ({
     data?.student?.is_simulation,
     fetchStudentList,
     searchTerm,
+    clearSelectedEvaluationStudent,
   ]);
 
   const refreshSelectedStudentEvaluation = useCallback(async () => {
@@ -8162,44 +8300,54 @@ const StudentEvaluationView = ({
   // typing in the search box temporarily empties the API result list.
   useEffect(() => {
     if (!selectedStudent?.student_id) return;
+    // Restored stub may only have an ID until evaluation payload arrives.
+    const yearId =
+      selectedStudent.year_level_id ?? data?.student?.year_level_id;
+    const academicStatus =
+      selectedStudent.academic_status ??
+      data?.student?.academic_status ??
+      data?.computed_academic_status;
+    if (yearId === undefined && academicStatus === undefined && !data?.student) {
+      return;
+    }
 
     if (listYearLevelFilter === '__unassigned__') {
-      if (selectedStudent.year_level_id != null && selectedStudent.year_level_id !== '') {
-        setSelectedStudent(null);
-        setBaselineData(null);
-        setData(null);
-        setPendingSimName(null);
-        setError('');
+      if (yearId != null && yearId !== '') {
+        clearSelectedEvaluationStudent();
         return;
       }
     } else if (listYearLevelFilter) {
-      if (String(selectedStudent.year_level_id ?? '') !== String(listYearLevelFilter)) {
-        setSelectedStudent(null);
-        setBaselineData(null);
-        setData(null);
-        setPendingSimName(null);
-        setError('');
+      if (String(yearId ?? '') !== String(listYearLevelFilter)) {
+        clearSelectedEvaluationStudent();
         return;
       }
     }
 
     if (!listStandingFilter) return;
 
-    const isIrregular = /^irregular$/i.test(String(selectedStudent.academic_status || '').trim());
-    const isUnevaluated = !selectedStudent.academic_record_evaluated;
+    const isIrregular = /^irregular$/i.test(String(academicStatus || '').trim());
+    const isUnevaluated = !(
+      selectedStudent.academic_record_evaluated ??
+      data?.student?.academic_record_evaluated
+    );
     let matches = true;
     if (listStandingFilter === 'unevaluated') matches = isUnevaluated;
     else if (listStandingFilter === 'irregular') matches = isIrregular;
     else if (listStandingFilter === 'unevaluated_irregular') matches = isUnevaluated && isIrregular;
 
     if (!matches) {
-      setSelectedStudent(null);
-      setBaselineData(null);
-      setData(null);
-      setPendingSimName(null);
-      setError('');
+      clearSelectedEvaluationStudent();
     }
-  }, [listYearLevelFilter, listStandingFilter, selectedStudent]);
+  }, [
+    listYearLevelFilter,
+    listStandingFilter,
+    selectedStudent,
+    data?.student?.year_level_id,
+    data?.student?.academic_status,
+    data?.student?.academic_record_evaluated,
+    data?.computed_academic_status,
+    clearSelectedEvaluationStudent,
+  ]);
 
   const studentDropdownOptions = (() => {
     const map = new Map();
@@ -8332,11 +8480,7 @@ const StudentEvaluationView = ({
                       );
                       if (!confirmed) return;
                     }
-                    setSelectedStudent(null);
-                    setBaselineData(null);
-                    setData(null);
-                    setPendingSimName(null);
-                    setError('');
+                    clearSelectedEvaluationStudent();
                     return;
                   }
                   const student = studentDropdownOptions.find(
