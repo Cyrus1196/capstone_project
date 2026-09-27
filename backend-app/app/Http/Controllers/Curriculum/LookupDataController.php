@@ -148,8 +148,36 @@ class LookupDataController extends Controller
         $modelClass = $meta['model'];
         $row = $modelClass::query()->findOrFail($id);
 
-        if ($lookupResource === 'semesters' && $status === 'active') {
-            $this->deactivateAllSemestersExcept((int) $id);
+        $promotionStats = null;
+        if ($lookupResource === 'semesters') {
+            $promotionStats = [
+                'promoted' => 0,
+                'skipped_irregular' => 0,
+                'skipped_incomplete' => 0,
+                'unchanged' => 0,
+            ];
+            DB::transaction(function () use ($row, $id, $status, $request, &$promotionStats) {
+                if ($status === 'active') {
+                    $this->deactivateAllSemestersExcept((int) $id);
+                }
+                $row->update(['status' => $status]);
+                if ($status === 'active') {
+                    $promotionStats = app(RegularStudentAutoPromotion::class)
+                        ->advanceOnSemesterActivation((int) $id, $request->user()?->user_id);
+                }
+            });
+            $row->refresh();
+            $auto = app(RegularStudentAutoPromotion::class);
+            $message = $status === 'active'
+                ? trim(($row->semester_name ?? 'Semester').' activated. '.$auto->formatSummary($promotionStats))
+                : 'Semester deactivated.';
+
+            return response()->json([
+                'message' => $message,
+                'status' => $status,
+                $meta['pk'] => $row->{$meta['pk']},
+                'auto_promotion' => $promotionStats,
+            ]);
         }
 
         $row->update(['status' => $status]);
@@ -879,16 +907,35 @@ class LookupDataController extends Controller
             $status = 'inactive';
         }
 
-        if ($status === 'active') {
-            $this->deactivateAllSemestersExcept((int) $id);
+        $wasActive = $this->normalizedSemesterStatus($semester->status) === 'active';
+        $promotionStats = null;
+
+        DB::transaction(function () use ($semester, $id, $validated, $status, $wasActive, $request, &$promotionStats) {
+            if ($status === 'active') {
+                $this->deactivateAllSemestersExcept((int) $id);
+            }
+
+            $semester->update([
+                'semester_name' => $validated['semester_name'],
+                'status' => $status,
+            ]);
+
+            // Run auto-promotion when this semester becomes the active one.
+            if ($status === 'active' && ! $wasActive) {
+                $promotionStats = app(RegularStudentAutoPromotion::class)
+                    ->advanceOnSemesterActivation((int) $id, $request->user()?->user_id);
+            }
+        });
+
+        $semester->refresh();
+        $payload = $semester->toArray();
+        if ($promotionStats !== null) {
+            $auto = app(RegularStudentAutoPromotion::class);
+            $payload['auto_promotion'] = $promotionStats;
+            $payload['message'] = trim($semester->semester_name.' activated. '.$auto->formatSummary($promotionStats));
         }
 
-        $semester->update([
-            'semester_name' => $validated['semester_name'],
-            'status' => $status,
-        ]);
-
-        return response()->json($semester);
+        return response()->json($payload);
     }
 
     public function toggleSemesterStatus(Request $request, $id)

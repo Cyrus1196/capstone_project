@@ -502,16 +502,23 @@ const LookupDataManagement = ({
     const ok = await swalConfirm({
       title: `${actionLabel} item?`,
       text:
-        nextStatus === 'active'
-          ? 'This record will be marked active and available for use.'
-          : 'This record will be deactivated. Linked data stays — you just hide it from normal use.',
+        section === 'semesters' && nextStatus === 'active'
+          ? 'This semester will become the only active term. Regular students who fully passed their current standing will be auto-evaluated and auto-promoted into this semester. Irregulars stay for manual evaluation.'
+          : nextStatus === 'active'
+            ? 'This record will be marked active and available for use.'
+            : 'This record will be deactivated. Linked data stays — you just hide it from normal use.',
       confirmButtonText: actionLabel,
     });
     if (!ok) return;
     try {
-      await api.patch(`/lookup/${apiPath}/${id}/status`, { status: nextStatus });
+      const res = await api.patch(`/lookup/${apiPath}/${id}/status`, { status: nextStatus });
       fetchLookupData({ force: true });
-      swalToast('success', `${actionLabel}d`);
+      const msg =
+        res?.data?.message ||
+        (section === 'semesters' && nextStatus === 'active' && res?.data?.auto_promotion
+          ? `Activated. Auto-promoted ${res.data.auto_promotion.promoted ?? 0} regular student(s).`
+          : null);
+      swalToast('success', msg || `${actionLabel}d`);
     } catch (error) {
       const data = error.response?.data;
       const errorMessage = data?.message || data?.error || `Failed to ${actionLabel.toLowerCase()}`;
@@ -863,16 +870,23 @@ const LookupDataManagement = ({
 
       const base = `/${prefix ? prefix + '/' : ''}${apiEndpoint}`;
 
+      let saveRes;
       if (editingItem && itemId) {
-        await api.put(`${base}/${itemId}`, payload);
+        saveRes = await api.put(`${base}/${itemId}`, payload);
       } else {
-        await api.post(base, payload);
+        saveRes = await api.post(base, payload);
       }
 
       setShowModal(false);
       clearLookupFormDraft();
       fetchLookupData({ force: true });
-      swalToast('success', editingItem ? 'Updated' : 'Created');
+      const saveMsg =
+        activeTab === 'semesters' && saveRes?.data?.message
+          ? saveRes.data.message
+          : editingItem
+            ? 'Updated'
+            : 'Created';
+      swalToast('success', saveMsg);
     } catch (error) {
       const data = error.response?.data;
       const messages = data?.messages || data?.errors;
