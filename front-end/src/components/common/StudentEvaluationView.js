@@ -12,8 +12,10 @@ import SubjectEquivalenceQuickModal from './SubjectEquivalenceQuickModal';
 import {
   gradeMeetsPassingThreshold,
   isCompleteGrade,
+  isCompleteOnlySubject,
   manualGradeToSavePayload,
   manualGradesEquivalentForRow,
+  gradeRawToEvaluatorFormValue,
   SIS_DEFAULT_FAIL_GRADE,
   SIS_DEFAULT_PASS_GRADE,
 } from '../../utils/gradePercentageConversion';
@@ -117,14 +119,18 @@ function passingForEvalRow(row) {
   return row.passing_grade != null && row.passing_grade !== '' ? row.passing_grade : '50';
 }
 
-function formatEvalGradeReadonly(gradeRaw) {
+function formatEvalGradeReadonly(gradeRaw, row = null) {
+  if (row) {
+    const display = gradeRawToEvaluatorFormValue(gradeRaw, row.passing_grade, row);
+    if (display) return display;
+  }
   if (gradeRaw == null || String(gradeRaw).trim() === '') return '';
+  if (isCompleteGrade(gradeRaw)) return 'Complete';
   return String(gradeRaw).trim();
 }
 
 function draftGradeFromRow(row) {
-  if (row?.grade == null || String(row.grade).trim() === '') return '';
-  return String(row.grade).trim();
+  return gradeRawToEvaluatorFormValue(row?.grade, row?.passing_grade, row) || '';
 }
 
 function safeDownloadName(value) {
@@ -489,9 +495,14 @@ function shouldShowOnlySubjectsToTake(student) {
 }
 
 /** Grade + status when choosing a remark button (P / F / clear). */
-function gradeAndStatusForRemarkClick(status) {
+function gradeAndStatusForRemarkClick(status, row = null) {
   if (status === '') return { status: '', grade: '' };
-  if (status === 'passed') return { status: 'passed', grade: SIS_DEFAULT_PASS_GRADE };
+  if (status === 'passed') {
+    if (row && isCompleteOnlySubject(row)) {
+      return { status: 'complete', grade: 'Complete' };
+    }
+    return { status: 'passed', grade: SIS_DEFAULT_PASS_GRADE };
+  }
   if (status === 'failed') return { status: 'failed', grade: SIS_DEFAULT_FAIL_GRADE };
   return { status, grade: '' };
 }
@@ -5180,7 +5191,7 @@ const StudentEvaluationView = ({
       if (status === '') {
         newGrade = '';
       } else if (status === 'passed') {
-        newGrade = SIS_DEFAULT_PASS_GRADE;
+        newGrade = isCompleteOnlySubject(row) ? 'Complete' : SIS_DEFAULT_PASS_GRADE;
       } else if (status === 'failed') {
         newGrade = SIS_DEFAULT_FAIL_GRADE;
       } else {
@@ -5190,7 +5201,7 @@ const StudentEvaluationView = ({
             : String(currentDraft.grade);
       }
 
-      const nextStatus = status;
+      const nextStatus = status === 'passed' && isCompleteOnlySubject(row) ? 'complete' : status;
 
       nextDrafts[key] = {
         ...currentDraft,
@@ -6016,7 +6027,7 @@ const StudentEvaluationView = ({
         const body = group.rows
           .map((row) => {
             const transferCredit = isTransferCreditRow(row);
-            const grade = transferCredit ? '-' : formatEvalGradeReadonly(row.grade) || '-';
+            const grade = transferCredit ? '-' : formatEvalGradeReadonly(row.grade, row) || '-';
             const status = transferCredit ? 'Credited' : normalizeStatusForUi(row.status ?? '') || '-';
             return `
               <tr>
@@ -6368,7 +6379,7 @@ const StudentEvaluationView = ({
 
     const body = rows.map((row) => {
       const transferCredit = isTransferCreditRow(row);
-      const grade = transferCredit ? '-' : formatEvalGradeReadonly(row.grade) || '-';
+      const grade = transferCredit ? '-' : formatEvalGradeReadonly(row.grade, row) || '-';
       const status = transferCredit ? 'Credited' : normalizeStatusForUi(row.status ?? '') || '-';
       return [
         row.year_level_name || `Year ${row.year_level_id || ''}`,
@@ -6551,7 +6562,8 @@ const StudentEvaluationView = ({
       canEdit &&
       selectedStudent &&
       !isEvaluatedModule &&
-      (isIrregularStudent || isRegularStudent);
+      // Manual promote is for irregulars (and Guide preview). Regulars advance via semester auto-promote.
+      (isIrregularStudent || systemGuideOpen);
 
     return (
       <div
@@ -7689,18 +7701,19 @@ const StudentEvaluationView = ({
                           ) : termCanEditNumericGrades && gradable && !prereqsMet ? (
                             <span className="eval-grade-prereq-blocked">
                               {formatEvalGradeReadonly(
-                                draft.grade !== '' && draft.grade != null ? draft.grade : row.grade
+                                draft.grade !== '' && draft.grade != null ? draft.grade : row.grade,
+                                row
                               ) || '—'}
                             </span>
                           ) : gradable ? (
                             <span className="eval-grade-readonly">
-                              {formatEvalGradeReadonly(row.grade) || '—'}
+                              {formatEvalGradeReadonly(row.grade, row) || '—'}
                             </span>
                           ) : termCanEditEvaluationRows ? (
                             <span className="eval-grade-na">—</span>
                           ) : (
                             <span className="eval-grade-readonly">
-                              {formatEvalGradeReadonly(row.grade) || '—'}
+                              {formatEvalGradeReadonly(row.grade, row) || '—'}
                             </span>
                           )}
                         </td>
@@ -7782,13 +7795,21 @@ const StudentEvaluationView = ({
                                     key={value || 'clear'}
                                     type="button"
                                     className={`status-btn ${
-                                      draft.status === value ? value : ''
+                                      draft.status === value ||
+                                      (value === 'passed' &&
+                                        (draft.status === 'complete' || draft.status === 'completed'))
+                                        ? value || 'clear'
+                                        : ''
                                     } ${!value ? 'clear' : ''}`}
-                                    onClick={() => updateDraft(row, gradeAndStatusForRemarkClick(value))}
+                                    onClick={() => updateDraft(row, gradeAndStatusForRemarkClick(value, row))}
                                     disabled={savingAll}
                                     title={hint}
                                     aria-label={hint}
-                                    aria-pressed={draft.status === value}
+                                    aria-pressed={
+                                      draft.status === value ||
+                                      (value === 'passed' &&
+                                        (draft.status === 'complete' || draft.status === 'completed'))
+                                    }
                                   >
                                     <i className={`fa-solid ${icon}`} aria-hidden />
                                   </button>
@@ -8853,7 +8874,7 @@ const StudentEvaluationView = ({
                                             className="grade-cell"
                                             data-label="Grade"
                                           >
-                                            {formatEvalGradeReadonly(row.grade) || (
+                                            {formatEvalGradeReadonly(row.grade, row) || (
                                               <span className="eval-next-sem-map-grade-blank">
                                                 —
                                               </span>
