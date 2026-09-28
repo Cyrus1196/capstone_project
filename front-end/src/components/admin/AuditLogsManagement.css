@@ -27,6 +27,21 @@
   color: #1b5e20;
 }
 
+.audit-logs-management .refresh-button {
+  border: none;
+  border-radius: 10px;
+  padding: 0.55rem 1rem;
+  background: #2e7d32;
+  color: #fff;
+  font-weight: 700;
+  font-size: 0.9rem;
+  cursor: pointer;
+}
+
+.audit-logs-management .refresh-button:hover {
+  background: #1b5e20;
+}
+
 .audit-logs-management .error-message {
   background: #fef2f2;
   color: #991b1b;
