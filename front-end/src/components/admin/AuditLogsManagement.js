@@ -1,7 +1,6 @@
 import React, { useState, useCallback, useMemo } from 'react';
 import api from '../../api/axios';
 import { swalError } from '../../utils/swal';
-import './LookupDataManagement.css';
 import './AuditLogsManagement.css';
 
 const formatJson = (value) => {
@@ -36,6 +35,14 @@ const summarizeEntry = (item) => {
 const hasTrail = (item) =>
   (item.old_value != null && item.old_value !== '') ||
   (item.new_value != null && item.new_value !== '');
+
+const actionBadgeClass = (action) => {
+  const a = String(action || '').toUpperCase();
+  if (a === 'CREATE') return 'audit-action-badge audit-action-badge--create';
+  if (a === 'UPDATE') return 'audit-action-badge audit-action-badge--update';
+  if (a === 'DELETE') return 'audit-action-badge audit-action-badge--delete';
+  return 'audit-action-badge audit-action-badge--other';
+};
 
 const formatTs = (ts) => {
   if (!ts) return '—';
@@ -224,7 +231,7 @@ const AuditLogsManagement = () => {
   }
 
   return (
-    <div className="lookup-data-management">
+    <div className="audit-logs-management">
       <div className="management-header">
         <h2>Audit trail</h2>
         <button
@@ -235,7 +242,7 @@ const AuditLogsManagement = () => {
           Refresh
         </button>
       </div>
-      <p className="lookup-active-panel-label">
+      <p className="audit-intro">
         Review data changes and user login sessions, including IP address, browser/device, and login/logout times.
       </p>
       {error && <div className="error-message">{error}</div>}
@@ -289,7 +296,7 @@ const AuditLogsManagement = () => {
           <h3>Activity log</h3>
         </div>
         <div className="table-container">
-          <table className="data-table">
+          <table className="audit-table audit-table--activity">
             <thead>
               <tr>
                 <th>User</th>
@@ -312,12 +319,15 @@ const AuditLogsManagement = () => {
                 rows.flatMap((item) => {
                   const id = item.audit_logs_id ?? item.id;
                   const open = expandedId === id;
+                  const action = item.actions || '—';
                   const mainRow = (
                     <tr key={id}>
                       <td>{item.user?.email || item.user?.Email || '—'}</td>
-                      <td>{item.actions || '—'}</td>
                       <td>
-                        <code>{item.table_name || '—'}</code>
+                        <span className={actionBadgeClass(action)}>{action}</span>
+                      </td>
+                      <td>
+                        <span className="audit-table-chip">{item.table_name || '—'}</span>
                       </td>
                       <td>{summarizeEntry(item)}</td>
                       <td>{formatTs(item.action_timestamp)}</td>
@@ -430,7 +440,7 @@ const AuditLogsManagement = () => {
               <h3>Login sessions</h3>
             </div>
             <div className="table-container">
-              <table className="data-table audit-session-table">
+              <table className="audit-table audit-table--sessions">
                 <thead>
                   <tr>
                     <th>User</th>
@@ -480,10 +490,14 @@ const AuditLogsManagement = () => {
                           <td>{formatTs(item.login_at)}</td>
                           <td>{formatTs(item.logout_at)}</td>
                           <td>{formatDuration(item.login_at, item.logout_at)}</td>
-                          <td><code>{item.ip_address || '—'}</code></td>
+                          <td>
+                            <span className="audit-ip-chip">{item.ip_address || '—'}</span>
+                          </td>
                           <td>
                             <div className="audit-session-device">
-                              <strong>{item.device || 'Unknown'} · {item.browser || 'Unknown'}</strong>
+                              <strong>
+                                {item.device || 'Unknown'} · {item.browser || 'Unknown'}
+                              </strong>
                               <span>{item.platform || 'Unknown platform'}</span>
                             </div>
                           </td>
