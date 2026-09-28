@@ -15,7 +15,7 @@ function resolveAvatarUrl(user) {
  * Right-side profile photo + Facebook-style update modal (circular crop + zoom).
  */
 export default function ProfilePhotoCard() {
-  const { user, refreshUser } = useAuth();
+  const { user, refreshUser, applyUser } = useAuth();
   const [avatarUrl, setAvatarUrl] = useState(() => resolveAvatarUrl(user));
   const [modalOpen, setModalOpen] = useState(false);
   const [sourceUrl, setSourceUrl] = useState(null);
@@ -159,10 +159,23 @@ export default function ProfilePhotoCard() {
       form.append('avatar', blob, 'avatar.jpg');
       const { data } = await api.post('/profile/avatar', form);
       if (data?.avatar_url) setAvatarUrl(data.avatar_url);
-      await refreshUser?.();
+      if (data?.user) {
+        applyUser?.(data.user);
+      } else {
+        await refreshUser?.();
+      }
       closeModal();
+      swalToast('success', 'Profile picture updated.');
     } catch (err) {
-      setError(err.response?.data?.message || err.message || 'Failed to save photo.');
+      const msg =
+        err.response?.data?.message ||
+        err.response?.data?.error ||
+        (err.response?.data?.errors?.avatar
+          ? [].concat(err.response.data.errors.avatar).join(' ')
+          : null) ||
+        err.message ||
+        'Failed to save photo.';
+      setError(msg);
     } finally {
       setSaving(false);
     }

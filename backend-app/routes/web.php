@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\Identity\UserController;
 use Illuminate\Support\Facades\File;
 use Illuminate\Support\Facades\Route;
 
@@ -13,6 +14,9 @@ use Illuminate\Support\Facades\Route;
 Route::get('/up', function () {
     return response('ok', 200);
 });
+
+Route::get('/media/avatars/{filename}', [UserController::class, 'servePublicAvatar'])
+    ->where('filename', 'user_\d+_\d+\.(jpe?g|png|webp)');
 
 Route::get('/{any?}', function () {
     $spa = public_path('spa.html');
@@ -29,4 +33,4 @@ Route::get('/{any?}', function () {
         'Content-Type' => 'text/html; charset=UTF-8',
         'Cache-Control' => 'no-cache, no-store, must-revalidate',
     ]);
-})->where('any', '^(?!api|storage|up).*$');
+})->where('any', '^(?!api|storage|media|up).*$');

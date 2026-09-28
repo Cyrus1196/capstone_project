@@ -901,7 +901,7 @@ class EvaluationReportController extends Controller
             ['key' => 'thu', 'label' => 'Thu', 'count' => $byDow[4]],
             ['key' => 'fri', 'label' => 'Fri', 'count' => $byDow[5]],
             ['key' => 'sat', 'label' => 'Sat', 'count' => $byDow[6]],
-            ['key' => 'sun', 'label' => 'Sun', 'count' => $byDow[7]],
+            // Sunday is still counted in week_total / today_count, but omitted from the chart (non-working day).
         ];
 
         $code = $program->program_code ?? 'Program';
@@ -986,9 +986,9 @@ class EvaluationReportController extends Controller
         $peak = collect($series)->sortByDesc(fn ($r) => abs(($r['this_year'] ?? 0) - ($r['last_year'] ?? 0)))->first();
         $insight = 'Compare last period vs current after enrollment settles.';
         if ($peak && (($peak['this_year'] ?? 0) > ($peak['last_year'] ?? 0) * 1.25) && ($peak['this_year'] ?? 0) >= 5) {
-            $insight = "{$peak['label']} grew from {$peak['last_year']} to {$peak['this_year']} — consider asking HR for more instructors.";
+            $insight = "{$peak['label']} grew from {$peak['last_year']} to {$peak['this_year']} — consider asking the evaluators to report for work to support the need for more instructors.";
         } elseif ($peak && (($peak['last_year'] ?? 0) > ($peak['this_year'] ?? 0) * 1.25) && ($peak['last_year'] ?? 0) >= 5) {
-            $insight = "{$peak['label']} dropped from {$peak['last_year']} to {$peak['this_year']} — review intake / retention.";
+            $insight = "{$peak['label']} dropped from {$peak['last_year']} to {$peak['this_year']} — review intake and retention.";
         }
 
         return [
@@ -1298,6 +1298,7 @@ class EvaluationReportController extends Controller
         }
 
         $weekdayFromDow = static function (array $byDowMap, ?Carbon $weekStart = null): array {
+            // Working-day chart only (Mon–Sat). Sunday evaluations still count in weekly totals.
             $names = [
                 1 => ['mon', 'Mon'],
                 2 => ['tue', 'Tue'],
@@ -1305,7 +1306,6 @@ class EvaluationReportController extends Controller
                 4 => ['thu', 'Thu'],
                 5 => ['fri', 'Fri'],
                 6 => ['sat', 'Sat'],
-                7 => ['sun', 'Sun'],
             ];
             $out = [];
             foreach ($names as $iso => [$key, $short]) {

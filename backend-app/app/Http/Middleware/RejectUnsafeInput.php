@@ -29,6 +29,7 @@ class RejectUnsafeInput
         'file',
         'csv',
         'storage_path',
+        'avatar',
     ];
 
     public function handle(Request $request, Closure $next): Response

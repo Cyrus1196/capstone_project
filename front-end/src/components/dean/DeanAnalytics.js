@@ -630,7 +630,7 @@ const DeanAnalytics = ({ showEvalModules, lockedProgramId = null }) => {
               <div className="dean-chart-card">
                 <h3 className="dean-chart-card__title">Evaluation rush — by week</h3>
                 <p className="dean-chart-card__sub">
-                  {data?.rush_forecast?.range_label} · calendar weeks (Mon–Sun) · click a week
+                  {data?.rush_forecast?.range_label} · calendar weeks · click a week
                   to filter the day chart below
                 </p>
                 <BarChart
@@ -651,8 +651,8 @@ const DeanAnalytics = ({ showEvalModules, lockedProgramId = null }) => {
                 </h3>
                 <p className="dean-chart-card__sub">
                   {selectedRushWeekKey
-                    ? `${selectedRushWeek?.full_label || selectedRushWeek?.label || 'Selected week'} · Mon–Sun calendar days · click the week again for the full window`
-                    : 'Mon–Sun totals across the calendar weeks above'}
+                    ? `${selectedRushWeek?.full_label || selectedRushWeek?.label || 'Selected week'} · Mon–Sat working days · click the week again for the full window`
+                    : 'Mon–Sat totals across the calendar weeks above'}
                 </p>
                 <BarChart
                   items={selectedRushWeekdayDetail.by_weekday || []}

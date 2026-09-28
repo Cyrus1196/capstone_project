@@ -387,12 +387,22 @@ class UserController extends Controller
             return response()->json(['message' => 'Unauthorized'], 401);
         }
 
+        $file = $request->file('avatar');
+        if (! $file) {
+            return response()->json(['message' => 'No image file received.'], 422);
+        }
+
         $validated = $request->validate([
             'avatar' => 'required|image|mimes:jpeg,jpg,png,webp|max:4096',
         ]);
 
         $file = $validated['avatar'];
-        $filename = 'user_'.$user->user_id.'_'.time().'.'.$file->getClientOriginalExtension();
+        $ext = strtolower((string) ($file->getClientOriginalExtension() ?: $file->extension() ?: 'jpg'));
+        if (! in_array($ext, ['jpeg', 'jpg', 'png', 'webp'], true)) {
+            $ext = 'jpg';
+        }
+        $filename = 'user_'.$user->user_id.'_'.time().'.'.$ext;
+        Storage::disk('public')->makeDirectory('avatars');
         $stored = $file->storeAs('avatars', $filename, 'public');
         if (! $stored) {
             return response()->json(['message' => 'Could not store avatar.'], 500);
@@ -413,6 +423,34 @@ class UserController extends Controller
             'avatar_path' => $fresh->avatar_path,
             'avatar_url' => $fresh->avatarUrl(),
             'user' => AuthController::userPayload($fresh),
+        ]);
+    }
+
+    /**
+     * Public avatar file for <img src> (no JWT). Filename is opaque (user_id + timestamp).
+     */
+    public function servePublicAvatar(string $filename)
+    {
+        $filename = basename($filename);
+        if ($filename === '' || ! preg_match('/^user_\d+_\d+\.(jpe?g|png|webp)$/i', $filename)) {
+            abort(404);
+        }
+
+        $relative = 'avatars/'.$filename;
+        if (! Storage::disk('public')->exists($relative)) {
+            abort(404);
+        }
+
+        $absolute = Storage::disk('public')->path($relative);
+        $mime = match (strtolower(pathinfo($filename, PATHINFO_EXTENSION))) {
+            'png' => 'image/png',
+            'webp' => 'image/webp',
+            default => 'image/jpeg',
+        };
+
+        return response()->file($absolute, [
+            'Content-Type' => $mime,
+            'Cache-Control' => 'public, max-age=86400',
         ]);
     }
 

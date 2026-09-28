@@ -50,8 +50,14 @@ class TblUser extends Authenticatable implements JWTSubject
             return null;
         }
         $path = ltrim(str_replace('\\', '/', (string) $path), '/');
+        $basename = basename($path);
+        if ($basename === '' || $basename === '.' || $basename === '..') {
+            return null;
+        }
 
-        return asset('storage/'.$path);
+        // Served by a public web route so <img> tags work without JWT and without
+        // depending on the public/storage symlink (often missing on Railway).
+        return url('/media/avatars/'.$basename);
     }
 
     /**

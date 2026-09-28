@@ -55,9 +55,11 @@ if [[ -z "${DB_HOST:-}" ]]; then
   parse_mysql_url "${MYSQL_PRIVATE_URL:-}"
 fi
 
-# Ensure writable runtime dirs
-mkdir -p storage/framework/{cache,sessions,views} storage/logs bootstrap/cache
+# Ensure writable runtime dirs (+ public avatar storage)
+mkdir -p storage/framework/{cache,sessions,views} storage/logs bootstrap/cache storage/app/public/avatars
 chmod -R ug+rwx storage bootstrap/cache || true
+# Symlink public/storage → storage/app/public (safe if already linked)
+php artisan storage:link || true
 
 # Clear stale caches when env changes on Railway
 php artisan config:clear || true
