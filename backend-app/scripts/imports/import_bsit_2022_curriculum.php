@@ -49,19 +49,86 @@ $ensureSubject = static function (string $code, string $name, int $units, int $h
     return DB::table('tbl_subjects')->where('subject_id', $id)->first();
 };
 
-$ensureTrack = static function (string $code, string $name): int {
-    $existing = DB::table('tbl_track')
-        ->where('track_code', $code)
-        ->orWhere('track_name', $name)
-        ->first();
-    if ($existing) {
-        DB::table('tbl_track')->where('track_id', $existing->track_id)->update([
+/**
+ * Prefer canonical BSIT track codes (SYS DEV / CYBER / BI / DA).
+ * Merges legacy aliases (SD, CS, …) into the preferred row so promote UI
+ * does not show duplicate track electives.
+ *
+ * @param  list<string>  $aliasCodes
+ * @param  list<string>  $aliasNames
+ */
+$ensureTrack = static function (string $code, string $name, array $aliasCodes = [], array $aliasNames = []): int {
+    $allCodes = array_values(array_unique(array_filter(array_map(
+        static fn ($c) => strtoupper(trim((string) $c)),
+        [$code, ...$aliasCodes]
+    ))));
+    $allNames = array_values(array_unique(array_filter(array_map(
+        static fn ($n) => trim((string) $n),
+        [$name, ...$aliasNames]
+    ))));
+
+    $candidates = DB::table('tbl_track')
+        ->where(function ($q) use ($allCodes, $allNames) {
+            if ($allCodes !== []) {
+                $q->whereIn(DB::raw('UPPER(TRIM(track_code))'), $allCodes);
+            }
+            foreach ($allNames as $n) {
+                $q->orWhereRaw('LOWER(TRIM(track_name)) = ?', [strtolower($n)]);
+            }
+        })
+        ->orderBy('track_id')
+        ->get();
+
+    $preferred = $candidates->first(
+        static fn ($t) => strtoupper(trim((string) $t->track_code)) === strtoupper(trim($code))
+    ) ?? $candidates->first();
+
+    if ($preferred) {
+        $keepId = (int) $preferred->track_id;
+        $update = [
             'track_code' => $code,
             'track_name' => $name,
-            'status' => 'active',
-        ]);
+        ];
+        if (Schema::hasColumn('tbl_track', 'status')) {
+            $update['status'] = 'active';
+        }
+        DB::table('tbl_track')->where('track_id', $keepId)->update($update);
 
-        return (int) $existing->track_id;
+        // Re-point FKs from alias duplicates, then remove them.
+        foreach ($candidates as $dup) {
+            $dupId = (int) $dup->track_id;
+            if ($dupId === $keepId) {
+                continue;
+            }
+            foreach (['tbl_elective_subject', 'tbl_student_profile', 'tbl_offered_subject'] as $table) {
+                if (! Schema::hasTable($table) || ! Schema::hasColumn($table, 'track_id')) {
+                    continue;
+                }
+                if ($table === 'tbl_elective_subject') {
+                    // Avoid unique collisions: drop alias rows that already exist under keepId.
+                    $aliasRows = DB::table($table)->where('track_id', $dupId)->get();
+                    foreach ($aliasRows as $row) {
+                        $exists = DB::table($table)
+                            ->where('elective_slot_id', $row->elective_slot_id)
+                            ->where('subject_id', $row->subject_id)
+                            ->where('track_id', $keepId)
+                            ->exists();
+                        if ($exists) {
+                            DB::table($table)->where('elective_subject_id', $row->elective_subject_id)->delete();
+                        } else {
+                            DB::table($table)->where('elective_subject_id', $row->elective_subject_id)->update([
+                                'track_id' => $keepId,
+                            ]);
+                        }
+                    }
+                } else {
+                    DB::table($table)->where('track_id', $dupId)->update(['track_id' => $keepId]);
+                }
+            }
+            DB::table('tbl_track')->where('track_id', $dupId)->delete();
+        }
+
+        return $keepId;
     }
 
     $payload = [
@@ -128,6 +195,13 @@ $hasJunk = DB::table('curriculum as c')
     ->exists();
 
 if (! $hasJunk && $rowCount >= 50) {
+    // Curriculum rows already good — still merge CS/SD aliases and rebuild Digi Elective 4.
+    $syncScript = __DIR__.'/../maintenance/sync_bsit_tracks_and_electives.php';
+    $trackSyncRaw = null;
+    if (is_file($syncScript)) {
+        $php = PHP_BINARY ?: 'php';
+        $trackSyncRaw = shell_exec(escapeshellarg($php).' '.escapeshellarg($syncScript).' 2>&1');
+    }
     echo json_encode([
         'program_id' => $programId,
         'curriculum_header_id' => $headerId,
@@ -135,6 +209,7 @@ if (! $hasJunk && $rowCount >= 50) {
         'skipped' => true,
         'reason' => 'already_synced',
         'row_count' => $rowCount,
+        'track_elective_sync' => $trackSyncRaw ? json_decode(trim($trackSyncRaw), true) : null,
     ], JSON_PRETTY_PRINT).PHP_EOL;
     exit(0);
 }
@@ -287,30 +362,57 @@ $corequisites = [
     'ITE 031' => ['ITE 298'],
 ];
 
+/**
+ * Canonical BSIT tracks. Legacy CS/SD aliases are merged into CYBER / SYS DEV.
+ * Digi uses 4 dedicated subjects (one per elective slot); other tracks use 3
+ * track electives + free-choice Elective 4.
+ */
 $electiveByTrack = [
     'BI' => [
         'name' => 'Business Informatics',
-        'codes' => ['BAM 285', 'BAM 286', 'ITE 382', 'ITE 381'],
+        'alias_codes' => [],
+        'alias_names' => [],
+        'codes' => ['BAM 285', 'BAM 286', 'ITE 382'],
+        'elective4' => null,
     ],
-    'CS' => [
-        'name' => 'Computer Security',
-        'codes' => ['ITE 383', 'ITE 384', 'ITE 385', 'ITE 381'],
+    'CYBER' => [
+        'name' => 'Cybersecurity',
+        'alias_codes' => ['CS'],
+        'alias_names' => ['Computer Security'],
+        'codes' => ['ITE 383', 'ITE 384', 'ITE 385'],
+        'elective4' => null,
     ],
-    'SD' => [
-        'name' => 'Systems Development',
-        'codes' => ['ITE 387', 'ITE 235', 'ITE 386', 'ITE 381'],
+    'SYS DEV' => [
+        'name' => 'System Development',
+        'alias_codes' => ['SD', 'SYSDEV'],
+        'alias_names' => ['Systems Development'],
+        'codes' => ['ITE 387', 'ITE 235', 'ITE 386'],
+        'elective4' => null,
     ],
     'DA' => [
         'name' => 'Digital Arts',
-        'codes' => ['ITE 391', 'ITE 392', 'ITE 240', 'ITE 388'],
+        'alias_codes' => ['DIGI'],
+        'alias_names' => [],
+        'codes' => ['ITE 391', 'ITE 392', 'ITE 240'],
+        // Digi Elective 4 auto-assigns Clean-up and In-between (ITE 388).
+        'elective4' => 'ITE 388',
     ],
 ];
 
 $slotDefs = [
-    '__IT_ELEC_1__' => ['slot_name' => 'IT Electives 1', 'year' => 3, 'semester' => 1],
-    '__IT_ELEC_2__' => ['slot_name' => 'IT Electives 2', 'year' => 3, 'semester' => 2],
-    '__IT_ELEC_3__' => ['slot_name' => 'IT Electives 3', 'year' => 3, 'semester' => 2],
-    '__IT_ELEC_4__' => ['slot_name' => 'IT Electives 4', 'year' => 4, 'semester' => 1],
+    '__IT_ELEC_1__' => ['slot_name' => 'IT Electives 1', 'year' => 3, 'semester' => 1, 'index' => 0],
+    '__IT_ELEC_2__' => ['slot_name' => 'IT Electives 2', 'year' => 3, 'semester' => 2, 'index' => 1],
+    '__IT_ELEC_3__' => ['slot_name' => 'IT Electives 3', 'year' => 3, 'semester' => 2, 'index' => 2],
+    '__IT_ELEC_4__' => ['slot_name' => 'IT Electives 4', 'year' => 4, 'semester' => 1, 'index' => 3],
+];
+
+/** Free-choice Elective 4 pool for SysDev / Cyber / BAM (null track_id). */
+$elective4FreeChoiceCodes = [
+    'BAM 285', 'BAM 286', 'ITE 382',
+    'ITE 383', 'ITE 384', 'ITE 385',
+    'ITE 387', 'ITE 235', 'ITE 386',
+    'ITE 391', 'ITE 392', 'ITE 240', 'ITE 388',
+    'ITE 381',
 ];
 
 $stats = [
@@ -330,6 +432,7 @@ DB::transaction(function () use (
     $corequisites,
     $electiveByTrack,
     $slotDefs,
+    $elective4FreeChoiceCodes,
     $ensureSubject,
     $ensureTrack,
     $findSubject,
@@ -346,7 +449,12 @@ DB::transaction(function () use (
 
     $trackIds = [];
     foreach ($electiveByTrack as $code => $meta) {
-        $trackIds[$code] = $ensureTrack($code, $meta['name']);
+        $trackIds[$code] = $ensureTrack(
+            $code,
+            $meta['name'],
+            $meta['alias_codes'] ?? [],
+            $meta['alias_names'] ?? []
+        );
     }
 
     $electiveSlotIds = [];
@@ -371,36 +479,70 @@ DB::transaction(function () use (
         $electiveSlotIds[$placeholder] = $slotId;
         $stats['slots']++;
 
-        $keepSubjectIds = [];
-        foreach ($electiveByTrack as $trackCode => $meta) {
-            foreach ($meta['codes'] as $subjectCode) {
+        // Rebuild slot choices from scratch so CS/SD duplicates and Digi
+        // "all subjects in every slot" leftovers cannot linger.
+        DB::table('tbl_elective_subject')->where('elective_slot_id', $slotId)->delete();
+
+        $slotIndex = (int) ($def['index'] ?? 0);
+        $isElectiveFour = $slotIndex === 3;
+
+        if ($isElectiveFour) {
+            foreach ($elective4FreeChoiceCodes as $subjectCode) {
                 $subject = $findSubject($subjectCode);
                 if (! $subject) {
                     continue;
                 }
-                $sid = (int) $subject->subject_id;
-                $keepSubjectIds[] = $sid;
-                DB::table('tbl_elective_subject')->updateOrInsert(
-                    [
-                        'elective_slot_id' => $slotId,
-                        'subject_id' => $sid,
-                        'track_id' => $trackIds[$trackCode],
-                    ],
-                    [
-                        'department_id' => $departmentId ?: null,
-                        'program_id' => $programId,
-                        'description' => null,
-                    ]
-                );
+                DB::table('tbl_elective_subject')->insert([
+                    'elective_slot_id' => $slotId,
+                    'subject_id' => (int) $subject->subject_id,
+                    'track_id' => null,
+                    'department_id' => $departmentId ?: null,
+                    'program_id' => $programId,
+                    'description' => null,
+                ]);
                 $stats['choices']++;
             }
-        }
-
-        if ($keepSubjectIds !== []) {
-            DB::table('tbl_elective_subject')
-                ->where('elective_slot_id', $slotId)
-                ->whereNotIn('subject_id', array_values(array_unique($keepSubjectIds)))
-                ->delete();
+            // Digi only: track-linked Elective 4 auto-assigns ITE 388.
+            foreach ($electiveByTrack as $trackCode => $meta) {
+                $digiCode = $meta['elective4'] ?? null;
+                if (! $digiCode) {
+                    continue;
+                }
+                $subject = $findSubject($digiCode);
+                if (! $subject) {
+                    continue;
+                }
+                DB::table('tbl_elective_subject')->insert([
+                    'elective_slot_id' => $slotId,
+                    'subject_id' => (int) $subject->subject_id,
+                    'track_id' => $trackIds[$trackCode],
+                    'department_id' => $departmentId ?: null,
+                    'program_id' => $programId,
+                    'description' => null,
+                ]);
+                $stats['choices']++;
+            }
+        } else {
+            // Electives 1–3: one subject per track (index 0/1/2).
+            foreach ($electiveByTrack as $trackCode => $meta) {
+                $subjectCode = $meta['codes'][$slotIndex] ?? null;
+                if (! $subjectCode) {
+                    continue;
+                }
+                $subject = $findSubject($subjectCode);
+                if (! $subject) {
+                    continue;
+                }
+                DB::table('tbl_elective_subject')->insert([
+                    'elective_slot_id' => $slotId,
+                    'subject_id' => (int) $subject->subject_id,
+                    'track_id' => $trackIds[$trackCode],
+                    'department_id' => $departmentId ?: null,
+                    'program_id' => $programId,
+                    'description' => null,
+                ]);
+                $stats['choices']++;
+            }
         }
     }
 

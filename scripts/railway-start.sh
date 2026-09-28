@@ -85,8 +85,11 @@ fi
 
 # One-shot data sync: replace BSIT Effective SY 2022-2023 junk (test/ELE/MEE) with CMO checklist.
 # Idempotent — skips when the header already has the full curriculum.
+# Always merges legacy CS/SD track aliases into CYBER / SYS DEV and rebuilds Digi Elective 4.
 echo "Syncing BSIT 2022-2023 curriculum (if needed)..."
 php artisan curriculum:import-bsit-2022 || echo "WARN: BSIT 2022 curriculum sync skipped or failed."
+echo "Syncing BSIT tracks / elective slots..."
+php scripts/maintenance/sync_bsit_tracks_and_electives.php || echo "WARN: BSIT track/elective sync skipped or failed."
 
 php artisan config:cache || true
 php artisan route:cache || true
@@ -94,4 +97,16 @@ php artisan route:cache || true
 PORT="${PORT:-8000}"
 echo "Starting Academic Evaluation System on 0.0.0.0:${PORT}"
 echo "APP_URL=${APP_URL:-unset} DB_HOST=${DB_HOST:-unset} DB_DATABASE=${DB_DATABASE:-unset}"
-exec php artisan serve --host=0.0.0.0 --port="${PORT}"
+
+# Laravel scheduler must run for backup:run-scheduled (daily 00:01) and INC expiry.
+# Railway has no system cron — keep schedule:work alive beside the HTTP server.
+# Do not use `exec` here: the shell must stay alive so the EXIT trap can stop the scheduler.
+php artisan schedule:work --verbose &
+SCHEDULER_PID=$!
+cleanup() {
+  kill "${SCHEDULER_PID}" 2>/dev/null || true
+}
+trap cleanup EXIT INT TERM
+
+echo "Laravel scheduler started (pid ${SCHEDULER_PID})"
+php artisan serve --host=0.0.0.0 --port="${PORT}"

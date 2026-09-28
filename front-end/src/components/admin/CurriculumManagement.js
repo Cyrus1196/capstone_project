@@ -123,7 +123,7 @@ function itElectiveTrackKey(track) {
   const text = `${track.track_code || ''} ${track.track_name || ''}`.toLowerCase();
   if (text.includes('sys') || text.includes('system')) return 'sysdev';
   if (text.includes('bam') || text.includes('business')) return 'business';
-  if (text.includes('cyber')) return 'cyber';
+  if (text.includes('cyber') || text.includes('computer security')) return 'cyber';
   if (text.includes('digi') || text.includes('digital') || text.includes('arts')) return 'digital';
   return '';
 }

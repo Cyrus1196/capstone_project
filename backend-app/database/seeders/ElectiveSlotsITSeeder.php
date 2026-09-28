@@ -79,13 +79,14 @@ class ElectiveSlotsITSeeder extends Seeder
         if ($slotFourId) {
             $digitalTrackId = DB::table('tbl_track')
                 ->where(function ($q) {
-                    $q->where('track_code', 'like', '%DIGI%')
+                    $q->where('track_code', 'DA')
+                        ->orWhere('track_code', 'like', '%DIGI%')
                         ->orWhere('track_name', 'like', '%Digital%');
                 })
                 ->value('track_id');
 
             // For SysDev, Cyber, and BAM: Elective 4 can be any IT elective subject.
-            // Digital Arts continues its fourth Digital Arts subject.
+            // Digital Arts auto-assigns ITE388 (4th Digi elective).
             $slotFourSubjects = [
                 ['code' => 'BAM285', 'track_id' => null],
                 ['code' => 'BAM286', 'track_id' => null],

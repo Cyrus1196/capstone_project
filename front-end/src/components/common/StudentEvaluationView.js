@@ -605,9 +605,9 @@ function filterElectiveFourSubjectChoices(choices, { trackKey, studentTrackId, a
     .filter((choice) => {
       const subjectCode = normalizeItSubjectCode(choice.subject_code);
       if (!subjectCode || seen.has(subjectCode)) return false;
-      // Digi keeps only Digi Elective 4 subjects.
+      // Digi Elective 4: only ITE 388 (4th dedicated Digi elective) — auto-assign.
       if (trackKey === 'digital') {
-        if (!DIGITAL_ARTS_ELECTIVE_CODES.has(subjectCode)) return false;
+        if (subjectCode !== 'ITE388') return false;
         seen.add(subjectCode);
         return true;
       }
@@ -898,6 +898,53 @@ function dedupeElectiveChoicesByTrack(choices) {
     if (!m.has(k)) m.set(k, c);
   }
   return [...m.values()];
+}
+
+/**
+ * Collapse legacy CS/SD duplicates into CYBER / SYS DEV (plus BI / DA).
+ * Preference: SYS DEV > SD, CYBER > CS.
+ */
+function itTrackFamilyKeyFromChoice(choice) {
+  const text = `${choice?.track_name || ''} ${choice?.track_code || ''}`.toLowerCase();
+  if (text.includes('digital') || text.includes('digi') || /\bda\b/.test(text)) return 'digital';
+  if (text.includes('cyber') || text.includes('computer security') || /\bcs\b/.test(text)) return 'cyber';
+  if (text.includes('business') || text.includes('bam') || /\bbi\b/.test(text)) return 'business';
+  if (text.includes('system') || text.includes('sys') || /\bsd\b/.test(text)) return 'sysdev';
+  return '';
+}
+
+function trackFamilyPreferenceScore(choice) {
+  const code = String(choice?.track_code || '')
+    .trim()
+    .toUpperCase()
+    .replace(/\s+/g, ' ');
+  if (code === 'SYS DEV' || code === 'SYSDEV' || code === 'CYBER' || code === 'BI' || code === 'DA') {
+    return 3;
+  }
+  if (code === 'SD' || code === 'CS') return 0;
+  return 1;
+}
+
+function dedupeElectiveChoicesByTrackFamily(choices) {
+  const list = dedupeElectiveChoicesByTrack(choices);
+  const byFamily = new Map();
+  const ungrouped = [];
+  for (const c of list) {
+    if (c.track_id == null || c.track_id === '') {
+      ungrouped.push(c);
+      continue;
+    }
+    const family = itTrackFamilyKeyFromChoice(c);
+    if (!family) {
+      ungrouped.push(c);
+      continue;
+    }
+    const existing = byFamily.get(family);
+    if (!existing || trackFamilyPreferenceScore(c) > trackFamilyPreferenceScore(existing)) {
+      byFamily.set(family, c);
+    }
+  }
+  return [...byFamily.values(), ...ungrouped];
 }
 
 function electiveChoiceLabel(c) {
@@ -4239,7 +4286,7 @@ const StudentEvaluationView = ({
           (isElectiveTrackPendingRow(r) || isTrackSelectableElectiveRow(r))
       )
       .flatMap((r) => r.elective_choices || []);
-    const deduped = dedupeElectiveChoicesByTrack(raw).filter(
+    const deduped = dedupeElectiveChoicesByTrackFamily(raw).filter(
       (c) => c.track_id != null && c.track_id !== ''
     );
     const studentTrackId = data?.student?.track_id;
@@ -4335,7 +4382,12 @@ const StudentEvaluationView = ({
             ) || null;
         }
         if (!picked && trackKey === 'digital' && tid != null) {
-          picked = subjectChoices.find((c) => Number(c.track_id) === tid) || null;
+          picked =
+            subjectChoices.find(
+              (c) => normalizeItSubjectCode(c.subject_code) === 'ITE388'
+            ) ||
+            subjectChoices.find((c) => Number(c.track_id) === tid) ||
+            null;
         }
         // Already resolved on the curriculum row (saved Digi / prior Elective 4 pick).
         if (!picked && r.subject_id && !isElectiveTrackPendingRow(r)) {
@@ -4389,7 +4441,7 @@ const StudentEvaluationView = ({
       }
 
       const choices = r.elective_choices || [];
-      const electiveChoices = dedupeElectiveChoicesByTrack(choices).filter(
+      const electiveChoices = dedupeElectiveChoicesByTrackFamily(choices).filter(
         (c) => c.track_id != null && c.track_id !== ''
       );
       let picked = null;
@@ -7300,7 +7352,7 @@ const StudentEvaluationView = ({
                       termCanEditEvaluationRows &&
                       isItElectivesFourRow(row) &&
                       electiveSubjectChoices.length > 0;
-                    const electiveTrackChoices = dedupeElectiveChoicesByTrack(row.elective_choices)
+                    const electiveTrackChoices = dedupeElectiveChoicesByTrackFamily(row.elective_choices)
                       .filter((c) => c.track_id != null && c.track_id !== '');
                     const canPickElectiveTrack =
                       termCanEditEvaluationRows &&

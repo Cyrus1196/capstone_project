@@ -25,7 +25,8 @@ if (! $slotFourId) {
 
 $digitalTrackId = DB::table('tbl_track')
     ->where(function ($q) {
-        $q->where('track_code', 'like', '%DIGI%')
+        $q->where('track_code', 'DA')
+            ->orWhere('track_code', 'like', '%DIGI%')
             ->orWhere('track_name', 'like', '%Digital%');
     })
     ->value('track_id');

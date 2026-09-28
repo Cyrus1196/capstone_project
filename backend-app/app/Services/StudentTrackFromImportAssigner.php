@@ -9,7 +9,7 @@ use App\Models\Track;
 use Illuminate\Support\Facades\Log;
 
 /**
- * When SIS / grade import includes a track elective (e.g. Advanced Programming → Systems Development,
+ * When SIS / grade import includes a track elective (e.g. Advanced Programming → System Development,
  * Freehand and Digital Drawing → Digital Arts), set the student's track automatically.
  */
 class StudentTrackFromImportAssigner
@@ -21,20 +21,20 @@ class StudentTrackFromImportAssigner
      * @var array<string, string>
      */
     private const CODE_TO_FAMILY = [
-        // Systems Development / SysDev (SD)
+        // System Development (SYS DEV)
         'ITE387' => 'sysdev', // Advanced Programming
         'ITE235' => 'sysdev', // Game Development
         'ITE386' => 'sysdev', // Cloud Programming
-        // Digital Arts (DA)
+        // Digital Arts (DA) — Elective 4 is ITE388
         'ITE391' => 'digital',
         'ITE392' => 'digital',
         'ITE240' => 'digital',
         'ITE388' => 'digital',
-        // Computer Security / Cyber (CS)
+        // Cybersecurity (CYBER)
         'ITE383' => 'cyber',
         'ITE384' => 'cyber',
         'ITE385' => 'cyber',
-        // Business Informatics / BAM (BI)
+        // Business Informatics (BI)
         'BAM285' => 'business',
         'BAM286' => 'business',
         'ITE382' => 'business',
@@ -168,9 +168,14 @@ class StudentTrackFromImportAssigner
         }
 
         $matchers = match ($family) {
+            // Prefer SYS DEV / CYBER over legacy SD / CS aliases.
             'sysdev' => [
+                static fn (string $code, string $name): bool => $code === 'SYS DEV'
+                    || $code === 'SYSDEV'
+                    || str_contains($code, 'SYS'),
+                static fn (string $code, string $name): bool => str_contains($name, 'system development')
+                    || str_contains($name, 'systems development'),
                 static fn (string $code, string $name): bool => $code === 'SD'
-                    || str_contains($code, 'SYS')
                     || str_contains($name, 'system'),
             ],
             'digital' => [
@@ -179,10 +184,11 @@ class StudentTrackFromImportAssigner
                     || str_contains($name, 'digital'),
             ],
             'cyber' => [
-                static fn (string $code, string $name): bool => $code === 'CS'
+                static fn (string $code, string $name): bool => $code === 'CYBER'
                     || str_contains($code, 'CYBER')
-                    || str_contains($name, 'computer security')
                     || str_contains($name, 'cyber'),
+                static fn (string $code, string $name): bool => $code === 'CS'
+                    || str_contains($name, 'computer security'),
             ],
             'business' => [
                 static fn (string $code, string $name): bool => $code === 'BI'
