@@ -389,7 +389,7 @@ const DeanPanel = () => {
         groups={deanSidebarGroups}
         activeId={deanSidebarActiveId}
         onSelect={handleDeanSidebarSelect}
-        footer={<PortalSidebarUserFooter />}
+        footer={<PortalSidebarUserFooter onLogout={handleLogout} />}
       />
 
       <div className="portal-shell__main">
@@ -397,9 +397,6 @@ const DeanPanel = () => {
           <h1>Dean Portal</h1>
           <div className="header-info">
             <span className="dean-header__welcome">Welcome, {userDisplayName(user)}</span>
-            <button type="button" onClick={handleLogout} className="logout-button">
-              Logout
-            </button>
             <GuideButton />
           </div>
         </header>

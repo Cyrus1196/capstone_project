@@ -161,7 +161,7 @@ const FacultyPanel = () => {
         groups={facultySidebarGroups}
         activeId={activeTab}
         onSelect={setActiveTab}
-        footer={<PortalSidebarUserFooter />}
+        footer={<PortalSidebarUserFooter onLogout={handleLogout} />}
       />
 
       <div className="portal-shell__main">
@@ -177,9 +177,6 @@ const FacultyPanel = () => {
             <span className="faculty-header__welcome faculty-header__welcome--compact">
               {userDisplayName(user)}
             </span>
-            <button type="button" onClick={handleLogout} className="logout-button faculty-header__logout">
-              Logout
-            </button>
             <GuideButton />
           </div>
         </header>

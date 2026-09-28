@@ -182,7 +182,7 @@ function evaluationWalkthroughSteps({ portalName = 'portal' } = {}) {
     },
     {
       title: 'Guide anytime',
-      body: 'Click Guide next to Logout anytime you need this irregular-evaluation walkthrough again.',
+      body: 'Click Guide in the header anytime you need this irregular-evaluation walkthrough again. Logout is in the sidebar.',
       target: '[data-tour="guide-button"]',
       closeEvalPanels: true,
     },
@@ -225,7 +225,7 @@ function tourStepsForRole(role) {
       },
       {
         title: 'Guide anytime',
-        body: 'Click Guide next to Logout whenever you need this walkthrough again.',
+        body: 'Click Guide in the header whenever you need this walkthrough again. Logout is in the sidebar.',
         target: '[data-tour="guide-button"]',
       },
     ];
@@ -277,7 +277,7 @@ function tourStepsForRole(role) {
       },
       {
         title: 'Guide anytime',
-        body: 'Need a refresher? Click Guide next to Logout.',
+        body: 'Need a refresher? Click Guide in the header. Logout is in the sidebar.',
         target: '[data-tour="guide-button"]',
       },
     ];

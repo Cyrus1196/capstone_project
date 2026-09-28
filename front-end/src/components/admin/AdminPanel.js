@@ -220,7 +220,7 @@ const AdminPanel = () => {
           groups={sidebarGroups}
           activeId={adminSidebarActiveId}
           onSelect={handleAdminSidebarSelect}
-            footer={<PortalSidebarUserFooter />}
+            footer={<PortalSidebarUserFooter onLogout={handleLogout} />}
           />
       )}
 
@@ -244,9 +244,6 @@ const AdminPanel = () => {
                 Secretary portal
               </button>
             )}
-            <button type="button" onClick={handleLogout} className="logout-button">
-              Logout
-            </button>
             <GuideButton />
           </div>
         </header>
