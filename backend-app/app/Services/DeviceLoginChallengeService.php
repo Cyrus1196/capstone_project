@@ -54,12 +54,23 @@ class DeviceLoginChallengeService
         }
     }
 
-    /** Roles that must verify a new browser/device via email OTP. */
+    /** Explicit allow-list of roles that require OTP (empty = all non-exempt roles). */
     public static function rolesRequiringDeviceOtp(): array
     {
-        $configured = config('account_mail.device_otp_roles', ['Dean']);
+        $configured = config('account_mail.device_otp_roles', []);
+        if (! is_array($configured)) {
+            return [];
+        }
+
+        return array_values(array_filter(array_map('strval', $configured)));
+    }
+
+    /** Roles that skip login email OTP (Student by default). */
+    public static function rolesExemptFromDeviceOtp(): array
+    {
+        $configured = config('account_mail.device_otp_exempt_roles', ['Student']);
         if (! is_array($configured) || $configured === []) {
-            return ['Dean'];
+            return ['Student'];
         }
 
         return array_values(array_filter(array_map('strval', $configured)));
@@ -85,13 +96,29 @@ class DeviceLoginChallengeService
             return false;
         }
 
-        foreach (self::rolesRequiringDeviceOtp() as $role) {
+        foreach (self::rolesExemptFromDeviceOtp() as $role) {
+            if (strcasecmp($roleName, $role) === 0) {
+                return false;
+            }
+        }
+
+        $allowList = self::rolesRequiringDeviceOtp();
+        if ($allowList === []) {
+            return true;
+        }
+
+        foreach ($allowList as $role) {
             if (strcasecmp($roleName, $role) === 0) {
                 return true;
             }
         }
 
         return false;
+    }
+
+    public static function mustChallengeEveryLogin(): bool
+    {
+        return (bool) config('account_mail.device_otp_every_login', true);
     }
 
     public static function fingerprintHash(TblUser $user, string $fingerprint): string

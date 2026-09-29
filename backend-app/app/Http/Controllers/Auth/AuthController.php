@@ -244,7 +244,10 @@ class AuthController extends Controller
                 ]);
             }
 
-            if (! DeviceLoginChallengeService::isTrustedDevice($user, $fingerprint)) {
+            $needsChallenge = DeviceLoginChallengeService::mustChallengeEveryLogin()
+                || ! DeviceLoginChallengeService::isTrustedDevice($user, $fingerprint);
+
+            if ($needsChallenge) {
                 try {
                     $challenge = DeviceLoginChallengeService::startChallenge($user, $fingerprint, $request);
                 } catch (ValidationException $e) {
@@ -261,7 +264,7 @@ class AuthController extends Controller
                     'challenge_token' => $challenge['challenge_token'],
                     'email_hint' => $challenge['email_hint'],
                     'expires_in' => $challenge['expires_in'],
-                    'message' => 'Enter the verification code sent to your email to trust this device.',
+                    'message' => 'Enter the verification code sent to your email to continue.',
                 ]);
             }
 

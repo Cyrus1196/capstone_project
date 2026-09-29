@@ -27,15 +27,28 @@ return [
 
     /*
     |--------------------------------------------------------------------------
-    | New-device email OTP (Dean by default)
+    | New-device / login email OTP
     |--------------------------------------------------------------------------
-    | When a listed role signs in from a browser/device that is not yet trusted,
-    | a 6-digit code is emailed before the session is issued.
+    | All roles must verify via emailed OTP on login, except roles listed in
+    | DEVICE_OTP_EXEMPT_ROLES (Student by default).
+    |
+    | Optional allow-list: if DEVICE_OTP_ROLES is set to a non-empty list, only
+    | those roles require OTP (still minus any exempt roles). Leave unset to
+    | require OTP for every non-exempt role.
     */
     'device_otp_roles' => array_values(array_filter(array_map(
         'trim',
-        explode(',', (string) env('DEVICE_OTP_ROLES', 'Dean'))
+        explode(',', (string) env('DEVICE_OTP_ROLES', ''))
+    ))),
+    'device_otp_exempt_roles' => array_values(array_filter(array_map(
+        'trim',
+        explode(',', (string) env('DEVICE_OTP_EXEMPT_ROLES', 'Student'))
     ))),
     'device_otp_expire_minutes' => (int) env('DEVICE_OTP_EXPIRE_MINUTES', 10),
+    /*
+    | When true, OTP is required on every login (even previously trusted devices).
+    | When false, only untrusted / new browsers require OTP.
+    */
+    'device_otp_every_login' => filter_var(env('DEVICE_OTP_EVERY_LOGIN', true), FILTER_VALIDATE_BOOL),
 
 ];
