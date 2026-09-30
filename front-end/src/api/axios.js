@@ -12,6 +12,11 @@ import {
   isAxiosNetworkError,
   isBrowserOnline,
 } from '../utils/networkRecoverability';
+import {
+  clearSessionActivity,
+  expireClientSessionIfIdle,
+  touchSessionActivity,
+} from '../utils/sessionActivity';
 
 const API_BASE_URL =
   process.env.REACT_APP_API_URL ||
@@ -29,11 +34,31 @@ const api = axios.create({
 // JWT Token management
 const getToken = () => localStorage.getItem('jwt_token');
 const setToken = (token) => localStorage.setItem('jwt_token', token);
-const removeToken = () => localStorage.removeItem('jwt_token');
+const removeToken = () => {
+  localStorage.removeItem('jwt_token');
+  clearSessionActivity();
+};
 
 // Add request interceptor to attach JWT token + block unsafe payload symbols
 api.interceptors.request.use(
   (config) => {
+    const url = String(config.url || '');
+    const isAuthBootstrap =
+      url.endsWith('/login') ||
+      url.includes('/login/device-otp') ||
+      url.includes('/forgot-password') ||
+      url.includes('/reset-password') ||
+      url.includes('/verify-email');
+
+    // Hard stop leftover JWTs after idle (tab close / mobile suspend).
+    // Never block public auth endpoints — those must always be reachable.
+    if (!isAuthBootstrap && getToken() && expireClientSessionIfIdle(removeToken)) {
+      const err = new Error('Session expired due to inactivity.');
+      err.isSessionIdleExpired = true;
+      err.config = config;
+      return Promise.reject(err);
+    }
+
     const token = getToken();
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
@@ -124,12 +149,21 @@ api.interceptors.response.use(
     finishTrackedLoading(response.config);
     if (shouldTrackRequestLoading(response.config)) {
       window.dispatchEvent(new CustomEvent('app-activity'));
+      touchSessionActivity();
     }
     return response;
   },
   async (error) => {
     const config = error.config;
     const status = error.response?.status;
+
+    if (error?.isSessionIdleExpired) {
+      finishTrackedLoading(config);
+      if (!window.location.pathname.startsWith('/login')) {
+        window.location.href = '/login';
+      }
+      return Promise.reject(error);
+    }
 
     if (isAxiosNetworkError(error)) {
       if (!isBrowserOnline()) {
@@ -172,6 +206,13 @@ api.interceptors.response.use(
 
     const token = getToken();
     if (!token) {
+      window.location.href = '/login';
+      return Promise.reject(error);
+    }
+
+    // Do not silently mint a new JWT after the idle window already elapsed.
+    if (expireClientSessionIfIdle(removeToken)) {
+      finishTrackedLoading(config);
       window.location.href = '/login';
       return Promise.reject(error);
     }

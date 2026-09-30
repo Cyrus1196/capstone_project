@@ -7,6 +7,12 @@ import React, {
 } from 'react';
 import api, { jwtAuth } from '../api/axios';
 import { getOrCreateDeviceFingerprint } from '../utils/deviceFingerprint';
+import {
+  clearSessionActivity,
+  expireClientSessionIfIdle,
+  setStoredIdleMs,
+  touchSessionActivity,
+} from '../utils/sessionActivity';
 
 const IDLE_LOGOUT_MS = parseInt(process.env.REACT_APP_IDLE_TIMEOUT_MS || '3600000', 10);
 
@@ -40,9 +46,12 @@ export const AuthProvider = ({ children }) => {
     }
     const m = Number(minutes);
     if (Number.isFinite(m) && m >= 1) {
-      setSessionIdleMs(m * 60 * 1000);
+      const ms = m * 60 * 1000;
+      setSessionIdleMs(ms);
+      setStoredIdleMs(ms);
     } else {
       setSessionIdleMs(IDLE_LOGOUT_MS);
+      setStoredIdleMs(IDLE_LOGOUT_MS);
     }
 
     // session_warning_minutes_left = minutes idle before the alert (not "time remaining").
@@ -62,11 +71,21 @@ export const AuthProvider = ({ children }) => {
 
   const checkUser = useCallback(async () => {
     try {
+      // Closing a tab / phone browser does not clear localStorage. If the idle
+      // window already elapsed, drop the leftover JWT before restoring session.
+      if (expireClientSessionIfIdle(() => jwtAuth.removeToken())) {
+        setUser(null);
+        setSessionIdleMs(IDLE_LOGOUT_MS);
+        setSessionWarnAfterIdleMs(60 * 1000);
+        return;
+      }
+
       if (jwtAuth.isAuthenticated()) {
         // Initial session boot uses AuthContext `loading`, not the global overlay.
         const response = await api.get('/user', { skipLoading: true });
         setUser(response.data.user);
         applySecurityFromResponse(response.data.security, response.data.user);
+        touchSessionActivity();
       } else {
         setUser(null);
         setSessionIdleMs(IDLE_LOGOUT_MS);
@@ -135,6 +154,7 @@ export const AuthProvider = ({ children }) => {
       // still clear client session
     } finally {
       jwtAuth.removeToken();
+      clearSessionActivity();
       setUser(null);
       setSessionIdleMs(IDLE_LOGOUT_MS);
       setSessionWarnAfterIdleMs(60 * 1000);
@@ -176,6 +196,7 @@ export const AuthProvider = ({ children }) => {
 
       setUser(response.data.user);
       applySecurityFromResponse(response.data.security, response.data.user);
+      touchSessionActivity();
       return { success: true, data: response.data };
     } catch (error) {
       const data = error.response?.data;
@@ -219,6 +240,7 @@ export const AuthProvider = ({ children }) => {
       }
       setUser(response.data.user);
       applySecurityFromResponse(response.data.security, response.data.user);
+      touchSessionActivity();
       return { success: true, data: response.data };
     } catch (error) {
       const data = error.response?.data;

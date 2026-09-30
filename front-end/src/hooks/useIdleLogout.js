@@ -1,4 +1,9 @@
 import { useEffect, useRef, useCallback } from 'react';
+import {
+  getLastActivityAt,
+  isSessionIdleExpired,
+  touchSessionActivity,
+} from '../utils/sessionActivity';
 
 const DEFAULT_IDLE_MS = 30 * 60 * 1000;
 const DEFAULT_WARN_AFTER_MS = 60 * 1000;
@@ -65,7 +70,7 @@ export function useIdleLogout({
   onIdleLogoutRef.current = onIdleLogout;
   const onSessionWarningRef = useRef(onSessionWarning);
   onSessionWarningRef.current = onSessionWarning;
-  const lastActivityRef = useRef(Date.now());
+  const lastActivityRef = useRef(getLastActivityAt() || Date.now());
 
   const clearAllTimers = useCallback(() => {
     if (logoutTimeoutRef.current) {
@@ -82,7 +87,13 @@ export function useIdleLogout({
     }
   }, []);
 
-  const resetTimer = useCallback(() => {
+  const forceIdleLogout = useCallback(() => {
+    clearAllTimers();
+    onSessionWarningRef.current?.({ type: 'close' });
+    onIdleLogoutRef.current();
+  }, [clearAllTimers]);
+
+  const armTimersFromLastActivity = useCallback(() => {
     clearAllTimers();
     onSessionWarningRef.current?.({ type: 'close' });
 
@@ -91,8 +102,16 @@ export function useIdleLogout({
     }
 
     const total = idleMsRef.current;
-    lastActivityRef.current = Date.now();
-    const warnDelay = resolveWarnDelayMs(total, warnBeforeLogoutMs, warnAfterOpt);
+    const last = lastActivityRef.current || Date.now();
+    const elapsed = Math.max(0, Date.now() - last);
+    if (elapsed >= total) {
+      forceIdleLogout();
+      return;
+    }
+
+    const remaining = total - elapsed;
+    const warnDelayFull = resolveWarnDelayMs(total, warnBeforeLogoutMs, warnAfterOpt);
+    const warnDelay = Math.max(0, warnDelayFull - elapsed);
 
     logoutTimeoutRef.current = setTimeout(() => {
       if (countdownIntervalRef.current) {
@@ -100,16 +119,19 @@ export function useIdleLogout({
         countdownIntervalRef.current = null;
       }
       onIdleLogoutRef.current();
-    }, total);
+    }, remaining);
 
-    if (warnDelay > 0 && warnDelay < total) {
+    if (warnDelay > 0 && warnDelay < remaining) {
       warningTimeoutRef.current = setTimeout(() => {
         const end = lastActivityRef.current + idleMsRef.current;
         const secs = Math.max(1, Math.ceil((end - Date.now()) / 1000));
         onSessionWarningRef.current?.({ type: 'open', secondsLeft: secs });
 
         countdownIntervalRef.current = setInterval(() => {
-          const left = Math.max(0, Math.ceil((lastActivityRef.current + idleMsRef.current - Date.now()) / 1000));
+          const left = Math.max(
+            0,
+            Math.ceil((lastActivityRef.current + idleMsRef.current - Date.now()) / 1000)
+          );
           if (left <= 0) {
             if (countdownIntervalRef.current) {
               clearInterval(countdownIntervalRef.current);
@@ -120,8 +142,37 @@ export function useIdleLogout({
           onSessionWarningRef.current?.({ type: 'tick', secondsLeft: left });
         }, 1000);
       }, warnDelay);
+    } else if (elapsed >= warnDelayFull && remaining > 0) {
+      const end = last + total;
+      const secs = Math.max(1, Math.ceil((end - Date.now()) / 1000));
+      onSessionWarningRef.current?.({ type: 'open', secondsLeft: secs });
+      countdownIntervalRef.current = setInterval(() => {
+        const left = Math.max(
+          0,
+          Math.ceil((lastActivityRef.current + idleMsRef.current - Date.now()) / 1000)
+        );
+        if (left <= 0) {
+          if (countdownIntervalRef.current) {
+            clearInterval(countdownIntervalRef.current);
+            countdownIntervalRef.current = null;
+          }
+          return;
+        }
+        onSessionWarningRef.current?.({ type: 'tick', secondsLeft: left });
+      }, 1000);
     }
-  }, [enabled, clearAllTimers, warnAfterOpt, warnBeforeLogoutMs]);
+  }, [enabled, clearAllTimers, warnAfterOpt, warnBeforeLogoutMs, forceIdleLogout]);
+
+  const resetTimer = useCallback(() => {
+    if (!enabled) {
+      clearAllTimers();
+      onSessionWarningRef.current?.({ type: 'close' });
+      return;
+    }
+
+    lastActivityRef.current = touchSessionActivity(Date.now());
+    armTimersFromLastActivity();
+  }, [enabled, clearAllTimers, armTimersFromLastActivity]);
 
   useEffect(() => {
     if (!enabled) {
@@ -130,7 +181,20 @@ export function useIdleLogout({
       return undefined;
     }
 
-    resetTimer();
+    // Resume from persisted activity (tab close / mobile suspend).
+    const stored = getLastActivityAt();
+    if (stored) {
+      lastActivityRef.current = stored;
+    } else {
+      lastActivityRef.current = touchSessionActivity(Date.now());
+    }
+
+    if (isSessionIdleExpired(Date.now(), idleMsRef.current)) {
+      forceIdleLogout();
+      return undefined;
+    }
+
+    armTimersFromLastActivity();
 
     const throttledReset = throttle(resetTimer, 1000);
     const events = ['mousedown', 'keydown', 'scroll', 'touchstart', 'click', 'wheel'];
@@ -139,11 +203,29 @@ export function useIdleLogout({
     const onAppActivity = () => resetTimer();
     window.addEventListener('app-activity', onAppActivity);
 
+    // Mobile browsers often pause timers while backgrounded — re-check on resume.
+    const onResume = () => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') {
+        return;
+      }
+      if (isSessionIdleExpired(Date.now(), idleMsRef.current)) {
+        forceIdleLogout();
+        return;
+      }
+      armTimersFromLastActivity();
+    };
+    document.addEventListener('visibilitychange', onResume);
+    window.addEventListener('focus', onResume);
+    window.addEventListener('pageshow', onResume);
+
     return () => {
       clearAllTimers();
       onSessionWarningRef.current?.({ type: 'close' });
       events.forEach((e) => window.removeEventListener(e, throttledReset));
       window.removeEventListener('app-activity', onAppActivity);
+      window.removeEventListener('focus', onResume);
+      window.removeEventListener('pageshow', onResume);
+      document.removeEventListener('visibilitychange', onResume);
     };
-  }, [enabled, resetTimer, idleMs, clearAllTimers]);
+  }, [enabled, resetTimer, idleMs, clearAllTimers, armTimersFromLastActivity, forceIdleLogout]);
 }
