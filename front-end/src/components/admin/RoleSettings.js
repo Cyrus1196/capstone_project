@@ -654,34 +654,14 @@ const RoleSettings = () => {
         </div>
       </section>
 
-      <section className="role-settings-section role-settings-section--permissions" aria-labelledby="set-permissions-heading">
+      <section
+        className={`role-settings-section role-settings-section--permissions${
+          selectedUser && !permissionsReadOnly ? ' role-settings-section--permissions-float-pad' : ''
+        }`}
+        aria-labelledby="set-permissions-heading"
+      >
         <div className="role-settings-section-head">
           <h3 id="set-permissions-heading" className="role-settings-section-title">Set permissions</h3>
-          {selectedUser && !permissionsReadOnly && (
-            <div className="role-settings-section-actions">
-              <button
-                type="button"
-                className="role-reset-button"
-                onClick={handleResetToRole}
-                disabled={saving || !useCustomPermissions}
-                title={
-                  useCustomPermissions
-                    ? 'Clear custom list and use role defaults'
-                    : 'Already using role defaults'
-                }
-              >
-                Reset to role
-              </button>
-              <button
-                type="button"
-                className="role-save-button"
-                onClick={handleSavePermissions}
-                disabled={saving}
-              >
-                {saving ? 'Saving...' : 'Save permissions'}
-              </button>
-            </div>
-          )}
         </div>
         {selectedUser ? (
 
@@ -1029,6 +1009,32 @@ const RoleSettings = () => {
           </p>
         )}
       </section>
+
+      {selectedUser && !permissionsReadOnly ? (
+        <div className="role-permissions-float" role="toolbar" aria-label="Permission actions">
+          <button
+            type="button"
+            className="role-reset-button"
+            onClick={handleResetToRole}
+            disabled={saving || !useCustomPermissions}
+            title={
+              useCustomPermissions
+                ? 'Clear custom list and use role defaults'
+                : 'Already using role defaults'
+            }
+          >
+            Reset to role
+          </button>
+          <button
+            type="button"
+            className="role-save-button"
+            onClick={handleSavePermissions}
+            disabled={saving}
+          >
+            {saving ? 'Saving...' : 'Save permissions'}
+          </button>
+        </div>
+      ) : null}
     </div>
   );
 };
