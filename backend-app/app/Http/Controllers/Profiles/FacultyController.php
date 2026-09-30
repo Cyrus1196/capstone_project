@@ -201,6 +201,18 @@ class FacultyController extends Controller
                 return response()->json(['message' => 'Unauthorized'], 401);
             }
 
+            // Grade edits belong to evaluation staff — not every logged-in account.
+            $mayGrade = $user->isAdmin()
+                || $user->isDean()
+                || $user->isEvaluatorLike()
+                || $user->hasRole('Program Head')
+                || $user->hasRole('Secretary')
+                || $user->canWorkOnStudentEvaluations();
+
+            if (! $mayGrade) {
+                return response()->json(['message' => 'Forbidden'], 403);
+            }
+
             $validated = $request->validate([
                 'grade' => 'nullable|string|max:10',
                 'status' => 'nullable|string|max:50',
@@ -214,9 +226,6 @@ class FacultyController extends Controller
             }
 
             $evaluation = Evaluation::findOrFail($evaluationId);
-
-            // In a full implementation, verify that the faculty is assigned to this class
-            // For now, allow update if the evaluation exists
 
             $studentProfile = $evaluation->student;
             if ($studentProfile && $studentProfile->current_program !== null && $studentProfile->current_program !== '') {

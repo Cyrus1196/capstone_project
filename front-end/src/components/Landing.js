@@ -102,7 +102,7 @@ const Landing = () => {
               <div className="landing-page__path-body">
                 <h2 className="landing-page__path-title">Explore as guest</h2>
                 <p className="landing-page__path-desc">
-                  Credit transfer simulation and curriculum catalog without creating an account.
+                  Browse the curriculum catalog and try a load / prerequisite simulation — nothing is saved to the server.
                 </p>
                 <button
                   type="button"

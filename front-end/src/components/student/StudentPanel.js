@@ -35,9 +35,23 @@ const StudentPanel = () => {
   useEffect(() => {
     if (!user) {
       navigate('/login');
-    } else if (isAdmin) {
-      // Redirect admins to admin panel (they can still access student panel via direct URL if needed)
-      // navigate('/admin');
+      return;
+    }
+    // Student portal is for Student role only — staff should use their own shells.
+    if (user.role && user.role !== 'Student') {
+      if (isAdmin || user.role === 'Admin') {
+        navigate('/admin', { replace: true });
+      } else if (user.role === 'Dean') {
+        navigate('/dean', { replace: true });
+      } else if (user.role === 'Program Head') {
+        navigate('/program-head', { replace: true });
+      } else if (user.role === 'Secretary') {
+        navigate('/secretary', { replace: true });
+      } else if (user.role === 'Adviser' || user.role === 'Evaluator') {
+        navigate('/evaluator', { replace: true });
+      } else {
+        navigate('/login', { replace: true });
+      }
     }
   }, [user, isAdmin, navigate]);
 

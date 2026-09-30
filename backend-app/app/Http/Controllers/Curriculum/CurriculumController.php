@@ -20,6 +20,24 @@ use Illuminate\Validation\ValidationException;
 
 class CurriculumController extends Controller
 {
+    private function denyUnlessCanManageCurriculum(Request $request)
+    {
+        $user = $request->user();
+        if (! $user) {
+            return response()->json(['message' => 'Unauthorized'], 401);
+        }
+
+        $allowed = $user->isAdmin()
+            || $user->hasPermission('Curriculum Management')
+            || $user->hasPermission('curriculum.manage');
+
+        if (! $allowed) {
+            return response()->json(['message' => 'Forbidden'], 403);
+        }
+
+        return null;
+    }
+
     /**
      * Get list of curriculum entries
      */
@@ -217,6 +235,10 @@ class CurriculumController extends Controller
      */
     public function storeBatch(Request $request)
     {
+        if ($deny = $this->denyUnlessCanManageCurriculum($request)) {
+            return $deny;
+        }
+
         try {
             // 1. Validate Input - Basic structure first
             $validated = $request->validate([
@@ -472,6 +494,10 @@ class CurriculumController extends Controller
      */
     public function store(Request $request)
     {
+        if ($deny = $this->denyUnlessCanManageCurriculum($request)) {
+            return $deny;
+        }
+
         try {
             $validated = $request->validate([
                 'program_id' => 'required|integer|exists:tbl_program,program_id',
@@ -524,6 +550,10 @@ class CurriculumController extends Controller
      */
     public function update(Request $request, $id)
     {
+        if ($deny = $this->denyUnlessCanManageCurriculum($request)) {
+            return $deny;
+        }
+
         try {
             $curriculum = Curriculum::findOrFail($id);
 
@@ -626,8 +656,12 @@ class CurriculumController extends Controller
         }
     }
 
-    public function destroy($id)
+    public function destroy(Request $request, $id)
     {
+        if ($deny = $this->denyUnlessCanManageCurriculum($request)) {
+            return $deny;
+        }
+
         try {
             $curriculum = Curriculum::findOrFail($id);
             $curriculum->delete();
