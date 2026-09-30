@@ -25,6 +25,10 @@ class RbacPortalMerge
                 'students.edit',
                 'faculty.view',
                 'curriculum.view',
+                // Paper objective: subject crediting among academic advisers
+                'credit_eval.view',
+                'credit_eval.create',
+                'Credit Evaluation',
             ],
             'Student' => [
                 'students.view',

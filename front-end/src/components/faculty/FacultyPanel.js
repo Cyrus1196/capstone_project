@@ -13,6 +13,7 @@ import './FacultyPanel.css';
 
 const StudentEvaluationView = lazy(() => import('../common/StudentEvaluationView'));
 const EvaluatorAnalytics = lazy(() => import('./EvaluatorAnalytics'));
+const AcademicManagement = lazy(() => import('../admin/AcademicManagement'));
 
 const TabFallback = () => (
   <div className="app-route-fallback" role="status" aria-live="polite">
@@ -44,6 +45,12 @@ const FacultyPanel = () => {
   const isEvaluatorOrAdviser = user?.role === 'Adviser' || user?.role === 'Evaluator';
 
   const showEvalModules = canAccessModule(STUDENT_EVALUATION_TAB_PERMISSIONS);
+  const showCreditEval = canAccessModule([
+    'Credit Evaluation',
+    'credit_eval.view',
+    'credit_eval.create',
+    'credit_eval.approve',
+  ]);
 
   const setActiveTab = useCallback((tab) => {
     setActiveTabState(tab);
@@ -67,6 +74,13 @@ const FacultyPanel = () => {
         { id: 'evaluated-students', label: 'Evaluated students', icon: 'fa-solid fa-clipboard-check' }
       );
     }
+    if (showCreditEval) {
+      evaluationItems.push({
+        id: 'credit-evaluation',
+        label: 'Subject crediting',
+        icon: 'fa-solid fa-right-left',
+      });
+    }
 
     const accountItems = [{ id: 'profile', label: 'My Profile', icon: 'fa-solid fa-id-card' }];
 
@@ -79,7 +93,7 @@ const FacultyPanel = () => {
     }
     groups.push({ id: 'account', title: 'Account', items: accountItems });
     return groups;
-  }, [showEvalModules]);
+  }, [showEvalModules, showCreditEval]);
 
   const fetchFacultyProfile = useCallback(async () => {
     try {
@@ -127,7 +141,10 @@ const FacultyPanel = () => {
     ) {
       setActiveTab('dashboard');
     }
-  }, [isEvaluatorOrAdviser, showEvalModules, activeTab, setActiveTab]);
+    if (!showCreditEval && activeTab === 'credit-evaluation') {
+      setActiveTab('dashboard');
+    }
+  }, [isEvaluatorOrAdviser, showEvalModules, showCreditEval, activeTab, setActiveTab]);
 
   useEffect(() => {
     if (!isEvaluatorOrAdviser) return;
@@ -198,6 +215,7 @@ const FacultyPanel = () => {
             <StudentEvaluationView listMode="already-evaluated" />
           )}
           {activeTab === 'analytics' && <EvaluatorAnalytics showEvalModules={showEvalModules} />}
+          {activeTab === 'credit-evaluation' && showCreditEval && <AcademicManagement />}
           {activeTab === 'profile' && (
             <FacultyProfile facultyProfile={facultyProfile} onUpdate={fetchFacultyProfile} />
           )}

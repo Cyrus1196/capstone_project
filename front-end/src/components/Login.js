@@ -263,7 +263,7 @@ const Login = () => {
                 <p className="login-page__lead">
                   {deviceOtpStep
                     ? `We emailed a 6-digit code to ${emailHint || 'your email'}. Enter it below to trust this device.`
-                    : 'Students: Student ID. Faculty / staff: Employee ID. Admin: email.'}
+                    : 'Students: full Student ID (e.g. 02-2324-07413). Faculty / staff: Employee ID. Admin: email.'}
                 </p>
               </div>
 

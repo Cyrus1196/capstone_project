@@ -1520,6 +1520,14 @@ export default function GuestPanel() {
   const [electiveTrackModalOpen, setElectiveTrackModalOpen] = useState(false);
   const [electiveTrackModalSlotId, setElectiveTrackModalSlotId] = useState(null);
 
+  /** Guest subject-crediting simulation (other-school codes → local equivalence). */
+  const [schools, setSchools] = useState([]);
+  const [transferSchoolId, setTransferSchoolId] = useState('');
+  const [transferCodesText, setTransferCodesText] = useState('');
+  const [transferLoading, setTransferLoading] = useState(false);
+  const [transferError, setTransferError] = useState('');
+  const [transferResults, setTransferResults] = useState(null);
+
   useEffect(() => {
     setSimOpen(true);
     setPlannerOpen(false);
@@ -1558,9 +1566,10 @@ export default function GuestPanel() {
   useEffect(() => {
     const load = async () => {
       try {
-        const [curRes, lookRes] = await Promise.all([
+        const [curRes, lookRes, schoolsRes] = await Promise.all([
           api.get('/curriculum'),
           api.get('/curriculum/lookup/data'),
+          api.get('/schools').catch(() => ({ data: [] })),
         ]);
         setCurriculum(Array.isArray(curRes.data) ? curRes.data : []);
         const p = lookRes.data?.programs || [];
@@ -1568,6 +1577,8 @@ export default function GuestPanel() {
         if (p.length >= 1) setProgramFilter(String(p[0].program_id));
         setYearLevels(lookRes.data?.yearLevels || lookRes.data?.year_levels || []);
         setSemesters(lookRes.data?.semesters || []);
+        const schoolList = Array.isArray(schoolsRes.data) ? schoolsRes.data : schoolsRes.data?.data || [];
+        setSchools(schoolList);
       } catch (e) {
         const msg = e.response?.data?.message || 'Could not load curriculum.';
         setError(msg);
@@ -1981,6 +1992,81 @@ export default function GuestPanel() {
     if (!plannerUnlocked) return;
     setPlannerOpen((open) => !open);
   }, [plannerUnlocked]);
+
+  const runTransferSimulation = useCallback(async () => {
+    const codes = String(transferCodesText || '')
+      .split(/[\n,;]+/)
+      .map((c) => c.trim())
+      .filter(Boolean)
+      .slice(0, 50);
+    if (codes.length === 0) {
+      setTransferError('Enter at least one prior-school subject code.');
+      setTransferResults(null);
+      return;
+    }
+    setTransferLoading(true);
+    setTransferError('');
+    try {
+      const payload = {
+        courses: codes.map((subject_code) => ({ subject_code })),
+      };
+      if (transferSchoolId) {
+        payload.school_id = Number(transferSchoolId);
+      }
+      const res = await api.post('/guest/credit-simulation', payload);
+      setTransferResults(Array.isArray(res.data?.results) ? res.data.results : []);
+    } catch (e) {
+      const msg = e.response?.data?.message || e.response?.data?.error || 'Could not run transfer match.';
+      setTransferError(msg);
+      setTransferResults(null);
+      await swalError('Transfer match failed', msg);
+    } finally {
+      setTransferLoading(false);
+    }
+  }, [transferCodesText, transferSchoolId]);
+
+  const applyTransferMatchesToCurriculum = useCallback(() => {
+    if (!Array.isArray(transferResults) || transferResults.length === 0) return;
+    const localCodes = new Set();
+    transferResults.forEach((row) => {
+      (row.equivalences || []).forEach((eq) => {
+        const code = String(eq.local_subject_code || '').trim().toUpperCase();
+        if (code) localCodes.add(code);
+      });
+    });
+    if (localCodes.size === 0) {
+      void swalInfo(
+        'No local matches',
+        'None of the entered codes have an active equivalence to a local subject yet. Ask staff to map them under Subject Crediting, or mark subjects manually below.'
+      );
+      return;
+    }
+    let applied = 0;
+    creditScopeRows.forEach((row) => {
+      const code = String(row.subject?.subject_code || row.subject_code || '')
+        .trim()
+        .toUpperCase();
+      if (code && localCodes.has(code)) applied += 1;
+    });
+    setRemarks((prev) => {
+      const next = { ...prev };
+      creditScopeRows.forEach((row) => {
+        const code = String(row.subject?.subject_code || row.subject_code || '')
+          .trim()
+          .toUpperCase();
+        if (code && localCodes.has(code)) {
+          next[row.curriculum_id] = 'passed';
+        }
+      });
+      return next;
+    });
+    void swalToast(
+      'success',
+      applied > 0
+        ? `Marked ${applied} local subject(s) as credited from transfer matches.`
+        : 'Matches found, but none appear in the selected curriculum view.'
+    );
+  }, [transferResults, creditScopeRows]);
 
   const movePlannerSubject = useCallback((curriculumId, yearId, semId) => {
     const row = remainingSubjectRows.find(
@@ -2843,8 +2929,102 @@ export default function GuestPanel() {
               <strong>{activeStep === 'planner' ? 'Step 2 of 2:' : 'Step 1 of 2:'}</strong>{' '}
               {activeStep === 'planner'
                 ? 'Review the suggested plan. Drag subjects between semesters (or use Move to) to adjust it.'
-                : 'Mark credited subjects first, then click Confirm to generate the remaining-subjects plan.'}
+                : 'Optionally match prior-school codes below, mark credited subjects, then click Confirm to generate the remaining-subjects plan.'}
             </div>
+
+            {activeStep !== 'planner' ? (
+            <details className="guest-transfer-details">
+              <summary>Simulate subject crediting (prior-school course codes)</summary>
+              <p className="guest-sim-desc">
+                Enter subject codes from another school. The system looks up active equivalences and can mark the
+                matching local curriculum subjects as credited. Nothing is saved to the server.
+              </p>
+              <div className="guest-sim-form">
+                <label className="guest-sim-row">
+                  <span>Prior school (optional filter)</span>
+                  <select
+                    value={transferSchoolId}
+                    onChange={(e) => setTransferSchoolId(e.target.value)}
+                  >
+                    <option value="">All schools on file</option>
+                    {schools.map((s) => (
+                      <option key={s.school_id} value={String(s.school_id)}>
+                        {s.school_name || `School #${s.school_id}`}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="guest-sim-row">
+                  <span>Subject codes (one per line or comma-separated)</span>
+                  <textarea
+                    rows={4}
+                    value={transferCodesText}
+                    onChange={(e) => setTransferCodesText(e.target.value)}
+                    placeholder={'e.g.\nIT101\nMATH1\nENG1'}
+                  />
+                </label>
+                <button
+                  type="button"
+                  className="guest-sim-submit"
+                  onClick={runTransferSimulation}
+                  disabled={transferLoading}
+                >
+                  {transferLoading ? 'Matching…' : 'Match codes to local subjects'}
+                </button>
+              </div>
+              {transferError ? <p className="guest-sim-err">{transferError}</p> : null}
+              {Array.isArray(transferResults) && transferResults.length > 0 ? (
+                <div className="guest-sim-results">
+                  {transferResults.map((row) => (
+                    <div key={row.input_code} className="guest-sim-block">
+                      <div className="guest-sim-code">
+                        <strong>{row.input_code}</strong>{' '}
+                        <span className={`guest-sim-badge guest-sim-${row.match || 'none'}`}>
+                          {row.match || 'none'}
+                        </span>
+                      </div>
+                      {row.message ? <p className="guest-sim-msg">{row.message}</p> : null}
+                      {(row.equivalences || []).length > 0 ? (
+                        <div className="guest-sim-table-wrap">
+                          <table className="guest-sim-table-inner">
+                            <thead>
+                              <tr>
+                                <th>External</th>
+                                <th>Local subject</th>
+                                <th>Units</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {row.equivalences.map((eq) => (
+                                <tr key={`${eq.equivalence_id}-${eq.local_subject_id}`}>
+                                  <td>
+                                    {eq.external_subject_code}
+                                    {eq.external_subject_name ? ` — ${eq.external_subject_name}` : ''}
+                                  </td>
+                                  <td>
+                                    {eq.local_subject_code}
+                                    {eq.local_subject_name ? ` — ${eq.local_subject_name}` : ''}
+                                  </td>
+                                  <td>{eq.credited_units ?? '—'}</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      ) : null}
+                    </div>
+                  ))}
+                  <button
+                    type="button"
+                    className="guest-sim-submit"
+                    onClick={applyTransferMatchesToCurriculum}
+                  >
+                    Apply matched local subjects as credited
+                  </button>
+                </div>
+              ) : null}
+            </details>
+            ) : null}
 
             <div id="guest-sim-stage" className="guest-sim-stage">
             <div

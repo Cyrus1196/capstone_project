@@ -132,6 +132,34 @@ class AuthController extends Controller
     }
 
     /**
+     * Student ID login candidates (exact + common PHINMA campus-code padding).
+     * e.g. typed `2-2324-07413` also tries stored `02-2324-07413`.
+     *
+     * @return list<string>
+     */
+    public static function studentIdLoginCandidates(string $login): array
+    {
+        $login = trim($login);
+        if ($login === '') {
+            return [];
+        }
+
+        $candidates = [$login];
+
+        // `2-2324-07413` → `02-2324-07413`
+        if (preg_match('/^(\d)-(\d{4}-\d+)$/', $login, $m)) {
+            $candidates[] = '0'.$m[1].'-'.$m[2];
+        }
+
+        // `02-2324-07413` → `2-2324-07413`
+        if (preg_match('/^0(\d)-(\d{4}-\d+)$/', $login, $m)) {
+            $candidates[] = $m[1].'-'.$m[2];
+        }
+
+        return array_values(array_unique($candidates));
+    }
+
+    /**
      * Resolve login by email/username, student ID number, or staff employee ID.
      * Password reset / verification may still resolve staff by email.
      */
@@ -158,10 +186,11 @@ class AuthController extends Controller
             return $byEmployeeId;
         }
 
+        $studentIdCandidates = self::studentIdLoginCandidates($login);
         $byStudentId = TblUser::query()
             ->with($with)
-            ->whereHas('studentProfile', function ($q) use ($login) {
-                $q->where('student_id_number', $login);
+            ->whereHas('studentProfile', function ($q) use ($studentIdCandidates) {
+                $q->whereIn('student_id_number', $studentIdCandidates);
                 if (CachedSchema::hasColumn('tbl_student_profile', 'is_simulation')) {
                     $q->where(function ($inner) {
                         $inner->where('is_simulation', false)->orWhereNull('is_simulation');
