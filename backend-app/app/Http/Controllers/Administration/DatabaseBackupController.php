@@ -52,16 +52,28 @@ class DatabaseBackupController extends Controller
             return $resp;
         }
         if (! Schema::hasTable('tbl_backup_history')) {
-            return response()->json(['data' => []]);
+            return response()->json([
+                'data' => [],
+                'current_page' => 1,
+                'last_page' => 1,
+                'per_page' => 10,
+                'total' => 0,
+                'from' => null,
+                'to' => null,
+            ]);
         }
 
-        $rows = BackupHistory::query()
-            ->orderByDesc('id')
-            ->limit(100)
-            ->get()
-            ->map(fn (BackupHistory $h) => $this->serializeHistory($h));
+        $perPage = max(5, min(50, (int) $request->get('per_page', 10)));
 
-        return response()->json(['data' => $rows]);
+        $paginator = BackupHistory::query()
+            ->orderByDesc('id')
+            ->paginate($perPage);
+
+        $paginator->setCollection(
+            $paginator->getCollection()->map(fn (BackupHistory $h) => $this->serializeHistory($h))
+        );
+
+        return response()->json($paginator);
     }
 
     public function updateSchedule(Request $request)

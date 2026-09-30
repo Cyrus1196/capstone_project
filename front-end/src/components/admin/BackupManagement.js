@@ -30,9 +30,14 @@ function statusClass(status) {
   return 'backup-status';
 }
 
+const HISTORY_PER_PAGE = 10;
+
 const BackupManagement = () => {
   const [info, setInfo] = useState(null);
   const [history, setHistory] = useState([]);
+  const [historyPage, setHistoryPage] = useState(1);
+  const [historyPagination, setHistoryPagination] = useState(null);
+  const [historyLoading, setHistoryLoading] = useState(false);
   const [loading, setLoading] = useState(true);
   const [savingSchedule, setSavingSchedule] = useState(false);
   const [creating, setCreating] = useState(false);
@@ -45,25 +50,57 @@ const BackupManagement = () => {
     storage_path: '',
   });
 
+  const loadHistory = useCallback(async (page = 1) => {
+    setHistoryLoading(true);
+    try {
+      const histRes = await api.get('/system/backup/history', {
+        params: { page, per_page: HISTORY_PER_PAGE },
+      });
+      const body = histRes.data || {};
+      setHistory(Array.isArray(body.data) ? body.data : []);
+      setHistoryPage(Number(body.current_page) || page);
+      setHistoryPagination({
+        currentPage: Number(body.current_page) || page,
+        lastPage: Number(body.last_page) || 1,
+        perPage: Number(body.per_page) || HISTORY_PER_PAGE,
+        total: Number(body.total) || 0,
+        from: body.from ?? null,
+        to: body.to ?? null,
+      });
+    } catch (err) {
+      const msg =
+        err.response?.data?.message ||
+        err.response?.data?.error ||
+        err.message ||
+        'Could not load backup history';
+      setError(msg);
+      setHistory([]);
+      setHistoryPagination(null);
+    } finally {
+      setHistoryLoading(false);
+    }
+  }, []);
+
+  const loadInfo = useCallback(async () => {
+    const infoRes = await api.get('/system/backup/info');
+    const nextInfo = infoRes.data || null;
+    setInfo(nextInfo);
+    if (nextInfo?.schedule) {
+      setForm({
+        enabled: Boolean(nextInfo.schedule.enabled),
+        schedule_type: nextInfo.schedule.schedule_type || 'daily',
+        backup_time: nextInfo.schedule.backup_time || '00:01',
+        storage_path: nextInfo.schedule.storage_path || nextInfo.storage_path || '',
+      });
+    }
+  }, []);
+
   const loadAll = useCallback(async () => {
     setLoading(true);
     setError('');
     try {
-      const [infoRes, histRes] = await Promise.all([
-        api.get('/system/backup/info'),
-        api.get('/system/backup/history'),
-      ]);
-      const nextInfo = infoRes.data || null;
-      setInfo(nextInfo);
-      setHistory(Array.isArray(histRes.data?.data) ? histRes.data.data : []);
-      if (nextInfo?.schedule) {
-        setForm({
-          enabled: Boolean(nextInfo.schedule.enabled),
-          schedule_type: nextInfo.schedule.schedule_type || 'daily',
-          backup_time: nextInfo.schedule.backup_time || '00:01',
-          storage_path: nextInfo.schedule.storage_path || nextInfo.storage_path || '',
-        });
-      }
+      await loadInfo();
+      await loadHistory(1);
     } catch (err) {
       const msg =
         err.response?.data?.message ||
@@ -74,11 +111,17 @@ const BackupManagement = () => {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [loadInfo, loadHistory]);
 
   useEffect(() => {
     loadAll();
   }, [loadAll]);
+
+  const historyMetaLine = useMemo(() => {
+    if (!historyPagination) return null;
+    const { from, to, total, currentPage, lastPage } = historyPagination;
+    return `Showing ${from ?? 0}–${to ?? 0} of ${total} · Page ${currentPage} of ${lastPage}`;
+  }, [historyPagination]);
 
   const stats = info?.stats || {};
 
@@ -117,7 +160,8 @@ const BackupManagement = () => {
     try {
       await api.post('/system/backup/create', {}, { timeout: 0 });
       swalToast('success', 'Backup created on server');
-      await loadAll();
+      await loadInfo();
+      await loadHistory(1);
     } catch (err) {
       const msg = err.response?.data?.message || err.message || 'Backup failed';
       setError(msg);
@@ -177,11 +221,13 @@ const BackupManagement = () => {
     try {
       await api.post(`/system/backup/restore/${row.id}`, {}, { timeout: 0 });
       swalToast('success', 'Database restored');
-      await loadAll();
+      await loadInfo();
+      await loadHistory(historyPage);
     } catch (err) {
       const msg = err.response?.data?.message || err.message || 'Restore failed';
       await swalError('Restore failed', msg);
-      await loadAll();
+      await loadInfo();
+      await loadHistory(historyPage);
     } finally {
       setBusyId(null);
     }
@@ -376,7 +422,7 @@ const BackupManagement = () => {
               </tr>
             </thead>
             <tbody>
-              {loading ? (
+              {loading || historyLoading ? (
                 <tr>
                   <td colSpan={8} className="backup-table__empty">
                     Loading history…
@@ -442,6 +488,32 @@ const BackupManagement = () => {
             </tbody>
           </table>
         </div>
+
+        {historyPagination && historyPagination.total > 0 ? (
+          <div className="backup-pagination">
+            <span>{historyMetaLine}</span>
+            <div className="backup-pagination__btns">
+              <button
+                type="button"
+                disabled={historyPagination.currentPage <= 1 || historyLoading || loading}
+                onClick={() => loadHistory(historyPagination.currentPage - 1)}
+              >
+                Previous
+              </button>
+              <button
+                type="button"
+                disabled={
+                  historyPagination.currentPage >= historyPagination.lastPage ||
+                  historyLoading ||
+                  loading
+                }
+                onClick={() => loadHistory(historyPagination.currentPage + 1)}
+              >
+                Next
+              </button>
+            </div>
+          </div>
+        ) : null}
       </section>
     </div>
   );

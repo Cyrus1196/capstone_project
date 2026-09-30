@@ -362,6 +362,43 @@
   cursor: not-allowed;
 }
 
+.backup-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin-top: 0;
+  padding: 0.9rem 1.15rem;
+  border-top: 1px solid #e2e8f0;
+  font-size: 0.9rem;
+  color: #475569;
+  background: #fff;
+}
+
+.backup-pagination__btns {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.backup-pagination button {
+  padding: 0.45rem 1rem;
+  border-radius: 8px;
+  border: 1px solid #cbd5e1;
+  background: #fff;
+  cursor: pointer;
+  font-size: 0.85rem;
+}
+
+.backup-pagination button:hover:not(:disabled) {
+  background: #f1f5f9;
+}
+
+.backup-pagination button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
 @media (max-width: 960px) {
   .backup-mgmt__stats,
   .backup-mgmt__grid {
