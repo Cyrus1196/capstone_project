@@ -127,16 +127,6 @@ const ForcePasswordChangeModal = () => {
       >
         <div className="force-pwd-header">
           <h2 id="force-pwd-title">Change your password</h2>
-          <button
-            type="button"
-            className="force-pwd-close"
-            onClick={handleClearPassword}
-            disabled={submitting}
-            aria-label="Clear password fields"
-            title="Clear password fields"
-          >
-            ×
-          </button>
         </div>
         <form onSubmit={handleSubmit} className="force-pwd-form" noValidate>
           <label htmlFor="force-pwd-new">New password</label>

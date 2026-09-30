@@ -130,6 +130,8 @@ const UserManagement = ({ userScope = 'staff' }) => {
   const [passwordFieldError, setPasswordFieldError] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [showModal, setShowModal] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const submittingRef = useRef(false);
   const modalRef = useRef(null);
   const [editingUser, setEditingUser] = useState(null);
   const [formData, setFormData] = useState({});
@@ -754,6 +756,9 @@ const UserManagement = ({ userScope = 'staff' }) => {
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    if (submittingRef.current || saving) return;
+    submittingRef.current = true;
+    setSaving(true);
     setError('');
 
     try {
@@ -1033,10 +1038,14 @@ const UserManagement = ({ userScope = 'staff' }) => {
         setPasswordFieldError(msg);
       }
       await swalError('Save failed', msg);
+    } finally {
+      submittingRef.current = false;
+      setSaving(false);
     }
   };
 
   const handleCloseModal = () => {
+    if (saving) return;
     setShowModal(false);
     setEditingUser(null);
     setPasswordFieldError('');
@@ -1888,11 +1897,11 @@ const UserManagement = ({ userScope = 'staff' }) => {
               )}
 
               <div className="form-actions">
-                <button type="button" className="cancel-button" onClick={handleCloseModal}>
+                <button type="button" className="cancel-button" onClick={handleCloseModal} disabled={saving}>
                   Cancel
                 </button>
-                <button type="submit" className="submit-button">
-                  {editingUser ? 'Update' : 'Create'}
+                <button type="submit" className="submit-button" disabled={saving}>
+                  {saving ? 'Saving…' : editingUser ? 'Update' : 'Create'}
                 </button>
               </div>
             </form>

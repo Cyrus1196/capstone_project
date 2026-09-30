@@ -1293,6 +1293,7 @@ const StudentEvaluationView = ({
   const [modifiedKeys, setModifiedKeys] = useState(new Set());
   const draftCacheHydratedStudentRef = useRef(null);
   const [savingAll, setSavingAll] = useState(false);
+  const savingAllRef = useRef(false);
   const [, setSaveError] = useState('');
   const [promoteModalOpen, setPromoteModalOpen] = useState(false);
   const [promoteEvaluatedBy, setPromoteEvaluatedBy] = useState('');
@@ -5298,6 +5299,7 @@ const StudentEvaluationView = ({
   // Save all modified evaluations at once
   const handleSaveAll = async () => {
     if (!canEditEvaluationRows || !selectedStudent || !data?.student?.student_id) return;
+    if (savingAllRef.current || savingAll) return;
     if (systemGuideOpen) {
       await swalInfo(
         'Guide preview only',
@@ -5328,6 +5330,7 @@ const StudentEvaluationView = ({
       if (!confirmed) return;
     }
 
+    savingAllRef.current = true;
     setSavingAll(true);
     setSaveError('');
 
@@ -5410,6 +5413,7 @@ const StudentEvaluationView = ({
     await Promise.all(savePromises);
 
     if (results.failed > 0) {
+      savingAllRef.current = false;
       setSavingAll(false);
       setSaveError(`${results.failed} of ${modifiedKeys.size} saves failed`);
       swalError('Partial Save Failure', `${results.failed} evaluations could not be saved`);
@@ -5427,6 +5431,7 @@ const StudentEvaluationView = ({
         const first = String(pendingSimName.first_name || '').trim();
         const last = String(pendingSimName.last_name || '').trim();
         if (!first || !last) {
+          savingAllRef.current = false;
           setSavingAll(false);
           await swalError('Name required', 'First name and last name are required for the simulation dummy.');
           return;
@@ -5525,6 +5530,7 @@ const StudentEvaluationView = ({
         err.response?.data?.message || 'Request failed'
       );
     } finally {
+      savingAllRef.current = false;
       setSavingAll(false);
     }
   };

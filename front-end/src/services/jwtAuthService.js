@@ -12,16 +12,8 @@ export const jwtAuthService = {
     return response.data;
   },
 
-  async register(email, password, role_id) {
-    const response = await api.post('/jwt/register', {
-      email,
-      password,
-      role_id,
-    });
-    if (response.data.access_token) {
-      jwtAuth.setToken(response.data.access_token);
-    }
-    return response.data;
+  async register() {
+    throw new Error('Public registration is disabled. Create users in Admin → User Management.');
   },
 
   async logout() {
