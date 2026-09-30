@@ -128,40 +128,14 @@ class JwtAuthController extends Controller
         ]);
     }
 
+    /**
+     * Public self-registration is disabled. Create users via Admin → User Management.
+     */
     public function register(Request $request)
     {
-        $settings = SecuritySetting::current();
-        $maxLen = $settings->maxPasswordLength();
-
-        $request->validate([
-            'email' => ['required', 'email', 'unique:tbl_users,email', AuthUnitHelpers::emailFormatRule()],
-            'password' => ['required', 'string', 'min:'.$settings->minPasswordLength(), 'max:'.$maxLen, AuthUnitHelpers::passwordStrengthRule()],
-            'role_id' => 'required|integer|exists:roles,role_id',
-        ]);
-
-        $user = TblUser::create([
-            'email' => $request->email,
-            'password' => AuthUnitHelpers::hashUserPassword($request->password),
-            'role_id' => $request->role_id,
-            'status' => 'active',
-            'password_changed_at' => now(),
-        ]);
-
-        $fresh = $user->fresh();
-        AuthSecurity::clearLoginState($fresh);
-
-        $token = AuthUnitHelpers::generateSessionTokenForUser($fresh);
-
         return response()->json([
-            'access_token' => $token,
-            'token_type' => 'Bearer',
-            'expires_in' => AuthSecurity::tokenExpiresInSeconds($fresh),
-            'user' => [
-                'id' => $fresh->user_id,
-                'email' => $fresh->email,
-                'role_id' => $fresh->role_id,
-            ],
-        ], 201);
+            'error' => 'Public registration is disabled. Ask an administrator to create your account.',
+        ], 403);
     }
 
     public function me(Request $request)
