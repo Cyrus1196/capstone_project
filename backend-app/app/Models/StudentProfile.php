@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Support\CachedSchema;
+use App\Support\StudentIdNumber;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 
@@ -83,15 +84,32 @@ class StudentProfile extends Model
         return $this->attributes['student_id_number'] ?? $this->attributes['student_number'] ?? null;
     }
 
-    /** Look up by student_id_number or student_number. */
+    /** Look up by student_id_number or student_number (accepts 2-/02- campus padding variants). */
     public function scopeWhereStudentIdNumber($query, $number)
     {
-        return $query->where(function ($q) use ($number) {
+        $candidates = StudentIdNumber::loginCandidates((string) $number);
+        $phinma = StudentIdNumber::parsePhinma((string) $number);
+
+        return $query->where(function ($q) use ($number, $candidates, $phinma) {
             $hasStudentIdNumber = CachedSchema::hasColumn($this->table, 'student_id_number');
             $hasStudentNumber = CachedSchema::hasColumn($this->table, 'student_number');
 
             if ($hasStudentIdNumber) {
-                $q->where('student_id_number', $number);
+                if ($candidates !== []) {
+                    $q->whereIn('student_id_number', $candidates);
+                } else {
+                    $q->where('student_id_number', $number);
+                }
+
+                if ($phinma !== null) {
+                    $q->orWhereRaw(
+                        "student_id_number REGEXP '^[0-9]{1,2}-[0-9]{4}-[0-9]+$'
+                         AND CAST(SUBSTRING_INDEX(student_id_number, '-', 1) AS UNSIGNED) = ?
+                         AND SUBSTRING_INDEX(SUBSTRING_INDEX(student_id_number, '-', 2), '-', -1) = ?
+                         AND CAST(SUBSTRING_INDEX(student_id_number, '-', -1) AS UNSIGNED) = ?",
+                        [$phinma['campus'], $phinma['year'], $phinma['serial']]
+                    );
+                }
             }
 
             if ($hasStudentNumber) {

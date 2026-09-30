@@ -269,9 +269,11 @@ class CsvImportController extends Controller
     {
         $min = SecuritySetting::current()->minPasswordLength();
         $max = SecuritySetting::current()->maxPasswordLength();
-        $sid = isset($row['student_id_number']) ? trim((string) $row['student_id_number']) : '';
+        $sid = isset($row['student_id_number'])
+            ? \App\Support\StudentIdNumber::canonicalize((string) $row['student_id_number'])
+            : '';
         $profileBySid = $sid !== ''
-            ? StudentProfile::query()->where('student_id_number', $sid)->orderBy('student_id')->first()
+            ? StudentProfile::query()->whereStudentIdNumber($sid)->orderBy('student_id')->first()
             : null;
 
         $base = [
@@ -375,9 +377,13 @@ class CsvImportController extends Controller
         if (! in_array($t, ['student', 'account'], true)) {
             return;
         }
-        $sid = trim((string) ($row['student_id_number'] ?? ''));
+        $sid = \App\Support\StudentIdNumber::canonicalize((string) ($row['student_id_number'] ?? ''));
         if ($sid !== '') {
             $pendingStudentIds[$sid] = true;
+            // Also accept unpadded campus form from later grade rows in the same file.
+            foreach (\App\Support\StudentIdNumber::loginCandidates($sid) as $candidate) {
+                $pendingStudentIds[$candidate] = true;
+            }
         }
     }
 
@@ -445,8 +451,8 @@ class CsvImportController extends Controller
      */
     private function gradeDeliberationStudentMetadataErrors(array $row): array
     {
-        $sid = trim((string) ($row['student_id_number'] ?? ''));
-        if ($sid === '' || StudentProfile::query()->where('student_id_number', $sid)->exists()) {
+        $sid = \App\Support\StudentIdNumber::canonicalize((string) ($row['student_id_number'] ?? ''));
+        if ($sid === '' || StudentProfile::query()->whereStudentIdNumber($sid)->exists()) {
             return [];
         }
 
@@ -469,7 +475,7 @@ class CsvImportController extends Controller
      */
     private function studentProfileAttributesFromRow(array $row): array
     {
-        $sid = trim((string) $row['student_id_number']);
+        $sid = \App\Support\StudentIdNumber::canonicalize((string) $row['student_id_number']);
         $programId = $row['program_id'] ?? null;
         $yearId = $row['year_level_id'] ?? null;
 
@@ -588,11 +594,11 @@ class CsvImportController extends Controller
             throw new \RuntimeException('Student role not found.');
         }
 
-        $sid = trim((string) $row['student_id_number']);
+        $sid = \App\Support\StudentIdNumber::canonicalize((string) $row['student_id_number']);
         $row['student_id_number'] = $sid;
 
         $profileBySid = StudentProfile::query()
-            ->where('student_id_number', $sid)
+            ->whereStudentIdNumber($sid)
             ->orderBy('student_id')
             ->first();
 
@@ -785,7 +791,7 @@ class CsvImportController extends Controller
         }
 
         $profile = StudentProfile::query()
-            ->where('student_id_number', trim((string) ($row['student_id_number'] ?? '')))
+            ->whereStudentIdNumber(\App\Support\StudentIdNumber::canonicalize((string) ($row['student_id_number'] ?? '')))
             ->orderBy('student_id')
             ->first();
 
@@ -2056,7 +2062,7 @@ class CsvImportController extends Controller
         }
 
         if (! empty($fix['student_id_number'])) {
-            $row['student_id_number'] = trim((string) $fix['student_id_number']);
+            $row['student_id_number'] = \App\Support\StudentIdNumber::canonicalize((string) $fix['student_id_number']);
         }
 
         if (! empty($fix['evaluation_status'])) {
@@ -2257,8 +2263,8 @@ class CsvImportController extends Controller
             }
         }
 
-        $sid = trim((string) ($row['student_id_number'] ?? ''));
-        if ($sid === '' || StudentProfile::query()->where('student_id_number', $sid)->exists()) {
+        $sid = \App\Support\StudentIdNumber::canonicalize((string) ($row['student_id_number'] ?? ''));
+        if ($sid === '' || StudentProfile::query()->whereStudentIdNumber($sid)->exists()) {
             return false;
         }
 

@@ -319,7 +319,10 @@ class StudentController extends Controller
                 $hasStudentIdNumberColumn = CachedSchema::hasColumn('tbl_student_profile', 'student_id_number');
                 $hasStudentNumberColumn = CachedSchema::hasColumn('tbl_student_profile', 'student_number');
 
-                $rawStudentIdNumber = (string) ($validated['student_id_number'] ?? '');
+                $rawStudentIdNumber = \App\Support\StudentIdNumber::canonicalize(
+                    (string) ($validated['student_id_number'] ?? '')
+                );
+                $validated['student_id_number'] = $rawStudentIdNumber;
                 $sanitizedStudentNumber = preg_replace('/\D+/', '', $rawStudentIdNumber);
 
                 if ($rawStudentIdNumber === '' || $sanitizedStudentNumber === '') {
@@ -335,7 +338,7 @@ class StudentController extends Controller
 
                 // Prevent duplicates for the same value for another student.
                 if ($hasStudentIdNumberColumn) {
-                    $duplicate = StudentProfile::where('student_id_number', $rawStudentIdNumber)
+                    $duplicate = StudentProfile::whereStudentIdNumber($rawStudentIdNumber)
                         ->where('user_id', '!=', $targetUserId)
                         ->exists();
                     if ($duplicate) {
@@ -369,7 +372,10 @@ class StudentController extends Controller
                 // Your tbl_student_profile uses `student_number` (INT) in the current schema,
                 // but the frontend captures `student_id_number` like "02-2324-07413".
                 // We sanitize to digits only before saving to avoid MySQL truncation warnings.
-                $rawStudentIdNumber = (string) ($validated['student_id_number'] ?? '');
+                $rawStudentIdNumber = \App\Support\StudentIdNumber::canonicalize(
+                    (string) ($validated['student_id_number'] ?? '')
+                );
+                $validated['student_id_number'] = $rawStudentIdNumber;
                 $sanitizedStudentNumber = preg_replace('/\D+/', '', $rawStudentIdNumber);
                 if ($sanitizedStudentNumber === '') {
                     return response()->json([
@@ -389,7 +395,7 @@ class StudentController extends Controller
                 // (avoids "2026-PERSONAL-001" colliding with stored student_number "2026001").
                 $exists = false;
                 if ($hasStudentIdNumberColumn) {
-                    $exists = StudentProfile::where('student_id_number', $rawStudentIdNumber)->exists();
+                    $exists = StudentProfile::whereStudentIdNumber($rawStudentIdNumber)->exists();
                 }
                 if (! $exists && $hasStudentNumberColumn && ! $idHasNonDigitFormat) {
                     $exists = StudentProfile::where('student_number', $sanitizedStudentNumber)->exists();

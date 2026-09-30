@@ -44,9 +44,12 @@ class StudentLoginProvisioner
             return TblUser::query()->find($profile->user_id);
         }
 
-        $sid = trim((string) $profile->student_id_number);
+        $sid = \App\Support\StudentIdNumber::canonicalize((string) $profile->student_id_number);
         if ($sid === '') {
             return null;
+        }
+        if ($sid !== trim((string) $profile->student_id_number)) {
+            $profile->student_id_number = $sid;
         }
 
         $studentRoleId = Role::query()->where('role_name', 'Student')->value('role_id');

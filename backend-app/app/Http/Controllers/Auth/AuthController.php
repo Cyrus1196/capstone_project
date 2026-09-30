@@ -132,31 +132,11 @@ class AuthController extends Controller
     }
 
     /**
-     * Student ID login candidates (exact + common PHINMA campus-code padding).
-     * e.g. typed `2-2324-07413` also tries stored `02-2324-07413`.
-     *
      * @return list<string>
      */
     public static function studentIdLoginCandidates(string $login): array
     {
-        $login = trim($login);
-        if ($login === '') {
-            return [];
-        }
-
-        $candidates = [$login];
-
-        // `2-2324-07413` → `02-2324-07413`
-        if (preg_match('/^(\d)-(\d{4}-\d+)$/', $login, $m)) {
-            $candidates[] = '0'.$m[1].'-'.$m[2];
-        }
-
-        // `02-2324-07413` → `2-2324-07413`
-        if (preg_match('/^0(\d)-(\d{4}-\d+)$/', $login, $m)) {
-            $candidates[] = $m[1].'-'.$m[2];
-        }
-
-        return array_values(array_unique($candidates));
+        return \App\Support\StudentIdNumber::loginCandidates($login);
     }
 
     /**
@@ -187,19 +167,46 @@ class AuthController extends Controller
         }
 
         $studentIdCandidates = self::studentIdLoginCandidates($login);
-        $byStudentId = TblUser::query()
-            ->with($with)
-            ->whereHas('studentProfile', function ($q) use ($studentIdCandidates) {
-                $q->whereIn('student_id_number', $studentIdCandidates);
-                if (CachedSchema::hasColumn('tbl_student_profile', 'is_simulation')) {
-                    $q->where(function ($inner) {
-                        $inner->where('is_simulation', false)->orWhereNull('is_simulation');
-                    });
-                }
-            })
-            ->first();
-        if ($byStudentId) {
-            return $byStudentId;
+        $applyNonSimulation = function ($q) {
+            if (CachedSchema::hasColumn('tbl_student_profile', 'is_simulation')) {
+                $q->where(function ($inner) {
+                    $inner->where('is_simulation', false)->orWhereNull('is_simulation');
+                });
+            }
+        };
+
+        if ($studentIdCandidates !== []) {
+            $byStudentId = TblUser::query()
+                ->with($with)
+                ->whereHas('studentProfile', function ($q) use ($studentIdCandidates, $applyNonSimulation) {
+                    $q->whereIn('student_id_number', $studentIdCandidates);
+                    $applyNonSimulation($q);
+                })
+                ->first();
+            if ($byStudentId) {
+                return $byStudentId;
+            }
+        }
+
+        // Numeric-equivalent match for any PHINMA-style ID (all current + future students).
+        $phinma = \App\Support\StudentIdNumber::parsePhinma($login);
+        if ($phinma !== null) {
+            $byStudentId = TblUser::query()
+                ->with($with)
+                ->whereHas('studentProfile', function ($q) use ($phinma, $applyNonSimulation) {
+                    $q->whereRaw(
+                        "student_id_number REGEXP '^[0-9]{1,2}-[0-9]{4}-[0-9]+$'
+                         AND CAST(SUBSTRING_INDEX(student_id_number, '-', 1) AS UNSIGNED) = ?
+                         AND SUBSTRING_INDEX(SUBSTRING_INDEX(student_id_number, '-', 2), '-', -1) = ?
+                         AND CAST(SUBSTRING_INDEX(student_id_number, '-', -1) AS UNSIGNED) = ?",
+                        [$phinma['campus'], $phinma['year'], $phinma['serial']]
+                    );
+                    $applyNonSimulation($q);
+                })
+                ->first();
+            if ($byStudentId) {
+                return $byStudentId;
+            }
         }
 
         $user = TblUser::whereEmail($login)->with($with)->first();
