@@ -85,6 +85,14 @@ if [[ "${RUN_MIGRATIONS:-false}" == "true" ]]; then
   echo "WARN: Import your SQL dump, or run: php artisan migrate --force  from the Railway shell."
 fi
 
+# One-shot: reset Student passwords to first word of first_name + 123 (e.g. CYRUS VITERBO -> cyrus123).
+# Set RESET_STUDENT_DEFAULT_PASSWORDS=true in Railway Variables for one deploy, then set back to false.
+if [[ "${RESET_STUDENT_DEFAULT_PASSWORDS:-false}" == "true" ]]; then
+  echo "RESET_STUDENT_DEFAULT_PASSWORDS=true — resetting student default passwords..."
+  php artisan students:reset-default-passwords || echo "WARN: student default password reset failed."
+  echo "Done. Set RESET_STUDENT_DEFAULT_PASSWORDS=false so this does not run on every restart."
+fi
+
 # One-shot data sync: replace BSIT Effective SY 2022-2023 junk (test/ELE/MEE) with CMO checklist.
 # Idempotent — skips when the header already has the full curriculum.
 # Always merges legacy CS/SD track aliases into CYBER / SYS DEV and rebuilds Digi Elective 4.
