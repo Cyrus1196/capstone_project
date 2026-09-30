@@ -202,14 +202,7 @@ class FacultyController extends Controller
             }
 
             // Grade edits belong to evaluation staff — not every logged-in account.
-            $mayGrade = $user->isAdmin()
-                || $user->isDean()
-                || $user->isEvaluatorLike()
-                || $user->hasRole('Program Head')
-                || $user->hasRole('Secretary')
-                || $user->canWorkOnStudentEvaluations();
-
-            if (! $mayGrade) {
+            if (! $user->canWorkOnStudentEvaluations()) {
                 return response()->json(['message' => 'Forbidden'], 403);
             }
 
