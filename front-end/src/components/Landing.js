@@ -1,15 +1,42 @@
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useAuth } from '../context/AuthContext';
 import './Landing.css';
 
 const publicUrl = process.env.PUBLIC_URL || '';
 
+function homePathForUser(user, { isAdmin, isDean, isFaculty, isProgramHead, isSecretary }) {
+  if (!user) return null;
+  if (isAdmin || user.role === 'Admin' || user.is_admin) return '/admin';
+  if (isDean || user.role === 'Dean') return '/dean';
+  if (isProgramHead || user.role === 'Program Head') return '/program-head';
+  if (isSecretary || user.role === 'Secretary') return '/secretary';
+  if (isFaculty || user.role === 'Adviser' || user.role === 'Evaluator') return '/evaluator';
+  return '/student';
+}
+
 const Landing = () => {
   const navigate = useNavigate();
+  const { user, loading, isAdmin, isDean, isFaculty, isProgramHead, isSecretary } = useAuth();
   const [exitingToLogin, setExitingToLogin] = useState(false);
+
+  useEffect(() => {
+    if (loading || !user) return;
+    const path = homePathForUser(user, { isAdmin, isDean, isFaculty, isProgramHead, isSecretary });
+    if (path) {
+      navigate(path, { replace: true });
+    }
+  }, [loading, user, isAdmin, isDean, isFaculty, isProgramHead, isSecretary, navigate]);
 
   const goToLogin = useCallback(() => {
     if (exitingToLogin) return;
+
+    // Already signed in — skip login and open their portal.
+    if (user) {
+      const path = homePathForUser(user, { isAdmin, isDean, isFaculty, isProgramHead, isSecretary });
+      navigate(path || '/login', { replace: true });
+      return;
+    }
 
     const prefersReducedMotion =
       typeof window !== 'undefined' &&
@@ -24,7 +51,27 @@ const Landing = () => {
     window.setTimeout(() => {
       navigate('/login', { state: { fromLanding: true } });
     }, 280);
-  }, [exitingToLogin, navigate]);
+  }, [exitingToLogin, navigate, user, isAdmin, isDean, isFaculty, isProgramHead, isSecretary]);
+
+  // Avoid flashing the public landing while we resolve / redirect a live session.
+  if (loading || user) {
+    return (
+      <div className="landing-page landing-page--redirecting" role="status" aria-live="polite">
+        <div
+          className="landing-page__bg"
+          aria-hidden
+          style={{ backgroundImage: `url(${publicUrl}/assets/login_campus_bg.png)` }}
+        />
+        <div className="landing-page__frame">
+          <main id="main-content" className="landing-page__main" tabIndex="-1">
+            <p className="landing-page__lead" style={{ textAlign: 'center' }}>
+              {loading ? 'Checking your session…' : 'Opening your dashboard…'}
+            </p>
+          </main>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className={['landing-page', exitingToLogin && 'landing-page--exit-to-login'].filter(Boolean).join(' ')}>
@@ -58,8 +105,8 @@ const Landing = () => {
             <span className="landing-page__eyebrow">Curriculum &amp; evaluation</span>
             <h1 className="landing-page__title">Academic Evaluation Portal</h1>
             <p className="landing-page__lead">
-              Sign in for student or staff tools, or open the public area to run the credit-transfer simulation and
-              browse the curriculum catalog—no account required.
+              Sign in for student or staff tools, or open the public area to browse the curriculum catalog and try a
+              load / prerequisite simulation—no account required.
             </p>
           </section>
 
