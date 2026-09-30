@@ -260,11 +260,11 @@ const Login = () => {
                 <h1 className="login-page__title">
                   {deviceOtpStep ? 'Verify this device' : 'Log in to continue'}
                 </h1>
-                <p className="login-page__lead">
-                  {deviceOtpStep
-                    ? `We emailed a 6-digit code to ${emailHint || 'your email'}. Enter it below to trust this device.`
-                    : 'Students: Student ID (02-2324-07413 or 2-2324-07413). Faculty / staff: Employee ID. Admin: email.'}
-                </p>
+                {deviceOtpStep ? (
+                  <p className="login-page__lead">
+                    {`We emailed a 6-digit code to ${emailHint || 'your email'}. Enter it below to trust this device.`}
+                  </p>
+                ) : null}
               </div>
 
               <form className="login-page__form" onSubmit={handleSubmit} noValidate>

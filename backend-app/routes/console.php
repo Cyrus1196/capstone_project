@@ -21,6 +21,52 @@ Artisan::command('students:provision-logins', function () {
     return empty($result['errors']) ? 0 : 1;
 })->purpose('Create login accounts for imported students without linked users');
 
+Artisan::command('students:reset-default-passwords {--dry-run : List changes without writing}', function () {
+    $dry = (bool) $this->option('dry-run');
+    $updated = 0;
+    $skipped = 0;
+
+    $profiles = \App\Models\StudentProfile::query()
+        ->whereNotNull('user_id')
+        ->with('user')
+        ->get();
+
+    foreach ($profiles as $profile) {
+        if (\App\Support\CachedSchema::hasColumn('tbl_student_profile', 'is_simulation')
+            && ($profile->is_simulation ?? false)) {
+            $skipped++;
+            continue;
+        }
+
+        $user = $profile->user;
+        if (! $user || ! $user->hasRole('Student')) {
+            $skipped++;
+            continue;
+        }
+
+        $plain = \App\Services\StudentLoginProvisioner::defaultPassword($profile->first_name);
+        if ($dry) {
+            $this->line(($profile->student_id_number ?? '?')." -> {$plain}");
+            $updated++;
+            continue;
+        }
+
+        $user->password = $plain;
+        $user->password_changed_at = null;
+        $user->failed_login_attempts = 0;
+        $user->locked_until = null;
+        $user->save();
+        $updated++;
+    }
+
+    $this->info($dry
+        ? "Dry run: {$updated} student password(s) would be reset to first-name + 123."
+        : "Reset {$updated} student password(s) to first-name + 123 (e.g. Cyrus Viterbo -> cyrus123).");
+    if ($skipped > 0) {
+        $this->line("Skipped {$skipped} profile(s).");
+    }
+})->purpose('Reset Student logins to default password: first word of first name + 123');
+
 Artisan::command('students:normalize-login-emails', function () {
     $updated = 0;
     $profiles = \App\Models\StudentProfile::query()->whereNotNull('user_id')->with('user')->get();
