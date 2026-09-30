@@ -166,17 +166,27 @@ export default function AdminDashboard({ onNavigate }) {
                 <p className="admin-dash-panel__empty">No recent login activity.</p>
               ) : (
                 <ul className="admin-dash-feed">
-                  {(data.recent_logins || []).map((row, idx) => (
-                    <li key={`${row.email}-${row.login_at}-${idx}`}>
-                      <div className="admin-dash-feed__main">
-                        <span className="admin-dash-feed__title">{row.email || 'Unknown'}</span>
-                        <span className="admin-dash-feed__sub">
-                          {[row.browser, row.platform].filter(Boolean).join(' · ') || 'Session'}
-                        </span>
-                      </div>
-                      <time className="admin-dash-feed__time">{formatWhen(row.login_at)}</time>
-                    </li>
-                  ))}
+                  {(data.recent_logins || []).map((row, idx) => {
+                    const who = row.display_name || row.email || 'Unknown';
+                    const whereBits = [
+                      row.role,
+                      row.affiliation
+                        ? `${row.affiliation_kind || (row.role === 'Student' ? 'Program' : 'Department')}: ${row.affiliation}`
+                        : null,
+                    ].filter(Boolean);
+                    const device = [row.browser, row.platform].filter(Boolean).join(' · ');
+                    return (
+                      <li key={`${who}-${row.login_at}-${idx}`}>
+                        <div className="admin-dash-feed__main">
+                          <span className="admin-dash-feed__title">{who}</span>
+                          <span className="admin-dash-feed__sub">
+                            {[whereBits.join(' · '), device].filter(Boolean).join(' · ') || 'Session'}
+                          </span>
+                        </div>
+                        <time className="admin-dash-feed__time">{formatWhen(row.login_at)}</time>
+                      </li>
+                    );
+                  })}
                 </ul>
               )}
             </section>

@@ -83,16 +83,34 @@ class AdminDashboardController extends Controller
         $recentLogins = [];
         if (Schema::hasTable('user_session_logs')) {
             $recentLogins = UserSessionLog::query()
+                ->with([
+                    'user.role',
+                    'user.department',
+                    'user.studentProfile.program',
+                    'user.facultyProfile.department',
+                    'user.deanProfile.department',
+                    'user.programHeadProfile.department',
+                    'user.secretaryProfile.department',
+                ])
                 ->where('status', 'success')
                 ->orderByDesc('login_at')
                 ->limit(8)
-                ->get(['session_log_id', 'email', 'browser', 'platform', 'login_at'])
-                ->map(fn (UserSessionLog $row) => [
-                    'email' => $row->email,
-                    'browser' => $row->browser,
-                    'platform' => $row->platform,
-                    'login_at' => optional($row->login_at)?->toIso8601String(),
-                ])
+                ->get()
+                ->map(function (UserSessionLog $row) {
+                    $actor = \App\Support\SessionActorSummary::fromUser($row->user, $row->email);
+
+                    return [
+                        'display_name' => $actor['display_name'],
+                        'role' => $actor['role'],
+                        'affiliation' => $actor['affiliation'],
+                        'affiliation_kind' => $actor['affiliation_kind'],
+                        'student_id_number' => $actor['student_id_number'],
+                        'email' => $actor['email'],
+                        'browser' => $row->browser,
+                        'platform' => $row->platform,
+                        'login_at' => optional($row->login_at)?->toIso8601String(),
+                    ];
+                })
                 ->all();
         }
 

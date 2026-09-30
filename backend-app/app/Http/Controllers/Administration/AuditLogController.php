@@ -71,7 +71,15 @@ class AuditLogController extends Controller
             // Close leftover "Active" rows when idle window already elapsed (tab/app closed).
             \App\Services\UserSessionLogger::closeStaleOpenSessions();
 
-            $query = UserSessionLog::with('user.role');
+            $query = UserSessionLog::with([
+                'user.role',
+                'user.department',
+                'user.studentProfile.program',
+                'user.facultyProfile.department',
+                'user.deanProfile.department',
+                'user.programHeadProfile.department',
+                'user.secretaryProfile.department',
+            ]);
 
             if ($request->filled('email')) {
                 $query->where('email', 'like', '%'.$request->email.'%');
@@ -101,6 +109,18 @@ class AuditLogController extends Controller
 
             $logs = $query->orderByDesc('login_at')
                 ->paginate($request->get('per_page', 50));
+
+            $logs->getCollection()->transform(function (UserSessionLog $row) {
+                $actor = \App\Support\SessionActorSummary::fromUser($row->user, $row->email);
+                $row->setAttribute('display_name', $actor['display_name']);
+                $row->setAttribute('actor_role', $actor['role']);
+                $row->setAttribute('affiliation', $actor['affiliation']);
+                $row->setAttribute('affiliation_kind', $actor['affiliation_kind']);
+                $row->setAttribute('student_id_number', $actor['student_id_number']);
+                $row->setAttribute('display_email', $actor['email']);
+
+                return $row;
+            });
 
             return response()->json($logs);
         } catch (\Exception $e) {

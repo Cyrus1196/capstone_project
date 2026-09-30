@@ -478,8 +478,25 @@ const AuditLogsManagement = () => {
                         <tr key={item.session_log_id}>
                           <td>
                             <div className="audit-session-user">
-                              <strong>{item.email || item.user?.email || 'Unknown user'}</strong>
-                              {item.user?.role?.role_name ? <span>{item.user.role.role_name}</span> : null}
+                              <strong>
+                                {item.display_name ||
+                                  item.email ||
+                                  item.user?.email ||
+                                  'Unknown user'}
+                              </strong>
+                              <span>
+                                {[
+                                  item.actor_role || item.user?.role?.role_name,
+                                  item.affiliation
+                                    ? `${item.affiliation_kind || 'Unit'}: ${item.affiliation}`
+                                    : null,
+                                  item.student_id_number
+                                    ? `ID: ${item.student_id_number}`
+                                    : null,
+                                ]
+                                  .filter(Boolean)
+                                  .join(' · ') || '—'}
+                              </span>
                             </div>
                           </td>
                           <td>
