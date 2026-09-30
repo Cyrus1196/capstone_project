@@ -2,12 +2,18 @@
 
 namespace App\Services;
 
+use App\Models\SecuritySetting;
 use App\Models\TblUser;
 use App\Models\UserSessionLog;
 use Illuminate\Http\Request;
 
 class UserSessionLogger
 {
+    public const REASON_MANUAL = 'manual logout';
+
+    public const REASON_IDLE = 'idle timeout';
+
+    public const REASON_EXPIRED = 'session expired';
     public static function logSuccessfulLogin(Request $request, TblUser $user, ?string $token = null): void
     {
         try {
@@ -41,8 +47,12 @@ class UserSessionLogger
         }
     }
 
-    public static function logLogout(Request $request, ?TblUser $user = null, ?string $token = null): void
-    {
+    public static function logLogout(
+        Request $request,
+        ?TblUser $user = null,
+        ?string $token = null,
+        ?string $reason = null
+    ): void {
         try {
             $hash = self::tokenHash($token);
             $query = UserSessionLog::query()
@@ -63,11 +73,67 @@ class UserSessionLogger
             }
 
             $session->logout_at = now();
-            $session->logout_reason = 'manual logout';
+            $session->logout_reason = self::normalizeReason($reason);
             $session->save();
         } catch (\Throwable) {
             //
         }
+    }
+
+    /**
+     * Close "Active" rows that already outlived the configured idle window
+     * (tab closed / phone killed the app without calling /logout).
+     *
+     * @return int number of rows closed
+     */
+    public static function closeStaleOpenSessions(?int $timeoutMinutes = null): int
+    {
+        try {
+            $settings = SecuritySetting::current();
+            $staff = max(1, (int) ($settings->session_timeout_minutes ?? 30));
+            $student = max(1, (int) ($settings->student_session_timeout_minutes ?? $staff));
+            $minutes = max(1, $timeoutMinutes ?? max($staff, $student));
+
+            $cutoff = now()->subMinutes($minutes);
+            $rows = UserSessionLog::query()
+                ->where('status', 'success')
+                ->whereNull('logout_at')
+                ->where('login_at', '<=', $cutoff)
+                ->get();
+
+            $closed = 0;
+            foreach ($rows as $session) {
+                $loginAt = $session->login_at;
+                $estimatedEnd = $loginAt
+                    ? $loginAt->copy()->addMinutes($minutes)
+                    : now();
+                if ($estimatedEnd->greaterThan(now())) {
+                    $estimatedEnd = now();
+                }
+
+                $session->logout_at = $estimatedEnd;
+                $session->logout_reason = self::REASON_IDLE;
+                $session->save();
+                $closed++;
+            }
+
+            return $closed;
+        } catch (\Throwable) {
+            return 0;
+        }
+    }
+
+    public static function normalizeReason(?string $reason): string
+    {
+        $reason = strtolower(trim((string) $reason));
+
+        return match (true) {
+            $reason === '' => self::REASON_MANUAL,
+            str_contains($reason, 'idle') => self::REASON_IDLE,
+            str_contains($reason, 'expir') => self::REASON_EXPIRED,
+            str_contains($reason, 'manual') => self::REASON_MANUAL,
+            default => substr($reason, 0, 255),
+        };
     }
 
     private static function tokenHash(?string $token): ?string

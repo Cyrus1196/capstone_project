@@ -51,8 +51,9 @@ api.interceptors.request.use(
       url.includes('/verify-email');
 
     // Hard stop leftover JWTs after idle (tab close / mobile suspend).
+    // Reports logout reason to the session log before clearing the token.
     // Never block public auth endpoints — those must always be reachable.
-    if (!isAuthBootstrap && getToken() && expireClientSessionIfIdle(removeToken)) {
+    if (!isAuthBootstrap && getToken() && expireClientSessionIfIdle(removeToken, 'idle timeout')) {
       const err = new Error('Session expired due to inactivity.');
       err.isSessionIdleExpired = true;
       err.config = config;

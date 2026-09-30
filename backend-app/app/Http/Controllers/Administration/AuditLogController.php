@@ -68,6 +68,9 @@ class AuditLogController extends Controller
                 return $resp;
             }
 
+            // Close leftover "Active" rows when idle window already elapsed (tab/app closed).
+            \App\Services\UserSessionLogger::closeStaleOpenSessions();
+
             $query = UserSessionLog::with('user.role');
 
             if ($request->filled('email')) {

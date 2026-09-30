@@ -40,9 +40,17 @@ const SessionIdleController = () => {
     window.dispatchEvent(new CustomEvent('app-activity'));
   }, []);
 
+  const idleLogout = useCallback(() => {
+    logout('idle timeout', { showLoading: false });
+  }, [logout]);
+
+  const manualLogout = useCallback(() => {
+    logout('manual logout');
+  }, [logout]);
+
   useIdleLogout({
     enabled: !!user && !loading,
-    onIdleLogout: logout,
+    onIdleLogout: idleLogout,
     idleMs: sessionIdleMs,
     warnAfterIdleMs: sessionWarnAfterIdleMs,
     onSessionWarning,
@@ -53,7 +61,7 @@ const SessionIdleController = () => {
       open={sessionExpiryWarn.open}
       secondsLeft={sessionExpiryWarn.secondsLeft}
       onContinue={handleSessionContinue}
-      onLogout={logout}
+      onLogout={manualLogout}
     />
   );
 };

@@ -101,6 +101,9 @@ php artisan curriculum:import-bsit-2022 || echo "WARN: BSIT 2022 curriculum sync
 echo "Syncing BSIT tracks / elective slots..."
 php scripts/maintenance/sync_bsit_tracks_and_electives.php || echo "WARN: BSIT track/elective sync skipped or failed."
 
+# Close abandoned "Active" login rows past the idle window (tab closed / app killed).
+php artisan sessions:close-stale || echo "WARN: stale session close skipped or failed."
+
 php artisan config:cache || true
 php artisan route:cache || true
 

@@ -8,6 +8,45 @@ const IDLE_MS_KEY = 'aes_session_idle_ms';
 
 const DEFAULT_IDLE_MS = 30 * 60 * 1000;
 
+const API_BASE_URL =
+  process.env.REACT_APP_API_URL ||
+  (typeof process !== 'undefined' && process.env.NODE_ENV === 'production'
+    ? '/api'
+    : 'http://localhost:8000/api');
+
+/**
+ * Tell the API to close the open session row before dropping a leftover JWT.
+ * Uses keepalive so it still fires when the tab is closing / redirecting.
+ */
+export function reportSessionEnded(reason = 'idle timeout') {
+  let token = null;
+  try {
+    token = localStorage.getItem('jwt_token');
+  } catch {
+    token = null;
+  }
+  if (!token) {
+    return;
+  }
+
+  const body = JSON.stringify({ reason });
+  try {
+    fetch(`${API_BASE_URL}/logout`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        Accept: 'application/json',
+        'Content-Type': 'application/json',
+      },
+      body,
+      keepalive: true,
+      credentials: 'include',
+    }).catch(() => {});
+  } catch {
+    // ignore
+  }
+}
+
 export function getStoredIdleMs() {
   try {
     const n = Number(localStorage.getItem(IDLE_MS_KEY));
@@ -75,13 +114,14 @@ export function isSessionIdleExpired(now = Date.now(), idleMs = getStoredIdleMs(
 }
 
 /**
- * If idle window already elapsed, clear JWT + activity markers.
+ * If idle window already elapsed, close the server session log then clear JWT.
  * @returns {boolean} true when the session was expired and cleared
  */
-export function expireClientSessionIfIdle(removeToken) {
+export function expireClientSessionIfIdle(removeToken, reason = 'idle timeout') {
   if (!isSessionIdleExpired()) {
     return false;
   }
+  reportSessionEnded(reason);
   try {
     if (typeof removeToken === 'function') {
       removeToken();

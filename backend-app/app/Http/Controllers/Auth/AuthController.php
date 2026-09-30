@@ -423,14 +423,18 @@ class AuthController extends Controller
     {
         $tokenValue = null;
         $user = $request->user();
+        $reason = $request->input('reason');
 
         try {
             $token = JWTAuth::getToken();
             $tokenValue = $token ? $token->get() : null;
-            UserSessionLogger::logLogout($request, $user, $tokenValue);
+            UserSessionLogger::logLogout($request, $user, $tokenValue, is_string($reason) ? $reason : null);
             JWTAuth::parseToken()->invalidate(true);
         } catch (\Throwable) {
-            // Token missing or already invalid
+            // Token missing or already invalid — still try to close the open session row.
+            if ($user || $tokenValue) {
+                UserSessionLogger::logLogout($request, $user, $tokenValue, is_string($reason) ? $reason : null);
+            }
         }
 
         return response()->json(['message' => 'Logged out successfully']);

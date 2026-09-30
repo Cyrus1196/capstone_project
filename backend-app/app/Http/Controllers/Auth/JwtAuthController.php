@@ -181,12 +181,19 @@ class JwtAuthController extends Controller
 
     public function logout(Request $request)
     {
+        $reason = $request->input('reason');
+        $user = $request->user();
+        $tokenValue = null;
+
         try {
             $token = JWTAuth::getToken();
-            UserSessionLogger::logLogout($request, $request->user(), $token ? $token->get() : null);
+            $tokenValue = $token ? $token->get() : null;
+            UserSessionLogger::logLogout($request, $user, $tokenValue, is_string($reason) ? $reason : null);
             JWTAuth::parseToken()->invalidate(true);
         } catch (\Throwable) {
-            //
+            if ($user || $tokenValue) {
+                UserSessionLogger::logLogout($request, $user, $tokenValue, is_string($reason) ? $reason : null);
+            }
         }
 
         return response()->json(['message' => 'Successfully logged out']);

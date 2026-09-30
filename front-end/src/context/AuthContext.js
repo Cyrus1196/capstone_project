@@ -147,9 +147,22 @@ export const AuthProvider = ({ children }) => {
     checkUser();
   }, [checkUser]);
 
-  const logout = useCallback(async () => {
+  /**
+   * @param {string} [reason='manual logout'] - written to login-session audit (manual / idle timeout / session expired)
+   * @param {{ showLoading?: boolean }} [options]
+   */
+  const logout = useCallback(async (reason = 'manual logout', options = {}) => {
+    const reasonText =
+      typeof reason === 'string' && reason.trim() !== '' ? reason.trim() : 'manual logout';
+    const showLoading = options.showLoading ?? reasonText === 'manual logout';
     try {
-      await api.post('/logout', {}, { showLoading: true, loadingMessage: 'Signing out…' });
+      await api.post(
+        '/logout',
+        { reason: reasonText },
+        showLoading
+          ? { showLoading: true, loadingMessage: 'Signing out…' }
+          : { silent: true, skipLoading: true }
+      );
     } catch {
       // still clear client session
     } finally {
