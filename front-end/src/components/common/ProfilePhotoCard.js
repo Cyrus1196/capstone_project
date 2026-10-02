@@ -23,6 +23,7 @@ export default function ProfilePhotoCard() {
   const [offset, setOffset] = useState({ x: 0, y: 0 });
   const [dragging, setDragging] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [sourceReady, setSourceReady] = useState(false);
   const [error, setError] = useState('');
   const imgRef = useRef(null);
   const dragStart = useRef({ x: 0, y: 0, ox: 0, oy: 0 });
@@ -65,10 +66,18 @@ export default function ProfilePhotoCard() {
     }
     const url = URL.createObjectURL(file);
     setSourceUrl(url);
+    setSourceReady(false);
     setZoom(1);
     setOffset({ x: 0, y: 0 });
     setModalOpen(true);
     setError('');
+  };
+
+  const onSourceLoaded = () => {
+    const img = imgRef.current;
+    if (img && img.naturalWidth > 0 && img.naturalHeight > 0) {
+      setSourceReady(true);
+    }
   };
 
   const onPointerDown = (e) => {
@@ -98,7 +107,7 @@ export default function ProfilePhotoCard() {
   const exportCroppedBlob = () =>
     new Promise((resolve, reject) => {
       const img = imgRef.current;
-      if (!img || !img.complete) {
+      if (!img || !img.complete || img.naturalWidth < 1 || img.naturalHeight < 1) {
         reject(new Error('Image not ready'));
         return;
       }
@@ -151,6 +160,10 @@ export default function ProfilePhotoCard() {
       setError('Choose a photo first.');
       return;
     }
+    if (!sourceReady) {
+      setError('Wait for the photo to finish loading, then try Save again.');
+      return;
+    }
     setSaving(true);
     setError('');
     try {
@@ -158,7 +171,10 @@ export default function ProfilePhotoCard() {
       const form = new FormData();
       form.append('avatar', blob, 'avatar.jpg');
       const { data } = await api.post('/profile/avatar', form);
-      if (data?.avatar_url) setAvatarUrl(data.avatar_url);
+      if (data?.avatar_url) {
+        const u = data.avatar_url;
+        setAvatarUrl(u.includes('?') ? u : `${u}?v=${Date.now()}`);
+      }
       if (data?.user) {
         applyUser?.(data.user);
       } else {
@@ -219,7 +235,15 @@ export default function ProfilePhotoCard() {
     <aside className="profile-photo-card" aria-label="Profile photo">
       <div className="profile-photo-card__preview">
         {avatarUrl ? (
-          <img src={avatarUrl} alt="Profile" className="profile-photo-card__img" />
+          <img
+            src={avatarUrl}
+            alt="Profile"
+            className="profile-photo-card__img"
+            onError={() => {
+              setAvatarUrl(null);
+              refreshUser?.();
+            }}
+          />
         ) : (
           <span className="profile-photo-card__placeholder">{initials}</span>
         )}
@@ -290,6 +314,7 @@ export default function ProfilePhotoCard() {
                     src={sourceUrl}
                     alt=""
                     className="profile-photo-modal__source"
+                    onLoad={onSourceLoaded}
                     style={{
                       transform: `translate(-50%, -50%) translate(${offset.x}px, ${offset.y}px) scale(${previewScale})`,
                     }}
@@ -342,7 +367,7 @@ export default function ProfilePhotoCard() {
                 type="button"
                 className="profile-photo-modal__save"
                 onClick={handleSave}
-                disabled={saving || !sourceUrl}
+                disabled={saving || !sourceUrl || !sourceReady}
               >
                 {saving ? 'Saving…' : 'Save'}
               </button>

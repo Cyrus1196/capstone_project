@@ -85,6 +85,10 @@ if [[ "${RUN_MIGRATIONS:-false}" == "true" ]]; then
   echo "WARN: Import your SQL dump, or run: php artisan migrate --force  from the Railway shell."
 fi
 
+# Safe additive migrations (nullable columns) — profile photos stored in DB on Railway.
+php artisan migrate --path=database/migrations/2026_10_02_120000_add_avatar_blob_to_tbl_users.php --force \
+  || echo "WARN: avatar blob migration skipped or failed."
+
 # One-shot: reset Student passwords to first word of first_name + 123 (e.g. CYRUS VITERBO -> cyrus123).
 # Set RESET_STUDENT_DEFAULT_PASSWORDS=true in Railway Variables for one deploy, then set back to false.
 if [[ "${RESET_STUDENT_DEFAULT_PASSWORDS:-false}" == "true" ]]; then

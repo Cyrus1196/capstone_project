@@ -16,6 +16,7 @@ use App\Models\TblUser;
 use App\Services\AccountMailService;
 use App\Services\AuthUnitHelpers;
 use App\Services\StudentAccountEmail;
+use App\Support\CachedSchema;
 use App\Support\InputGuards;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -402,14 +403,32 @@ class UserController extends Controller
             $ext = 'jpg';
         }
         $filename = 'user_'.$user->user_id.'_'.time().'.'.$ext;
-        Storage::disk('public')->makeDirectory('avatars');
-        $stored = $file->storeAs('avatars', $filename, 'public');
-        if (! $stored) {
-            return response()->json(['message' => 'Could not store avatar.'], 500);
+        $stored = 'avatars/'.$filename;
+        $bytes = @file_get_contents($file->getRealPath());
+        if ($bytes === false || $bytes === '') {
+            return response()->json(['message' => 'Could not read uploaded image.'], 422);
         }
+        if (strlen($bytes) < 128) {
+            return response()->json(['message' => 'Image file looks empty or corrupt. Try another photo.'], 422);
+        }
+
+        $mime = match ($ext) {
+            'png' => 'image/png',
+            'webp' => 'image/webp',
+            default => 'image/jpeg',
+        };
 
         $old = $user->avatar_path;
         $user->avatar_path = $stored;
+        if (CachedSchema::hasColumn('tbl_users', 'avatar_data')) {
+            $user->avatar_data = base64_encode($bytes);
+            $user->avatar_mime = $mime;
+        } else {
+            Storage::disk('public')->makeDirectory('avatars');
+            if (! $file->storeAs('avatars', $filename, 'public')) {
+                return response()->json(['message' => 'Could not store avatar.'], 500);
+            }
+        }
         $user->save();
 
         if ($old && $old !== $stored && Storage::disk('public')->exists($old)) {
@@ -436,19 +455,40 @@ class UserController extends Controller
             abort(404);
         }
 
-        $relative = 'avatars/'.$filename;
-        if (! Storage::disk('public')->exists($relative)) {
+        if (! preg_match('/^user_(\d+)_/i', $filename, $m)) {
+            abort(404);
+        }
+        $user = TblUser::find((int) $m[1]);
+        if (! $user || ! $user->avatar_path || ! str_ends_with(str_replace('\\', '/', (string) $user->avatar_path), $filename)) {
             abort(404);
         }
 
-        $absolute = Storage::disk('public')->path($relative);
-        $mime = match (strtolower(pathinfo($filename, PATHINFO_EXTENSION))) {
+        $mime = $user->avatar_mime;
+        $body = null;
+        if (CachedSchema::hasColumn('tbl_users', 'avatar_data') && $user->avatar_data) {
+            $body = base64_decode((string) $user->avatar_data, true);
+            if ($body === false) {
+                abort(404);
+            }
+        } else {
+            $relative = 'avatars/'.$filename;
+            if (! Storage::disk('public')->exists($relative)) {
+                abort(404);
+            }
+
+            return response()->file(Storage::disk('public')->path($relative), [
+                'Content-Type' => $mime ?: 'image/jpeg',
+                'Cache-Control' => 'public, max-age=86400',
+            ]);
+        }
+
+        $mime = $mime ?: match (strtolower(pathinfo($filename, PATHINFO_EXTENSION))) {
             'png' => 'image/png',
             'webp' => 'image/webp',
             default => 'image/jpeg',
         };
 
-        return response()->file($absolute, [
+        return response($body, 200, [
             'Content-Type' => $mime,
             'Cache-Control' => 'public, max-age=86400',
         ]);
@@ -466,6 +506,10 @@ class UserController extends Controller
             Storage::disk('public')->delete($old);
         }
         $user->avatar_path = null;
+        if (CachedSchema::hasColumn('tbl_users', 'avatar_data')) {
+            $user->avatar_data = null;
+            $user->avatar_mime = null;
+        }
         $user->save();
 
         $fresh = $user->fresh(['role', 'department', 'program']);

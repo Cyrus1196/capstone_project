@@ -55,9 +55,8 @@ class TblUser extends Authenticatable implements JWTSubject
             return null;
         }
 
-        // Served by a public web route so <img> tags work without JWT and without
-        // depending on the public/storage symlink (often missing on Railway).
-        return url('/media/avatars/'.$basename);
+        // Same-origin relative URL (works when APP_URL is wrong; no JWT on <img>).
+        return '/media/avatars/'.$basename;
     }
 
     /**
