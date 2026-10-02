@@ -107,10 +107,19 @@ export default function ProfilePhotoCard() {
   const exportCroppedBlob = () =>
     new Promise((resolve, reject) => {
       const img = imgRef.current;
-      if (!img || !img.complete || img.naturalWidth < 1 || img.naturalHeight < 1) {
+      const viewport = img?.closest('.profile-photo-modal__viewport');
+      if (!img || !viewport || !img.complete || img.naturalWidth < 1 || img.naturalHeight < 1) {
         reject(new Error('Image not ready'));
         return;
       }
+
+      const vp = viewport.getBoundingClientRect();
+      const ir = img.getBoundingClientRect();
+      if (vp.width < 1 || vp.height < 1 || ir.width < 1 || ir.height < 1) {
+        reject(new Error('Preview not ready'));
+        return;
+      }
+
       const canvas = document.createElement('canvas');
       canvas.width = OUTPUT_SIZE;
       canvas.height = OUTPUT_SIZE;
@@ -120,30 +129,16 @@ export default function ProfilePhotoCard() {
         return;
       }
 
-      const preview = 280;
-      const baseScale = Math.max(preview / img.naturalWidth, preview / img.naturalHeight);
-      const scale = baseScale * zoom;
-      const drawW = img.naturalWidth * scale;
-      const drawH = img.naturalHeight * scale;
-      const centerX = preview / 2 + offset.x;
-      const centerY = preview / 2 + offset.y;
-      const ratio = OUTPUT_SIZE / preview;
+      // Match exactly what the editor shows (CSS cover + pan + zoom). Save a full
+      // square crop — circular masks on profile UI apply at display time. Do not bake
+      // a circle with white corners or object-fit:cover will misalign the face.
+      const scale = OUTPUT_SIZE / vp.width;
+      const drawX = (ir.left - vp.left) * scale;
+      const drawY = (ir.top - vp.top) * scale;
+      const drawW = ir.width * scale;
+      const drawH = ir.height * scale;
 
-      ctx.fillStyle = '#fff';
-      ctx.fillRect(0, 0, OUTPUT_SIZE, OUTPUT_SIZE);
-      ctx.save();
-      ctx.beginPath();
-      ctx.arc(OUTPUT_SIZE / 2, OUTPUT_SIZE / 2, OUTPUT_SIZE / 2, 0, Math.PI * 2);
-      ctx.closePath();
-      ctx.clip();
-      ctx.drawImage(
-        img,
-        (centerX - drawW / 2) * ratio,
-        (centerY - drawH / 2) * ratio,
-        drawW * ratio,
-        drawH * ratio
-      );
-      ctx.restore();
+      ctx.drawImage(img, 0, 0, img.naturalWidth, img.naturalHeight, drawX, drawY, drawW, drawH);
 
       canvas.toBlob(
         (blob) => {
@@ -167,6 +162,7 @@ export default function ProfilePhotoCard() {
     setSaving(true);
     setError('');
     try {
+      await new Promise((r) => requestAnimationFrame(r));
       const blob = await exportCroppedBlob();
       const form = new FormData();
       form.append('avatar', blob, 'avatar.jpg');
