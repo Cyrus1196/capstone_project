@@ -57,7 +57,10 @@ function SubjectEquivalenceQuickModal({
     setLoading(true);
     (async () => {
       try {
-        const ossPromise = api.get('/other-school-subjects');
+        const ossPromise =
+          rosterStudentNumeric != null
+            ? api.get('/other-school-subjects', { params: { student_id: rosterStudentNumeric } })
+            : api.get('/other-school-subjects');
         const subjPromise =
           fixedLocal?.id != null ? Promise.resolve({ data: [] }) : api.get('/lookup/subjects');
         const [ossRes, subjRes] = await Promise.all([ossPromise, subjPromise]);
@@ -79,7 +82,7 @@ function SubjectEquivalenceQuickModal({
     return () => {
       cancelled = true;
     };
-  }, [open, fixedLocal]);
+  }, [open, fixedLocal, rosterStudentNumeric]);
 
   useEffect(() => {
     if (!open) return undefined;
@@ -371,8 +374,15 @@ function SubjectEquivalenceQuickModal({
                   disabled={loading}
                 />
                 <p className="seq-equiv-dialog__hint">
-                  These courses come from Student information transfer records (and the shared catalog).
+                  {isStudentCreditMode
+                    ? 'Only prior-school courses listed for this student under Student information → External transfer credits.'
+                    : 'These courses come from the shared external-subject catalog.'}
                 </p>
+                {isStudentCreditMode && !loading && ossOptions.length === 0 ? (
+                  <p className="seq-equiv-dialog__hint seq-equiv-dialog__hint--warn">
+                    No transfer courses on file for this student. Add them in Student information first.
+                  </p>
+                ) : null}
               </div>
             </div>
 

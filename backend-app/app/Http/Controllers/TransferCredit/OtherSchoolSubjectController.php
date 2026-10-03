@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\TransferCredit;
 
 use App\Http\Controllers\Controller;
+use App\Models\CreditEvaluationDetail;
 use App\Models\OtherSchoolSubject;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
@@ -58,12 +59,48 @@ class OtherSchoolSubjectController extends Controller
                 return response()->json(['message' => 'Unauthorized'], 403);
             }
 
+            $studentId = $request->query('student_id');
+            if ($studentId !== null && $studentId !== '') {
+                $studentId = (int) $studentId;
+                if ($studentId < 1) {
+                    return response()->json(['message' => 'Invalid student_id'], 422);
+                }
+
+                return response()->json($this->priorSchoolSubjectsForStudent($studentId));
+            }
+
             $subjects = OtherSchoolSubject::with('school')->get();
 
             return response()->json($subjects);
         } catch (\Exception $e) {
             return response()->json(['error' => 'Failed to fetch other school subjects', 'message' => $e->getMessage()], 500);
         }
+    }
+
+    /**
+     * Prior-school courses recorded for one student (Student information → transfer intake).
+     *
+     * @return \Illuminate\Database\Eloquent\Collection<int, OtherSchoolSubject>
+     */
+    protected function priorSchoolSubjectsForStudent(int $studentId)
+    {
+        $ossIds = CreditEvaluationDetail::query()
+            ->where(function ($q) use ($studentId) {
+                $q->where('student_id', $studentId)
+                    ->orWhereHas('creditEvaluation', fn ($e) => $e->where('student_id', $studentId));
+            })
+            ->whereNotNull('other_subject_id')
+            ->whereHas('creditEvaluation', function ($q) {
+                $q->where('is_active', true)
+                    ->whereRaw('LOWER(TRIM(status)) = ?', ['approved']);
+            })
+            ->distinct()
+            ->pluck('other_subject_id');
+
+        return OtherSchoolSubject::with('school')
+            ->whereIn('other_subject_id', $ossIds)
+            ->orderBy('subject_code')
+            ->get();
     }
 
     public function store(Request $request)

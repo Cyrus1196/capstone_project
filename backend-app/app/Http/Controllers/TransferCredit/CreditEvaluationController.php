@@ -287,6 +287,23 @@ class CreditEvaluationController extends Controller
             $studentId = (int) $validated['student_id'];
             $otherId = (int) $validated['other_subject_id'];
             $subjectId = (int) $validated['subject_id'];
+
+            $onStudentTransferRecord = CreditEvaluationDetail::query()
+                ->where(function ($q) use ($studentId) {
+                    $q->where('student_id', $studentId)
+                        ->orWhereHas('creditEvaluation', fn ($e) => $e->where('student_id', $studentId));
+                })
+                ->where('other_subject_id', $otherId)
+                ->whereHas('creditEvaluation', function ($q) {
+                    $q->where('is_active', true)
+                        ->whereRaw('LOWER(TRIM(status)) = ?', ['approved']);
+                })
+                ->exists();
+            if (! $onStudentTransferRecord) {
+                return response()->json([
+                    'message' => 'That prior-school course is not on this student\'s transfer record. Add it under Student information first.',
+                ], 422);
+            }
             $previousOtherId = isset($validated['previous_other_subject_id'])
                 ? (int) $validated['previous_other_subject_id']
                 : 0;
