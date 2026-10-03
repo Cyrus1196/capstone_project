@@ -210,6 +210,11 @@
   color: var(--seq-muted);
 }
 
+.seq-equiv-dialog__hint--warn {
+  color: #b45309;
+  font-weight: 600;
+}
+
 .seq-equiv-dialog__meta-row {
   display: grid;
   grid-template-columns: 1fr 1fr;
