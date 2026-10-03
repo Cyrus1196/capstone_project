@@ -4,6 +4,7 @@ namespace App\Http\Controllers\TransferCredit;
 
 use App\Http\Controllers\Controller;
 use App\Models\CreditEvaluation;
+use App\Support\TransferCreditQuery;
 use App\Models\CreditEvaluationDetail;
 use App\Models\OtherSchoolSubject;
 use App\Models\School;
@@ -288,18 +289,7 @@ class CreditEvaluationController extends Controller
             $otherId = (int) $validated['other_subject_id'];
             $subjectId = (int) $validated['subject_id'];
 
-            $onStudentTransferRecord = CreditEvaluationDetail::query()
-                ->where(function ($q) use ($studentId) {
-                    $q->where('student_id', $studentId)
-                        ->orWhereHas('creditEvaluation', fn ($e) => $e->where('student_id', $studentId));
-                })
-                ->where('other_subject_id', $otherId)
-                ->whereHas('creditEvaluation', function ($q) {
-                    $q->where('is_active', true)
-                        ->whereRaw('LOWER(TRIM(status)) = ?', ['approved']);
-                })
-                ->exists();
-            if (! $onStudentTransferRecord) {
+            if (! TransferCreditQuery::pickableDetailExists($studentId, $otherId)) {
                 return response()->json([
                     'message' => 'That prior-school course is not on this student\'s transfer record. Add it under Student information first.',
                 ], 422);
@@ -397,6 +387,14 @@ class CreditEvaluationController extends Controller
             $detail->credit_basis = ($creditBasis !== null && $creditBasis !== '') ? $creditBasis : 'Approved transfer mapping';
             $detail->remarks = ($remarks !== null && $remarks !== '') ? $remarks : $detail->remarks;
             $detail->save();
+
+            $evaluation = $detail->creditEvaluation;
+            if ($evaluation) {
+                if ($evaluation->student_id === null || $evaluation->student_id === '') {
+                    $evaluation->student_id = $studentId;
+                    $evaluation->save();
+                }
+            }
 
             DB::commit();
 
@@ -687,7 +685,7 @@ class CreditEvaluationController extends Controller
 
     protected function findStudentUnmappedTransferDetail(int $studentId, int $otherId): ?CreditEvaluationDetail
     {
-        return CreditEvaluationDetail::query()
+        $linked = CreditEvaluationDetail::query()
             ->where(function ($q) use ($studentId) {
                 $q->where('student_id', $studentId)
                     ->orWhereHas('creditEvaluation', fn ($e) => $e->where('student_id', $studentId));
@@ -696,6 +694,22 @@ class CreditEvaluationController extends Controller
             ->whereNull('subject_id')
             ->whereHas('creditEvaluation', function ($q) {
                 $q->where('is_active', true)
+                    ->whereRaw('LOWER(TRIM(status)) = ?', ['approved']);
+            })
+            ->orderByDesc('credit_detail_id')
+            ->first();
+
+        if ($linked) {
+            return $linked;
+        }
+
+        return CreditEvaluationDetail::query()
+            ->where('other_subject_id', $otherId)
+            ->whereNull('subject_id')
+            ->whereNull('student_id')
+            ->whereHas('creditEvaluation', function ($q) {
+                $q->whereNull('student_id')
+                    ->where('is_active', true)
                     ->whereRaw('LOWER(TRIM(status)) = ?', ['approved']);
             })
             ->orderByDesc('credit_detail_id')

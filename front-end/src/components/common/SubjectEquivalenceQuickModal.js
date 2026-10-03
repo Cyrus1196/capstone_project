@@ -375,7 +375,7 @@ function SubjectEquivalenceQuickModal({
                 />
                 <p className="seq-equiv-dialog__hint">
                   {isStudentCreditMode
-                    ? 'Only prior-school courses listed for this student under Student information → External transfer credits.'
+                    ? 'Courses from Student information → External transfer credits (linked to this student or not yet linked to a roster ID).'
                     : 'These courses come from the shared external-subject catalog.'}
                 </p>
                 {isStudentCreditMode && !loading && ossOptions.length === 0 ? (

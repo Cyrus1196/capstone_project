@@ -3,8 +3,8 @@
 namespace App\Http\Controllers\TransferCredit;
 
 use App\Http\Controllers\Controller;
-use App\Models\CreditEvaluationDetail;
 use App\Models\OtherSchoolSubject;
+use App\Support\TransferCreditQuery;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
 
@@ -84,18 +84,10 @@ class OtherSchoolSubjectController extends Controller
      */
     protected function priorSchoolSubjectsForStudent(int $studentId)
     {
-        $ossIds = CreditEvaluationDetail::query()
-            ->where(function ($q) use ($studentId) {
-                $q->where('student_id', $studentId)
-                    ->orWhereHas('creditEvaluation', fn ($e) => $e->where('student_id', $studentId));
-            })
-            ->whereNotNull('other_subject_id')
-            ->whereHas('creditEvaluation', function ($q) {
-                $q->where('is_active', true)
-                    ->whereRaw('LOWER(TRIM(status)) = ?', ['approved']);
-            })
-            ->distinct()
-            ->pluck('other_subject_id');
+        $ossIds = TransferCreditQuery::pickableOtherSubjectIdsForStudent($studentId);
+        if ($ossIds === []) {
+            return collect();
+        }
 
         return OtherSchoolSubject::with('school')
             ->whereIn('other_subject_id', $ossIds)
