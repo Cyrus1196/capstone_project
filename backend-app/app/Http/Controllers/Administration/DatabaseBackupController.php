@@ -65,7 +65,24 @@ class DatabaseBackupController extends Controller
 
         $perPage = max(5, min(50, (int) $request->get('per_page', 10)));
 
+        $columns = [
+            'id',
+            'action',
+            'trigger',
+            'status',
+            'file_name',
+            'file_path',
+            'file_size',
+            'details',
+            'created_by',
+            'started_at',
+            'finished_at',
+            'created_at',
+            'updated_at',
+        ];
+
         $paginator = BackupHistory::query()
+            ->select($columns)
             ->orderByDesc('id')
             ->paginate($perPage);
 
@@ -146,13 +163,16 @@ class DatabaseBackupController extends Controller
         if ($row->action !== 'backup' || $row->status !== 'success') {
             return response()->json(['message' => 'Only successful backups can be downloaded'], 422);
         }
-        $path = (string) $row->file_path;
-        if ($path === '' || ! is_file($path)) {
+        $sql = $this->backups->readBackupSqlContents($row);
+        if ($sql === null) {
             return response()->json(['message' => 'Backup file is missing on the server'], 404);
         }
 
-        return response()->download($path, $row->file_name ?: basename($path), [
+        $name = $row->file_name ?: 'backup_'.$row->id.'.sql';
+
+        return response($sql, 200, [
             'Content-Type' => 'application/sql; charset=utf-8',
+            'Content-Disposition' => 'attachment; filename="'.$name.'"',
         ]);
     }
 
@@ -205,7 +225,7 @@ class DatabaseBackupController extends Controller
 
     private function serializeHistory(BackupHistory $h): array
     {
-        $exists = $h->file_path && is_file((string) $h->file_path);
+        $availability = $this->backups->historyFileAvailability($h);
 
         return [
             'id' => $h->id,
@@ -214,7 +234,9 @@ class DatabaseBackupController extends Controller
             'status' => $h->status,
             'file_name' => $h->file_name,
             'file_size' => $h->file_size,
-            'file_exists' => (bool) $exists,
+            'file_exists' => $availability['available'],
+            'file_on_disk' => $availability['on_disk'],
+            'file_in_database' => $availability['in_database'],
             'details' => $h->details,
             'started_at' => optional($h->started_at)?->toIso8601String(),
             'finished_at' => optional($h->finished_at)?->toIso8601String(),

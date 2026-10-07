@@ -402,7 +402,9 @@ const BackupManagement = () => {
             <h2>Backup history</h2>
             <p>
               Review backup and restore activity, download stored backups, and restore from a
-              previous successful snapshot.
+              previous successful snapshot. New backups are kept in the database as well as on disk
+              so they stay downloadable after a redeploy. Restore replaces the entire live database
+              with the chosen backup (all current data is overwritten).
             </p>
           </div>
         </header>
@@ -454,7 +456,13 @@ const BackupManagement = () => {
                           <span>{row.file_name || '—'}</span>
                           {row.action === 'backup' ? (
                             <small>
-                              {row.file_exists === false ? 'Missing on server' : 'Stored on server'}
+                              {row.file_exists === false
+                                ? 'Not available (only history remains — run a new backup)'
+                                : row.file_in_database && !row.file_on_disk
+                                  ? 'Available (stored in database)'
+                                  : row.file_on_disk
+                                    ? 'Stored on server'
+                                    : 'Available'}
                             </small>
                           ) : null}
                         </div>

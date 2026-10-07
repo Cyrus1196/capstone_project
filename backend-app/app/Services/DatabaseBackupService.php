@@ -15,6 +15,15 @@ class DatabaseBackupService
 
     public function defaultStoragePath(): string
     {
+        $fromEnv = trim((string) env('BACKUP_STORAGE_PATH', ''));
+        if ($fromEnv !== '') {
+            return rtrim(str_replace('\\', '/', $fromEnv), '/');
+        }
+
+        if (is_dir('/data')) {
+            return '/data/backups';
+        }
+
         return storage_path('app/backups');
     }
 
@@ -151,9 +160,11 @@ class DatabaseBackupService
             $this->writeSqlDump($fullPath);
             clearstatcache(true, $fullPath);
             $size = is_file($fullPath) ? (int) filesize($fullPath) : 0;
+            $payload = $this->gzipFileForStorage($fullPath);
             $row->update([
                 'status' => 'success',
                 'file_size' => $size,
+                'file_payload' => $payload,
                 'details' => ($trigger === 'scheduled' ? 'Scheduled' : 'Manual').' backup completed successfully',
                 'finished_at' => now(),
             ]);
@@ -208,8 +219,8 @@ class DatabaseBackupService
         if ($history->action !== 'backup' || $history->status !== 'success') {
             throw new \InvalidArgumentException('Only a successful backup can be restored.');
         }
-        $path = (string) $history->file_path;
-        if ($path === '' || ! is_file($path)) {
+        $path = $this->resolveBackupSqlPath($history);
+        if ($path === null) {
             throw new \RuntimeException('Backup file is missing on the server.');
         }
 
@@ -229,7 +240,11 @@ class DatabaseBackupService
             'started_at' => now(),
         ]);
 
+        $tempPath = null;
         try {
+            if ($this->isMaterializedTempPath($history, $path)) {
+                $tempPath = $path;
+            }
             $this->importSqlFile($path);
             $row->update([
                 'status' => 'success',
@@ -244,10 +259,112 @@ class DatabaseBackupService
             ]);
             throw $e;
         } finally {
+            if ($tempPath !== null && is_file($tempPath)) {
+                @unlink($tempPath);
+            }
             $this->releaseLock();
         }
 
         return $row->fresh();
+    }
+
+    public function historyFileAvailability(BackupHistory $history): array
+    {
+        $path = trim((string) $history->file_path);
+        $onDisk = $path !== '' && is_file($path);
+        $inDb = $this->historyHasStoredPayload((int) $history->id);
+
+        return [
+            'available' => $onDisk || $inDb,
+            'on_disk' => $onDisk,
+            'in_database' => $inDb,
+        ];
+    }
+
+    /** Path to SQL for download/restore, or null if neither disk nor DB copy exists. */
+    public function resolveBackupSqlPath(BackupHistory $history): ?string
+    {
+        $path = trim((string) $history->file_path);
+        if ($path !== '' && is_file($path)) {
+            return $path;
+        }
+
+        return $this->materializePayloadToTempFile($history);
+    }
+
+    public function readBackupSqlContents(BackupHistory $history): ?string
+    {
+        $path = $this->resolveBackupSqlPath($history);
+        if ($path === null) {
+            return null;
+        }
+        $sql = file_get_contents($path);
+        if ($this->isMaterializedTempPath($history, $path) && is_file($path)) {
+            @unlink($path);
+        }
+
+        return $sql === false ? null : $sql;
+    }
+
+    public function historyHasStoredPayload(int $historyId): bool
+    {
+        if (! Schema::hasColumn('tbl_backup_history', 'file_payload')) {
+            return false;
+        }
+
+        return BackupHistory::query()
+            ->whereKey($historyId)
+            ->whereNotNull('file_payload')
+            ->exists();
+    }
+
+    private function gzipFileForStorage(string $fullPath): ?string
+    {
+        if (! is_file($fullPath) || ! Schema::hasColumn('tbl_backup_history', 'file_payload')) {
+            return null;
+        }
+        $data = file_get_contents($fullPath);
+        if ($data === false || $data === '') {
+            return null;
+        }
+        $gz = gzencode($data, 6);
+        if ($gz === false) {
+            return null;
+        }
+
+        return $gz;
+    }
+
+    private function materializePayloadToTempFile(BackupHistory $history): ?string
+    {
+        if (! $this->historyHasStoredPayload((int) $history->id)) {
+            return null;
+        }
+        $raw = BackupHistory::query()->whereKey($history->id)->value('file_payload');
+        if (! is_string($raw) || $raw === '') {
+            return null;
+        }
+        $sql = gzdecode($raw);
+        if ($sql === false) {
+            return null;
+        }
+        $dir = storage_path('app/backups/.materialized');
+        if (! is_dir($dir)) {
+            File::makeDirectory($dir, 0755, true);
+        }
+        $temp = $dir.'/backup_'.$history->id.'_'.bin2hex(random_bytes(4)).'.sql';
+        if (file_put_contents($temp, $sql) === false) {
+            return null;
+        }
+
+        return $temp;
+    }
+
+    private function isMaterializedTempPath(BackupHistory $history, string $path): bool
+    {
+        $needle = storage_path('app/backups/.materialized/backup_'.$history->id.'_');
+
+        return str_starts_with(str_replace('\\', '/', $path), str_replace('\\', '/', $needle));
     }
 
     public function writeSqlDump(string $fullPath): void

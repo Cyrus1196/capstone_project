@@ -15,6 +15,7 @@ class BackupHistory extends Model
         'file_name',
         'file_path',
         'file_size',
+        'file_payload',
         'details',
         'created_by',
         'started_at',

@@ -108,6 +108,16 @@ php scripts/maintenance/sync_bsit_tracks_and_electives.php || echo "WARN: BSIT t
 # Close abandoned "Active" login rows past the idle window (tab closed / app killed).
 php artisan sessions:close-stale || echo "WARN: stale session close skipped or failed."
 
+# Optional Railway volume at /data keeps .sql files across redeploys (MySQL also stores gzipped copies).
+if [[ -d /data ]]; then
+  mkdir -p /data/backups
+  export BACKUP_STORAGE_PATH="${BACKUP_STORAGE_PATH:-/data/backups}"
+fi
+
+php artisan migrate --path=database/migrations/2026_10_07_120000_add_file_payload_to_backup_history.php --force \
+  || echo "WARN: backup file_payload migration skipped or failed."
+php artisan backup:attach-missing-payloads || echo "WARN: backup payload attach skipped or failed."
+
 php artisan config:cache || true
 php artisan route:cache || true
 
