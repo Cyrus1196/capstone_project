@@ -66,6 +66,17 @@ php artisan config:clear || true
 php artisan route:clear || true
 php artisan view:clear || true
 
+# Email links (password reset, verify email) must use this service's live public URL.
+if [[ -n "${RAILWAY_PUBLIC_DOMAIN:-}" ]]; then
+  _railway_app_url="https://${RAILWAY_PUBLIC_DOMAIN}"
+  if [[ -z "${FRONTEND_URL:-}" ]]; then
+    export FRONTEND_URL="${_railway_app_url}"
+  fi
+  if [[ -z "${APP_URL:-}" ]] || [[ "${APP_URL}" == *"capstoneproject-production"* ]]; then
+    export APP_URL="${_railway_app_url}"
+  fi
+fi
+
 # Missing APP_KEY causes 500 on every request. Prefer a value set in Railway
 # Variables; otherwise generate an ephemeral key in-memory (no file write).
 if [[ -z "${APP_KEY:-}" ]]; then

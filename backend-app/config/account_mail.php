@@ -1,5 +1,7 @@
 <?php
 
+use App\Support\FrontendUrl;
+
 return [
 
     /*
@@ -7,7 +9,7 @@ return [
     | Front-end URL (password reset & email verification links)
     |--------------------------------------------------------------------------
     */
-    'frontend_url' => rtrim(env('FRONTEND_URL', env('APP_URL', 'http://localhost:3000')), '/'),
+    'frontend_url' => FrontendUrl::base(),
 
     /*
     |--------------------------------------------------------------------------

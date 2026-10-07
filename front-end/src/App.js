@@ -116,6 +116,10 @@ function App() {
             <Route path="/login" element={<Login />} />
             <Route path="/forgot-password" element={<ForgotPassword />} />
             <Route path="/reset-password" element={<ResetPassword />} />
+            <Route
+              path="/reset_password"
+              element={<Navigate to={`/reset-password${window.location.search}`} replace />}
+            />
             <Route path="/verify-email" element={<VerifyEmail />} />
             <Route
               path="/admin"
