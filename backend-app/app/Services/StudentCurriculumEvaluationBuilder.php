@@ -11,6 +11,7 @@ use App\Models\Program;
 use App\Models\Semester;
 use App\Models\StudentProfile;
 use App\Models\TblUser;
+use App\Support\ElectiveSlotPrerequisite;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -224,7 +225,7 @@ class StudentCurriculumEvaluationBuilder
 
     protected function electiveSlotPrerequisites($slot): array
     {
-        return [];
+        return ElectiveSlotPrerequisite::prerequisiteSlots($slot);
     }
 
     /**
@@ -743,6 +744,7 @@ class StudentCurriculumEvaluationBuilder
                     'subject.prerequisites.requiredSubject',
                     'yearLevel',
                     'semester',
+                    'electiveSlot.prerequisiteSlot',
                     'electiveSlot.electiveSubjects.subject',
                     'electiveSlot.electiveSubjects.track',
                     'curriculumHeader',

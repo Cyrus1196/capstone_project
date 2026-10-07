@@ -546,6 +546,8 @@ DB::transaction(function () use (
         }
     }
 
+    \App\Support\ElectiveSlotPrerequisite::syncItElectiveChainForProgram($programId);
+
     $stats['rows_deleted'] = DB::table('curriculum')
         ->where('curriculum_header_id', $headerId)
         ->delete();

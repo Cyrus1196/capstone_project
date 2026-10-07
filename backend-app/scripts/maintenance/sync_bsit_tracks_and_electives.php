@@ -279,6 +279,8 @@ DB::transaction(function () use (
             }
         }
     }
+
+    \App\Support\ElectiveSlotPrerequisite::syncItElectiveChainForProgram($programId);
 });
 
 echo json_encode([

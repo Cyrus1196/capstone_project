@@ -15,6 +15,44 @@ use Illuminate\Validation\ValidationException;
 
 class ElectiveSlotController extends Controller
 {
+    /** @return array<string, mixed> */
+    private function serializeElectiveSlot(ElectiveSlot $slot): array
+    {
+        $slot->loadMissing([
+            'program',
+            'semester',
+            'yearLevel',
+            'prerequisiteSlot',
+            'electiveSubjects.subject',
+            'electiveSubjects.track',
+        ]);
+
+        return [
+            'elective_slot_id' => $slot->elective_slot_id,
+            'program_id' => $slot->program_id,
+            'semester_id' => $slot->semester_id,
+            'year_level_id' => $slot->year_level_id,
+            'slot_name' => $slot->slot_name,
+            'status' => $slot->status,
+            'prerequisite_slot_id' => $slot->prerequisite_slot_id,
+            'prerequisiteSlot' => $slot->prerequisiteSlot,
+            'program' => $slot->program,
+            'semester' => $slot->semester,
+            'yearLevel' => $slot->yearLevel,
+            'electiveSubjects' => $slot->electiveSubjects->map(function ($es) {
+                return [
+                    'elective_subject_id' => $es->elective_subject_id,
+                    'elective_slot_id' => $es->elective_slot_id,
+                    'subject_id' => $es->subject_id,
+                    'track_id' => $es->track_id,
+                    'description' => $es->description,
+                    'subject' => $es->subject,
+                    'track' => $es->track,
+                ];
+            }),
+        ];
+    }
+
     /**
      * List endpoint: also allowed for curriculum.view so read-only curriculum UIs can resolve elective rows.
      */
@@ -53,37 +91,11 @@ class ElectiveSlotController extends Controller
             return response()->json(['message' => 'Unauthorized'], 403);
         }
         try {
-            $slots = ElectiveSlot::with(['program', 'semester', 'yearLevel', 'electiveSubjects.subject', 'electiveSubjects.track'])
+            $slots = ElectiveSlot::query()
                 ->orderByDesc('elective_slot_id')
                 ->get();
 
-            // Transform to ensure camelCase for frontend
-            $transformed = $slots->map(function ($slot) {
-                return [
-                    'elective_slot_id' => $slot->elective_slot_id,
-                    'program_id' => $slot->program_id,
-                    'semester_id' => $slot->semester_id,
-                    'year_level_id' => $slot->year_level_id,
-                    'slot_name' => $slot->slot_name,
-                    'status' => $slot->status,
-                    'program' => $slot->program,
-                    'semester' => $slot->semester,
-                    'yearLevel' => $slot->yearLevel,
-                    'electiveSubjects' => $slot->electiveSubjects->map(function ($es) {
-                        return [
-                            'elective_subject_id' => $es->elective_subject_id,
-                            'elective_slot_id' => $es->elective_slot_id,
-                            'subject_id' => $es->subject_id,
-                            'track_id' => $es->track_id,
-                            'description' => $es->description,
-                            'subject' => $es->subject,
-                            'track' => $es->track,
-                        ];
-                    }),
-                ];
-            });
-
-            return response()->json($transformed);
+            return response()->json($slots->map(fn (ElectiveSlot $slot) => $this->serializeElectiveSlot($slot)));
         } catch (\Exception $e) {
             Log::error('Error fetching elective slots: '.$e->getMessage());
 
@@ -100,36 +112,12 @@ class ElectiveSlotController extends Controller
                 'year_level_id' => 'required|exists:year_level,year_level_id',
                 'slot_name' => 'required|string|max:100',
                 'status' => 'nullable|string|max:50',
+                'prerequisite_slot_id' => 'nullable|integer|exists:tbl_elective_slot,elective_slot_id',
             ]);
 
             $slot = ElectiveSlot::create($validated);
-            $slot->load(['program', 'semester', 'yearLevel', 'electiveSubjects.subject', 'electiveSubjects.track']);
 
-            // Transform to ensure camelCase for frontend
-            $transformed = [
-                'elective_slot_id' => $slot->elective_slot_id,
-                'program_id' => $slot->program_id,
-                'semester_id' => $slot->semester_id,
-                'year_level_id' => $slot->year_level_id,
-                'slot_name' => $slot->slot_name,
-                'status' => $slot->status,
-                'program' => $slot->program,
-                'semester' => $slot->semester,
-                'yearLevel' => $slot->yearLevel,
-                'electiveSubjects' => $slot->electiveSubjects->map(function ($es) {
-                    return [
-                        'elective_subject_id' => $es->elective_subject_id,
-                        'elective_slot_id' => $es->elective_slot_id,
-                        'subject_id' => $es->subject_id,
-                        'track_id' => $es->track_id,
-                        'description' => $es->description,
-                        'subject' => $es->subject,
-                        'track' => $es->track,
-                    ];
-                }),
-            ];
-
-            return response()->json($transformed, 201);
+            return response()->json($this->serializeElectiveSlot($slot), 201);
         } catch (\Exception $e) {
             return response()->json(['error' => 'Failed to create elective slot', 'message' => $e->getMessage()], 500);
         }
@@ -141,34 +129,9 @@ class ElectiveSlotController extends Controller
             return $deny;
         }
         try {
-            $slot = ElectiveSlot::with(['program', 'semester', 'yearLevel', 'electiveSubjects.subject', 'electiveSubjects.track'])
-                ->findOrFail($id);
+            $slot = ElectiveSlot::query()->findOrFail($id);
 
-            // Transform to ensure camelCase for frontend
-            $transformed = [
-                'elective_slot_id' => $slot->elective_slot_id,
-                'program_id' => $slot->program_id,
-                'semester_id' => $slot->semester_id,
-                'year_level_id' => $slot->year_level_id,
-                'slot_name' => $slot->slot_name,
-                'status' => $slot->status,
-                'program' => $slot->program,
-                'semester' => $slot->semester,
-                'yearLevel' => $slot->yearLevel,
-                'electiveSubjects' => $slot->electiveSubjects->map(function ($es) {
-                    return [
-                        'elective_subject_id' => $es->elective_subject_id,
-                        'elective_slot_id' => $es->elective_slot_id,
-                        'subject_id' => $es->subject_id,
-                        'track_id' => $es->track_id,
-                        'description' => $es->description,
-                        'subject' => $es->subject,
-                        'track' => $es->track,
-                    ];
-                }),
-            ];
-
-            return response()->json($transformed);
+            return response()->json($this->serializeElectiveSlot($slot));
         } catch (\Exception $e) {
             return response()->json(['error' => 'Elective slot not found'], 404);
         }
@@ -188,36 +151,12 @@ class ElectiveSlotController extends Controller
                 'year_level_id' => 'required|exists:year_level,year_level_id',
                 'slot_name' => 'required|string|max:100',
                 'status' => 'nullable|string|max:50',
+                'prerequisite_slot_id' => 'nullable|integer|exists:tbl_elective_slot,elective_slot_id',
             ]);
 
             $slot->update($validated);
-            $slot->load(['program', 'semester', 'yearLevel', 'electiveSubjects.subject', 'electiveSubjects.track']);
 
-            // Transform to ensure camelCase for frontend
-            $transformed = [
-                'elective_slot_id' => $slot->elective_slot_id,
-                'program_id' => $slot->program_id,
-                'semester_id' => $slot->semester_id,
-                'year_level_id' => $slot->year_level_id,
-                'slot_name' => $slot->slot_name,
-                'status' => $slot->status,
-                'program' => $slot->program,
-                'semester' => $slot->semester,
-                'yearLevel' => $slot->yearLevel,
-                'electiveSubjects' => $slot->electiveSubjects->map(function ($es) {
-                    return [
-                        'elective_subject_id' => $es->elective_subject_id,
-                        'elective_slot_id' => $es->elective_slot_id,
-                        'subject_id' => $es->subject_id,
-                        'track_id' => $es->track_id,
-                        'description' => $es->description,
-                        'subject' => $es->subject,
-                        'track' => $es->track,
-                    ];
-                }),
-            ];
-
-            return response()->json($transformed);
+            return response()->json($this->serializeElectiveSlot($slot->fresh()));
         } catch (\Exception $e) {
             return response()->json(['error' => 'Failed to update elective slot', 'message' => $e->getMessage()], 500);
         }

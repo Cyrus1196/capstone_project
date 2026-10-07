@@ -118,6 +118,10 @@ php artisan migrate --path=database/migrations/2026_10_07_120000_add_file_payloa
   || echo "WARN: backup file_payload migration skipped or failed."
 php artisan backup:attach-missing-payloads || echo "WARN: backup payload attach skipped or failed."
 
+php artisan migrate --path=database/migrations/2026_10_07_130000_restore_prerequisite_slot_on_elective_slot.php --force \
+  || echo "WARN: elective prerequisite_slot migration skipped or failed."
+php artisan electives:sync-it-prerequisite-chain || echo "WARN: IT elective prerequisite sync skipped or failed."
+
 php artisan config:cache || true
 php artisan route:cache || true
 

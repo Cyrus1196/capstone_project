@@ -20,6 +20,7 @@ use App\Services\StudentAccountEmail;
 use App\Services\StudentCurriculumEvaluationBuilder;
 use App\Services\StudentLoginProvisioner;
 use App\Support\CachedSchema;
+use App\Support\ElectiveSlotPrerequisite;
 use App\Support\InputGuards;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -202,7 +203,7 @@ class StudentController extends Controller
 
     protected function electiveSlotPrerequisiteRows($slot): array
     {
-        return [];
+        return ElectiveSlotPrerequisite::prerequisiteRows($slot);
     }
 
     /**
@@ -574,6 +575,7 @@ class StudentController extends Controller
                     'yearLevel',
                     'semester',
                     'program',
+                    'electiveSlot.prerequisiteSlot',
                     'electiveSlot.electiveSubjects.subject',
                     'electiveSlot.electiveSubjects.track',
                 ]);

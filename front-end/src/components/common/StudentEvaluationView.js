@@ -860,9 +860,18 @@ function formatPromotionPrerequisiteDisplay(row) {
   const coRules = Array.isArray(row?.corequisite_rule_labels)
     ? row.corequisite_rule_labels.map(formatEvalRequisiteRuleLabel).filter(Boolean)
     : [];
+  const preSlots = Array.isArray(row?.prerequisite_elective_slots)
+    ? row.prerequisite_elective_slots
+    : [];
+  const slotLabels = preSlots
+    .map((s) => (s?.slot_name ? String(s.slot_name).trim() : ''))
+    .filter(Boolean);
+
   const parts = [];
   if (preRules.length > 0) {
     parts.push(`P: ${[...new Set(preRules)].join(', ')}`);
+  } else if (slotLabels.length > 0) {
+    parts.push(`P: ${[...new Set(slotLabels)].join(', ')}`);
   } else if (Array.isArray(pre) && pre.length > 0) {
     // Avoid dumping huge expanded standing lists when no rule label was sent.
     if (pre.length <= 8) {

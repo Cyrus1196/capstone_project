@@ -770,7 +770,19 @@ function clearGuestDependentCredits(scopeRows, remarksMap, yearLevels, trackBySl
 }
 
 function getGuestRequiredPrerequisiteSlots(row, scopeRows = null) {
-  return [];
+  const fromApi = row?.prerequisite_elective_slots;
+  if (Array.isArray(fromApi) && fromApi.length) {
+    return fromApi;
+  }
+  const slot = row?.elective_slot || row?.electiveSlot;
+  const preId = slot?.prerequisite_slot_id;
+  if (preId == null || preId === '') {
+    return [];
+  }
+  const preSlot = slot?.prerequisite_slot || slot?.prerequisiteSlot;
+  const name =
+    (preSlot?.slot_name && String(preSlot.slot_name).trim()) || 'IT Electives 1';
+  return [{ elective_slot_id: Number(preId), slot_name: name }];
 }
 
 /**
