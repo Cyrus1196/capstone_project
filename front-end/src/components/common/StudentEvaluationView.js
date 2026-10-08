@@ -5263,7 +5263,7 @@ const StudentEvaluationView = ({
   // Batch update status for multiple rows
   const batchUpdateStatus = (rows, status) => {
     const gradable = rows.filter((row) => {
-      if (!isRowGradable(row) || isTransferCreditRow(row)) return false;
+      if (!isRowGradable(row) || isTransferCreditRow(row) || row.not_taken_in_load) return false;
       const mi = data?.rows ? data.rows.findIndex((r) => getRowKey(r) === getRowKey(row)) : -1;
       const mergedTarget = mi >= 0 ? mergedRowsForPrereq[mi] : row;
       return rowPrereqsMetWithOverride(mergedRowsForPrereq, mergedTarget);
@@ -5271,7 +5271,7 @@ const StudentEvaluationView = ({
     if (gradable.length === 0) {
       swalToast(
         'info',
-        'No rows to update here (elective slots need a subject, all rows are transfer-credited, or every course is blocked until prerequisites are passed on record).'
+        'No rows to update here (elective slots need a subject, all rows are transfer-credited or not taken, or every course is blocked until prerequisites are passed on record).'
       );
       return;
     }
@@ -7363,6 +7363,7 @@ const StudentEvaluationView = ({
                       : normalizeStatusForUi(row.status ?? '');
                     const gradable = displaySubjectId != null && displaySubjectId !== '';
                     const transferCredit = isTransferCreditRow(row);
+                    const notTakenInLoad = !!row.not_taken_in_load && !transferCredit;
                     const mi = data?.rows ? data.rows.findIndex((r) => getRowKey(r) === getRowKey(row)) : -1;
                     const mergedTarget =
                       mi >= 0 && mergedRowsForPrereq[mi]
@@ -7794,6 +7795,13 @@ const StudentEvaluationView = ({
                         >
                           {gradable && transferCredit ? (
                             <span className="eval-transfer-credit-dash">—</span>
+                          ) : notTakenInLoad ? (
+                            <span
+                              className="eval-grade-na"
+                              title="Not taken this semester — cannot be graded"
+                            >
+                              —
+                            </span>
                           ) : termCanEditNumericGrades && gradable && prereqsMet ? (
                             <input
                               type="text"
@@ -7829,6 +7837,13 @@ const StudentEvaluationView = ({
                               title="Approved transfer credit"
                             >
                               Credited
+                            </span>
+                          ) : notTakenInLoad ? (
+                            <span
+                              className="eval-not-taken-remark"
+                              title="Unchecked (dropped) in the saved load plan — not taken this semester, so it cannot be graded"
+                            >
+                              Not taken
                             </span>
                           ) : termCanEditEvaluationRows && gradable && !prereqsMet ? (
                             <div className="eval-prereq-locked" title={notEligibleTitle}>
