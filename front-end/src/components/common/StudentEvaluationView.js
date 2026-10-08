@@ -3020,38 +3020,57 @@ const StudentEvaluationView = ({
       semesterOptionsForYear.find((s) => s.id === evalFilterSemesterId)?.label || ''
     );
 
+    const studentTrackId =
+      data?.student?.track_id != null && data.student.track_id !== ''
+        ? String(data.student.track_id)
+        : '';
+    const offeredIdsThisStanding = new Set();
+    (Array.isArray(data?.offered_subjects) ? data.offered_subjects : []).forEach((o) => {
+      if (String(o?.status || 'active').toLowerCase() !== 'active') return;
+      if (o.semester_id != null && String(o.semester_id) !== String(evalFilterSemesterId)) return;
+      if (
+        o.track_id != null &&
+        o.track_id !== '' &&
+        studentTrackId &&
+        String(o.track_id) !== studentTrackId
+      ) {
+        return;
+      }
+      if (o.subject_id != null && o.subject_id !== '') {
+        offeredIdsThisStanding.add(String(o.subject_id));
+      }
+    });
+
     return data.rows
       .map((r) => mergedRowsByKey.get(getEvaluationRowKey(r)) || r)
-      .filter((r) => {
-        if (r?.previous_program_only === true) return false;
-        if (r?.from_previous_program === true) return false;
-        if (isTransferCreditRowForTermGate(r)) return false;
-        if (isEvalRowAlreadyTaken(r)) return false;
+      .map((r) => {
+        if (r?.previous_program_only === true) return null;
+        if (r?.from_previous_program === true) return null;
+        if (isTransferCreditRowForTermGate(r)) return null;
+        if (isEvalRowAlreadyTaken(r)) return null;
 
-        // Never include a later year than standing (name/id ordinal guard).
         const rowYearOrd = parseYearNumberFromLabel(r.year_level_name, r.year_level_id);
-        if (
-          standingYearOrd != null &&
-          rowYearOrd != null &&
-          rowYearOrd > standingYearOrd
-        ) {
-          return false;
-        }
-
-        // Only this standing term + earlier untaken (never later terms like 2nd sem
-        // while standing is still 1st sem).
         const idx = termIndexOf(r.year_level_id, r.semester_id);
-        if (standingIdx >= 0) {
-          if (idx < 0) return false;
-          if (idx > standingIdx) return false;
-        } else {
-          const rowKey = evalTermSortKey(r.year_level_id, r.semester_id, r.semester_name);
-          if (rowKey > standingKeyFallback) return false;
+        const isLaterTerm =
+          (standingYearOrd != null && rowYearOrd != null && rowYearOrd > standingYearOrd) ||
+          (standingIdx >= 0
+            ? idx > standingIdx
+            : evalTermSortKey(r.year_level_id, r.semester_id, r.semester_name) >
+              standingKeyFallback);
+
+        if (standingIdx >= 0 && idx < 0) return null;
+
+        // Later terms only when listed in Offered subjects for this standing semester.
+        if (isLaterTerm) {
+          const sid = r?.subject_id;
+          if (sid == null || sid === '' || !offeredIdsThisStanding.has(String(sid))) return null;
+          return { ...r, advance_offered: true };
         }
 
         // Current-standing rows with unmet prereqs stay in the pool (shown as Blocked).
-        return true;
+        return r;
       })
+      .filter(Boolean)
       .sort((a, b) => {
         const aCur =
           String(a.year_level_id) === String(evalFilterYearId) &&
@@ -3071,6 +3090,8 @@ const StudentEvaluationView = ({
       });
   }, [
     data?.rows,
+    data?.offered_subjects,
+    data?.student?.track_id,
     evalFilterYearId,
     evalFilterSemesterId,
     mergedRowsByKey,
@@ -3131,8 +3152,15 @@ const StudentEvaluationView = ({
     // Always force-drop ineligible rows so take counts stay correct even when
     // saved deferred_keys is empty / stale.
     const deferred = new Set(savedDeferred);
+    const savedTakeKeys = new Set(
+      Array.isArray(termLoad?.take_keys) ? termLoad.take_keys.map(String) : []
+    );
     currentStandingSubjects.forEach((row) => {
       const key = getEvaluationRowKey(row);
+      if (row.advance_offered && !savedTakeKeys.has(String(key))) {
+        deferred.add(key);
+        return;
+      }
       if (
         standingLoadBlockedByPrereq(
           row,
@@ -4125,7 +4153,7 @@ const StudentEvaluationView = ({
 
     if (unitCap != null && takeUnits < unitCap) {
       const notTaken = currentStandingSubjects
-        .filter((row) => deferred.has(getEvaluationRowKey(row)))
+        .filter((row) => !row.advance_offered && deferred.has(getEvaluationRowKey(row)))
         .map((row) => row.subject_code || row.elective_slot_name)
         .filter(Boolean);
       const ok = await swalConfirm({
@@ -4197,9 +4225,14 @@ const StudentEvaluationView = ({
       });
 
       const takeKeysList = toTake.map((row) => getEvaluationRowKey(row));
+      const advanceKeys = new Set(
+        currentStandingSubjects
+          .filter((row) => row.advance_offered)
+          .map((row) => getEvaluationRowKey(row))
+      );
       const response = await api.post('/evaluation/student/standing-load', {
         student_id: Number(studentId),
-        deferred_keys: [...deferred],
+        deferred_keys: [...deferred].filter((key) => !advanceKeys.has(key)),
         take_keys: takeKeysList,
         year_level_id: Number(evalFilterYearId) || null,
         semester_id: Number(evalFilterSemesterId) || null,
@@ -8773,7 +8806,8 @@ const StudentEvaluationView = ({
                           selectable only when <strong>Offered</strong> this standing
                           (OFFSEM), or when their home semester matches this standing
                           (Semestral). A 2nd-sem subject during 1st-sem standing stays
-                          locked unless it is offered.
+                          locked unless it is offered. Later-term subjects appear only
+                          when <strong>Offered</strong> this semester.
                         </>
                       ) : (
                         <>
@@ -8818,7 +8852,11 @@ const StudentEvaluationView = ({
                                         String(evalFilterYearId) &&
                                       String(row.semester_id) ===
                                         String(evalFilterSemesterId);
-                                    const section = isCurrentTerm ? 'current' : 'prior';
+                                    const section = isCurrentTerm
+                                      ? 'current'
+                                      : row.advance_offered
+                                        ? 'advance'
+                                        : 'prior';
                                     const showSection = section !== lastSection;
                                     lastSection = section;
                                     const blockReason = standingLoadBlockedByPrereq(row, mergedRowsForPrereq, majorStandingOverrideKeys, enrollmentYearStandingOrd);
@@ -8872,7 +8910,9 @@ const StudentEvaluationView = ({
                                             <td colSpan={5}>
                                               {section === 'current'
                                                 ? 'This standing'
-                                                : isIrregularStudent
+                                                : section === 'advance'
+                                                  ? 'Offered advance subjects (later terms)'
+                                                  : isIrregularStudent
                                                   ? 'Untaken / backlog (previous terms)'
                                                   : 'Untaken / prior terms'}
                                             </td>
