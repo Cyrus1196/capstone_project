@@ -840,7 +840,7 @@ const CsvImport = ({
                 </div>
               </>
             ) : (
-              <h4>CSV header row (accepted vs excluded):</h4>
+              <h4>Required column headers:</h4>
             )}
             {columnGroupsForGuide.length > 0 ? (
               <div className="csv-column-groups">
@@ -854,19 +854,14 @@ const CsvImport = ({
                       <div className="column-tags">
                         {group.columns.map((rawCol, idx) => {
                           const col = normalizeGuideColumn(rawCol);
-                          if (!col) return null;
+                          if (!col || !col.accepted) return null;
                           return (
                             <span
                               key={`${col.name}-${idx}`}
-                              className={`column-tag ${col.accepted ? 'accepted' : 'excluded'}`}
-                              title={
-                                col.accepted
-                                  ? 'Used by this system'
-                                  : 'Present in SIS export but not imported'
-                              }
+                              className="column-tag accepted"
+                              title="Used by this system"
                             >
                               {col.name}
-                              {!col.accepted ? ' (exclude)' : ''}
                             </span>
                           );
                         })}

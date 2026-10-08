@@ -120,7 +120,7 @@ class CsvImportController extends Controller
             'column_groups' => [
                 [
                     'title' => 'Grade Deliberation export (SESSION … REMARKS)',
-                    'description' => 'Standard SIS Grade Deliberation file. Columns marked (exclude) may stay in your export — the system ignores them. Teacher columns between SECTION and MODALITY are also ignored.',
+                    'description' => 'Standard SIS Grade Deliberation file. Your file must include these columns; any other columns in the export are ignored.',
                     'columns' => [
                         ['name' => 'SESSION', 'accepted' => true],
                         ['name' => 'COLLEGE', 'accepted' => false],
@@ -150,7 +150,7 @@ class CsvImportController extends Controller
                 ],
                 [
                     'title' => 'Alternate SIS grade sheet (IDNO … REMARKS_FINAL)',
-                    'description' => 'Excel grade sheet with IDNO / SY / SUBJECT CODE is also accepted. Use one grade column (GRADE, FINAL GRADE, GRADE_FINAL, COMPLETION GRADE, or RE-GRADE) and one remarks column (REMARKS or REMARKS_FINAL). Columns marked (exclude) are ignored.',
+                    'description' => 'Excel grade sheet with IDNO / SY / SUBJECT CODE is also accepted. Use one grade column (GRADE, FINAL GRADE, GRADE_FINAL, COMPLETION GRADE, or RE-GRADE) and one remarks column (REMARKS or REMARKS_FINAL). Any other columns in the file are ignored.',
                     'columns' => [
                         ['name' => 'IDNO', 'accepted' => true],
                         ['name' => 'NAME', 'accepted' => true],
@@ -1670,6 +1670,21 @@ class CsvImportController extends Controller
      * @param  list<array<string, mixed>>  $rows
      * @return list<string>
      */
+    /** @return array<string, true> uppercase header => true */
+    private function sisGradeDeliberationAcceptedHeaderSet(): array
+    {
+        $set = [];
+        foreach ($this->importTypes['sis_grade_deliberation']['column_groups'] ?? [] as $group) {
+            foreach ($group['columns'] ?? [] as $col) {
+                if (is_array($col) && ($col['accepted'] ?? true) && isset($col['name'])) {
+                    $set[strtoupper(trim((string) $col['name']))] = true;
+                }
+            }
+        }
+
+        return $set;
+    }
+
     private function sisGradeDeliberationPreviewHeaders(array $rows): array
     {
         $headers = null;
@@ -1682,6 +1697,14 @@ class CsvImportController extends Controller
         }
         if ($headers === null) {
             $headers = app(SisGradeDeliberationImportParser::class)->standardDeliberationHeaders();
+        }
+
+        $accepted = $this->sisGradeDeliberationAcceptedHeaderSet();
+        if ($accepted !== []) {
+            $headers = array_values(array_filter(
+                $headers,
+                static fn ($h) => isset($accepted[strtoupper(trim((string) $h))])
+            ));
         }
 
         // Show how SESSION maps into Lookup Academic Year / Semester.
