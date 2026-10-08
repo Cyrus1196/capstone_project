@@ -913,21 +913,10 @@ class StudentController extends Controller
                 Rule::unique('tbl_users', 'email')->ignore($user?->user_id, 'user_id'),
             ],
             'password' => ['nullable', 'string'],
-            'contact_number' => InputGuards::contactNumberRule(false),
-            'status' => 'nullable|string|max:50',
-            'student_id_number' => 'required|string|max:50',
-            'first_name' => 'nullable|string|max:100',
-            'middle_name' => 'nullable|string|max:100',
-            'last_name' => 'nullable|string|max:100',
-            'address' => 'nullable|string',
-            'academic_status' => 'nullable|string|max:50',
-            'student_entry_type' => 'nullable|string|in:Shiftee,Returnee,Transferee',
-            'year_level_id' => 'nullable|integer|exists:year_level,year_level_id',
-            'track_id' => 'nullable|integer|exists:tbl_track,track_id',
-            'current_program' => 'nullable|integer|exists:tbl_program,program_id',
         ]);
 
-        $sid = trim((string) $validated['student_id_number']);
+        // Edit Student may only change login email and password; profile data is read-only here.
+        $sid = trim((string) ($profile->student_id_number ?? ''));
         $email = trim((string) ($validated['email'] ?? ''));
         if ($this->isPlaceholderStudentEmail($email, $sid)) {
             $email = '';
@@ -945,7 +934,7 @@ class StudentController extends Controller
             if (! $user) {
                 $password = trim((string) ($validated['password'] ?? ''));
                 if ($password === '') {
-                    $password = StudentLoginProvisioner::defaultPassword($validated['first_name'] ?? $profile->first_name);
+                    $password = StudentLoginProvisioner::defaultPassword($profile->first_name);
                 }
                 $loginEmail = $email !== ''
                     ? $email
@@ -953,12 +942,13 @@ class StudentController extends Controller
                 $user = TblUser::create([
                     'email' => $loginEmail,
                     'password' => AuthUnitHelpers::hashUserPassword($password),
-                    'contact_number' => $validated['contact_number'] ?? $profile->contact_number,
+                    'contact_number' => $profile->contact_number,
                     'role_id' => (int) $studentRoleId,
-                    'status' => $validated['status'] ?? 'active',
+                    'status' => 'active',
                     'password_changed_at' => null,
                 ]);
                 $profile->user_id = $user->user_id;
+                $profile->save();
             } else {
                 if ($email !== '') {
                     $user->email = $email;
@@ -967,40 +957,8 @@ class StudentController extends Controller
                     $user->password = AuthUnitHelpers::hashUserPassword($validated['password']);
                     $user->password_changed_at = now();
                 }
-                if (array_key_exists('contact_number', $validated)) {
-                    $user->contact_number = $validated['contact_number'];
-                }
-                if (! empty($validated['status'])) {
-                    $user->status = $validated['status'];
-                }
                 $user->save();
             }
-
-            $dup = StudentProfile::query()
-                ->where('student_id_number', $sid)
-                ->where('student_id', '!=', $profile->student_id)
-                ->exists();
-            if ($dup) {
-                DB::rollBack();
-
-                return response()->json(['message' => 'Student ID number already exists'], 422);
-            }
-
-            $profile->fill([
-                'student_id_number' => $sid,
-                'student_number' => preg_replace('/\D+/', '', $sid) ?: $sid,
-                'first_name' => $validated['first_name'] ?? $profile->first_name,
-                'middle_name' => $validated['middle_name'] ?? $profile->middle_name,
-                'last_name' => $validated['last_name'] ?? $profile->last_name,
-                'contact_number' => $validated['contact_number'] ?? $profile->contact_number,
-                'address' => $validated['address'] ?? $profile->address,
-                'academic_status' => $validated['academic_status'] ?? $profile->academic_status,
-                'student_entry_type' => $validated['student_entry_type'] ?? $profile->student_entry_type,
-                'year_level_id' => $validated['year_level_id'] ?? $profile->year_level_id,
-                'track_id' => $validated['track_id'] ?? $profile->track_id,
-                'Current_Program' => $validated['current_program'] ?? $profile->current_program,
-            ]);
-            $profile->save();
 
             DB::commit();
         } catch (\Throwable $e) {

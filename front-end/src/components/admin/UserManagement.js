@@ -403,6 +403,8 @@ const UserManagement = ({ userScope = 'staff' }) => {
 
   /** Student Management only. User Management (staff) never shows student profile fields. */
   const isStudentForm = () => userScope === 'students';
+  /** Edit Student: only login email and password can change. */
+  const lockStudentProfile = userScope === 'students' && Boolean(editingUser);
 
   const isDeanRole = () => {
     if (!formData.role_id) return false;
@@ -763,6 +765,28 @@ const UserManagement = ({ userScope = 'staff' }) => {
 
     try {
       const submitData = { ...formData };
+
+      if (lockStudentProfile && editingUser.student_id) {
+        const passwordErr = getAdminDirectoryPasswordError(submitData.password, { required: false });
+        if (passwordErr) {
+          setPasswordFieldError(passwordErr);
+          await swalError('Save failed', passwordErr);
+          return;
+        }
+        setPasswordFieldError('');
+        const accountData = { email: String(submitData.email || '').trim() || null };
+        if (submitData.password) {
+          accountData.password = submitData.password;
+        }
+        await api.put(`/students/directory/${editingUser.student_id}`, accountData);
+        setShowModal(false);
+        clearUserFormDraft();
+        setEditingUser(null);
+        setShowPassword(false);
+        fetchUsers();
+        swalToast('success', 'Student account updated');
+        return;
+      }
 
       if (isStudentForm()) {
         const studentRoleId = submitData.role_id || String(studentRoleRecord?.role_id ?? studentRoleRecord?.id ?? '');
@@ -1435,6 +1459,11 @@ const UserManagement = ({ userScope = 'staff' }) => {
                 <>
                   <div style={{ marginBottom: '1rem' }}>
                     <h4 style={{ margin: '0 0 1rem 0', color: '#333' }}>Student Information</h4>
+                    {lockStudentProfile ? (
+                      <small style={{ color: '#666', fontSize: '0.85rem', display: 'block', marginTop: '-0.5rem' }}>
+                        Student details are read-only. Only the password and email can be changed here.
+                      </small>
+                    ) : null}
                   </div>
 
                   <div className="form-group">
@@ -1453,6 +1482,7 @@ const UserManagement = ({ userScope = 'staff' }) => {
                       }}
                       placeholder="e.g., 02-2324-07413"
                       required={isStudentForm() && (!editingUser || !formData.student_id_number)}
+                      disabled={lockStudentProfile}
                     />
                     {!editingUser && (
                       <small style={{ color: '#666', fontSize: '0.85rem', display: 'block', marginTop: '0.25rem' }}>
@@ -1470,6 +1500,7 @@ const UserManagement = ({ userScope = 'staff' }) => {
                       onChange={(e) => setFormData({ ...formData, first_name: e.target.value })}
                       placeholder="Enter first name"
                       required={isStudentForm()}
+                      disabled={lockStudentProfile}
                     />
                     {!editingUser && formData.first_name && (
                       <small style={{ color: '#666', fontSize: '0.85rem', display: 'block', marginTop: '0.25rem' }}>
@@ -1487,6 +1518,7 @@ const UserManagement = ({ userScope = 'staff' }) => {
                       value={formData.middle_name || ''}
                       onChange={(e) => setFormData({ ...formData, middle_name: e.target.value })}
                       placeholder="Enter middle name (optional)"
+                      disabled={lockStudentProfile}
                     />
                   </div>
 
@@ -1499,6 +1531,7 @@ const UserManagement = ({ userScope = 'staff' }) => {
                       onChange={(e) => setFormData({ ...formData, last_name: e.target.value })}
                       placeholder="Enter last name"
                       required={isStudentForm()}
+                      disabled={lockStudentProfile}
                     />
                   </div>
 
@@ -1518,6 +1551,7 @@ const UserManagement = ({ userScope = 'staff' }) => {
                         })
                       }
                       placeholder="11 digits only (e.g. 09123456789)"
+                      disabled={lockStudentProfile}
                     />
                   </div>
 
@@ -1529,6 +1563,7 @@ const UserManagement = ({ userScope = 'staff' }) => {
                       onChange={(e) => setFormData({ ...formData, address: e.target.value })}
                       placeholder="Optional — student can update this after login"
                       rows="3"
+                      disabled={lockStudentProfile}
                     />
                   </div>
 
@@ -1538,6 +1573,7 @@ const UserManagement = ({ userScope = 'staff' }) => {
                       aria-label="Academic status"
                       value={formData.academic_status || ''}
                       onChange={(e) => setFormData({ ...formData, academic_status: e.target.value })}
+                      disabled={lockStudentProfile}
                     >
                       <option value="">Select Status</option>
                       <option value="Regular">Regular</option>
@@ -1554,6 +1590,7 @@ const UserManagement = ({ userScope = 'staff' }) => {
                       aria-label="Student type"
                       value={formData.student_entry_type || ''}
                       onChange={(e) => setFormData({ ...formData, student_entry_type: e.target.value })}
+                      disabled={lockStudentProfile}
                     >
                       <option value="">Standard (none)</option>
                       <option value="Shiftee">Shiftee</option>
@@ -1586,6 +1623,7 @@ const UserManagement = ({ userScope = 'staff' }) => {
                       emptyLabel="Select Program"
                       placeholder="Search programs..."
                       required={isStudentForm()}
+                      disabled={lockStudentProfile}
                     />
                   </div>
 
@@ -1597,6 +1635,7 @@ const UserManagement = ({ userScope = 'staff' }) => {
                         value={formData.track_id || ''}
                         onChange={(e) => setFormData({ ...formData, track_id: e.target.value })}
                         required={adminShouldShowTrack}
+                        disabled={lockStudentProfile}
                       >
                         <option value="">Select Track</option>
                         {tracks.map((track) => (
@@ -1823,6 +1862,7 @@ const UserManagement = ({ userScope = 'staff' }) => {
                   aria-label="Account status"
                   value={formData.status || 'active'}
                   onChange={(e) => setFormData({ ...formData, status: e.target.value })}
+                  disabled={lockStudentProfile}
                 >
                   <option value="active">Active</option>
                   <option value="inactive">Inactive</option>
