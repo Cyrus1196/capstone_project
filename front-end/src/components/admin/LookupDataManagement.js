@@ -273,6 +273,28 @@ const LookupDataManagement = ({
     electiveSlots: [],
   });
 
+  /** Present school year: active year whose range contains today (latest start wins), same rule as the API. */
+  const currentAcademicYear = useMemo(() => {
+    const thisYear = new Date().getFullYear();
+    const years = (lookupData.academicYears || []).filter((ay) => {
+      const status = String(ay.status || '').trim().toLowerCase();
+      return status === '' || ['active', 'open', 'current'].includes(status);
+    });
+    const startOf = (ay) => {
+      const m = String(ay.academic_year_name || ay.name || '').match(/(\d{4})\s*[-–/]\s*(\d{4})/);
+      return m ? [Number(m[1]), Number(m[2])] : null;
+    };
+    const sorted = [...years].sort((a, b) => (startOf(b)?.[0] || 0) - (startOf(a)?.[0] || 0));
+    return (
+      sorted.find((ay) => {
+        const r = startOf(ay);
+        return r && thisYear >= r[0] && thisYear <= r[1];
+      }) ||
+      sorted[0] ||
+      null
+    );
+  }, [lookupData.academicYears]);
+
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [activeTabInternal, setActiveTabInternal] = useState('programs');
@@ -828,6 +850,11 @@ const LookupDataManagement = ({
       }
       if (activeTab === 'offeredSubjects' && !shouldShowOfferedSubjectTrack(payload)) {
         payload.track_id = null;
+      }
+      if (activeTab === 'offeredSubjects') {
+        payload.academic_year_id = currentAcademicYear
+          ? Number(currentAcademicYear.academic_year_id ?? currentAcademicYear.id)
+          : null;
       }
 
       const base = `/${prefix ? prefix + '/' : ''}${apiEndpoint}`;
@@ -2474,28 +2501,21 @@ const LookupDataManagement = ({
           </div>
           <div className="form-group">
             <label htmlFor="ldm-os-ay">Academic Year</label>
-            <SearchableSelect
+            <input
               id="ldm-os-ay"
+              type="text"
               value={
-                formData.academic_year_id === '' || formData.academic_year_id == null
-                  ? ''
-                  : String(formData.academic_year_id)
+                currentAcademicYear
+                  ? currentAcademicYear.academic_year_name || currentAcademicYear.name
+                  : 'No current academic year — add it under Academic year'
               }
-              onChange={(v) =>
-                setFormData({ ...formData, academic_year_id: v ? parseInt(v, 10) : '' })
-              }
-              options={(lookupData.academicYears || []).map((ay) => {
-                const id = ay.academic_year_id ?? ay.id;
-                return {
-                  value: String(id),
-                  label: ay.name || ay.academic_year_name || String(id),
-                };
-              })}
-              emptyLabel="Select Academic Year"
-              placeholder="Search academic year…"
-              required
-              aria-label="Academic year"
+              disabled
+              readOnly
+              aria-label="Academic year (present school year)"
             />
+            <small style={{ color: '#6c757d', display: 'block', marginTop: '6px' }}>
+              Offered subjects always apply to the present school year.
+            </small>
           </div>
           <div className="form-group">
             <label htmlFor="ldm-os-semester">Semester</label>

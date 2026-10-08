@@ -88,12 +88,25 @@ const DeanStudentRecords = () => {
     const priorFlags = data?.student?.standing_term_load?.prior_flags;
     const flags =
       priorFlags && typeof priorFlags === 'object' && !Array.isArray(priorFlags) ? priorFlags : {};
+    const notTakenKeys = new Set(
+      Array.isArray(data?.student?.standing_deferred_keys)
+        ? data.student.standing_deferred_keys.map(String)
+        : []
+    );
     const rows = (hidePreviousOnly
       ? allRows.filter((row) => row?.previous_program_only !== true)
       : allRows
     ).map((row) => {
-      const flag = flags[evaluationRowKey(row)];
-      return flag ? { ...row, off_semester: true, off_semester_standing: flag } : row;
+      const key = evaluationRowKey(row);
+      const flag = flags[key];
+      const hasGrade = row.grade != null && String(row.grade).trim() !== '';
+      const notTaken = notTakenKeys.has(key) && !hasGrade && !row.passed_via_transfer_credit;
+      if (!flag && !notTaken) return row;
+      return {
+        ...row,
+        ...(flag ? { off_semester: true, off_semester_standing: flag } : {}),
+        ...(notTaken ? { not_taken_in_load: true } : {}),
+      };
     });
     const map = new Map();
 
@@ -125,7 +138,12 @@ const DeanStudentRecords = () => {
     });
 
     return groups;
-  }, [data?.rows, data?.student?.standing_term_load, hidePreviousOnly]);
+  }, [
+    data?.rows,
+    data?.student?.standing_term_load,
+    data?.student?.standing_deferred_keys,
+    hidePreviousOnly,
+  ]);
 
   const summary = data?.summary || {};
   const computedStatus = data?.computed_academic_status;
@@ -261,6 +279,14 @@ const DeanStudentRecords = () => {
                                   }`}
                                 >
                                   {isSemestralStanding(row.off_semester_standing) ? 'SEMESTRAL' : 'OFFSEM'}
+                                </span>
+                              ) : null}
+                              {row.not_taken_in_load ? (
+                                <span
+                                  className="dean-sr__not-taken-tag"
+                                  title="Unchecked (dropped) in the saved load plan — not taken this semester"
+                                >
+                                  NOT TAKEN
                                 </span>
                               ) : null}
                               {row.off_semester && formatOffSemesterTakenTerm(row, data) ? (

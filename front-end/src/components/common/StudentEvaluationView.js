@@ -892,6 +892,14 @@ function formatPromotionPrerequisiteDisplay(row) {
   return '';
 }
 
+function escapeHtmlText(value) {
+  return String(value)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
 function isElectiveTrackPendingRow(row) {
   return row?.elective_pending === true && (row?.subject_id == null || row.subject_id === '');
 }
@@ -4115,6 +4123,24 @@ const StudentEvaluationView = ({
       return;
     }
 
+    if (unitCap != null && takeUnits < unitCap) {
+      const notTaken = currentStandingSubjects
+        .filter((row) => deferred.has(getEvaluationRowKey(row)))
+        .map((row) => row.subject_code || row.elective_slot_name)
+        .filter(Boolean);
+      const ok = await swalConfirm({
+        title: 'Save an underload?',
+        html: `This student will carry <strong>${takeUnits} of ${unitCap} units</strong> this semester (underload).${
+          notTaken.length
+            ? `<br><br>Not taken: <strong>${notTaken.map(escapeHtmlText).join(', ')}</strong>`
+            : ''
+        }<br><br>Are you sure you want to save this load plan?`,
+        confirmButtonText: 'Yes, save underload',
+        cancelButtonText: 'Review load',
+      });
+      if (!ok) return;
+    }
+
     const yearLabel =
       yearsAllowedForFilter.find((y) => y.id === String(evalFilterYearId))?.label ||
       evaluationFilterOptions.years.find((y) => y.id === String(evalFilterYearId))?.label ||
@@ -7101,8 +7127,18 @@ const StudentEvaluationView = ({
     const activePlacementMap = placementPreviewHasPendingChanges
       ? placementPreviewMap
       : placementPreviewConfirmedMap;
-    const rowsForDisplay = data.rows.map((row) => {
-      const key = getRowKey(row);
+    const savedNotTakenKeys = new Set(
+      Array.isArray(data?.student?.standing_deferred_keys)
+        ? data.student.standing_deferred_keys.map(String)
+        : []
+    );
+    const rowsForDisplay = data.rows.map((rawRow) => {
+      const key = getRowKey(rawRow);
+      const hasGrade = rawRow.grade != null && String(rawRow.grade).trim() !== '';
+      const row =
+        savedNotTakenKeys.has(String(key)) && !hasGrade && !rawRow.passed_via_transfer_credit
+          ? { ...rawRow, not_taken_in_load: true }
+          : rawRow;
       const offsem = offSemesterTakeMap[key];
       if (offsem) {
         return {
@@ -7682,6 +7718,14 @@ const StudentEvaluationView = ({
                                     </>
                                   );
                                 })() : null}
+                                {row.not_taken_in_load ? (
+                                  <span
+                                    className="eval-not-taken-tag"
+                                    title="Unchecked (dropped) in the saved load plan — not taken this semester"
+                                  >
+                                    NOT TAKEN
+                                  </span>
+                                ) : null}
                                 {row.from_previous_program ? (
                                   <span
                                     className="eval-previous-program-tag"
@@ -8848,6 +8892,14 @@ const StudentEvaluationView = ({
                                             <div className="eval-title-stack">
                                               <span className="eval-title-stack__name">
                                                 {title}
+                                                {isSubjectOfferedForStanding(row) ? (
+                                                  <span
+                                                    className="eval-offered-tag"
+                                                    title="Listed in Offered subjects for this semester"
+                                                  >
+                                                    OFFERED
+                                                  </span>
+                                                ) : null}
                                               </span>
                                               {requisiteLabel ? (
                                                 <span

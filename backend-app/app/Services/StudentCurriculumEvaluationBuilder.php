@@ -631,17 +631,20 @@ class StudentCurriculumEvaluationBuilder
             return [];
         }
 
-        $ayId = $curriculumHeader?->academic_year_id;
-        $cacheKey = 'eval.offered.'.(int) $programId.'.'.($ayId ?? 'na');
+        $ayIds = array_values(array_unique(array_filter([
+            (int) ($this->activeAcademicYearSummary()['academic_year_id'] ?? 0),
+            (int) ($curriculumHeader?->academic_year_id ?? 0),
+        ])));
+        $cacheKey = 'eval.offered.'.(int) $programId.'.'.implode('-', $ayIds);
 
-        return $this->rememberInRequest($cacheKey, function () use ($programId, $ayId) {
+        return $this->rememberInRequest($cacheKey, function () use ($programId, $ayIds) {
             $query = OfferedSubject::query()
                 ->where('status', 'active')
                 ->where('program_id', (int) $programId);
 
-            if ($ayId !== null && $ayId !== '') {
-                $query->where(function ($q) use ($ayId) {
-                    $q->where('academic_year_id', (int) $ayId)
+            if ($ayIds !== []) {
+                $query->where(function ($q) use ($ayIds) {
+                    $q->whereIn('academic_year_id', $ayIds)
                         ->orWhereNull('academic_year_id');
                 });
             }

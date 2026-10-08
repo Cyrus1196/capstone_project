@@ -1472,6 +1472,20 @@ class LookupDataController extends Controller
         }
     }
 
+    /** Offered subjects always belong to the present school year. */
+    private function applyCurrentAcademicYear(array &$validated): ?JsonResponse
+    {
+        $currentId = AcademicYear::currentId();
+        if ($currentId <= 0) {
+            return response()->json([
+                'message' => 'No current academic year found. Add the present school year under Lookup → Academic year and set it active.',
+            ], 422);
+        }
+        $validated['academic_year_id'] = $currentId;
+
+        return null;
+    }
+
     public function createOfferedSubject(Request $request)
     {
         if ($resp = $this->ensureLookupAccess($request, 'offered_subjects', true)) {
@@ -1480,7 +1494,7 @@ class LookupDataController extends Controller
 
         $validated = $request->validate([
             'subject_id' => 'required|exists:tbl_subjects,subject_id',
-            'academic_year_id' => 'required|exists:tbl_academic_year,academic_year_id',
+            'academic_year_id' => 'nullable|exists:tbl_academic_year,academic_year_id',
             'semester_id' => 'required|exists:tbl_semester,semester_id',
             'program_id' => 'required|exists:tbl_program,program_id',
             'track_id' => 'nullable|exists:tbl_track,track_id',
@@ -1488,6 +1502,9 @@ class LookupDataController extends Controller
             'status' => 'nullable|in:active,inactive',
         ]);
         $validated['status'] = 'active';
+        if ($resp = $this->applyCurrentAcademicYear($validated)) {
+            return $resp;
+        }
 
         $offered = OfferedSubject::create($validated);
         $offered->load(['subject', 'academicYear', 'semester', 'program', 'track', 'yearLevel']);
@@ -1505,7 +1522,7 @@ class LookupDataController extends Controller
 
         $validated = $request->validate([
             'subject_id' => 'required|exists:tbl_subjects,subject_id',
-            'academic_year_id' => 'required|exists:tbl_academic_year,academic_year_id',
+            'academic_year_id' => 'nullable|exists:tbl_academic_year,academic_year_id',
             'semester_id' => 'required|exists:tbl_semester,semester_id',
             'program_id' => 'required|exists:tbl_program,program_id',
             'track_id' => 'nullable|exists:tbl_track,track_id',
@@ -1513,6 +1530,9 @@ class LookupDataController extends Controller
             'status' => 'nullable|in:active,inactive',
         ]);
         $validated['status'] = $validated['status'] ?? 'active';
+        if ($resp = $this->applyCurrentAcademicYear($validated)) {
+            return $resp;
+        }
 
         $offered->update($validated);
         $offered->load(['subject', 'academicYear', 'semester', 'program', 'track', 'yearLevel']);

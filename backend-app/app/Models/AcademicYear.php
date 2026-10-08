@@ -78,6 +78,12 @@ class AcademicYear extends Model
             ->values();
     }
 
+    /** The present school year (active Lookup year whose range contains today). */
+    public static function currentId(): int
+    {
+        return self::resolveCurrentId(self::forAnalyticsFilters());
+    }
+
     /**
      * Prefer the year range that contains the current calendar year.
      *
