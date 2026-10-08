@@ -2,6 +2,11 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { useParams } from 'react-router-dom';
 import api from '../../api/axios';
 import { swalError } from '../../utils/swal';
+import {
+  evaluationRowKey,
+  formatOffSemesterTakenTerm,
+  isSemestralStanding,
+} from '../../utils/offSemesterTerm';
 import './DeanStudentRecords.css';
 
 const semesterOrder = (semesterName) => {
@@ -80,9 +85,16 @@ const DeanStudentRecords = () => {
     const allRows = Array.isArray(data?.rows) ? data.rows : [];
     // Confirmed shift: drop subjects that exist only on the previous program.
     // Shared current-curriculum rows stay and get a FROM <program> flag.
-    const rows = hidePreviousOnly
+    const priorFlags = data?.student?.standing_term_load?.prior_flags;
+    const flags =
+      priorFlags && typeof priorFlags === 'object' && !Array.isArray(priorFlags) ? priorFlags : {};
+    const rows = (hidePreviousOnly
       ? allRows.filter((row) => row?.previous_program_only !== true)
-      : allRows;
+      : allRows
+    ).map((row) => {
+      const flag = flags[evaluationRowKey(row)];
+      return flag ? { ...row, off_semester: true, off_semester_standing: flag } : row;
+    });
     const map = new Map();
 
     rows.forEach((row) => {
@@ -113,7 +125,7 @@ const DeanStudentRecords = () => {
     });
 
     return groups;
-  }, [data?.rows, hidePreviousOnly]);
+  }, [data?.rows, data?.student?.standing_term_load, hidePreviousOnly]);
 
   const summary = data?.summary || {};
   const computedStatus = data?.computed_academic_status;
@@ -240,6 +252,22 @@ const DeanStudentRecords = () => {
                           <td>
                             <span className="dean-sr__title-cell">
                               <span>{row.subject_name || '—'}</span>
+                              {row.off_semester ? (
+                                <span
+                                  className={`dean-sr__offsem-tag${
+                                    isSemestralStanding(row.off_semester_standing)
+                                      ? ' dean-sr__offsem-tag--semestral'
+                                      : ''
+                                  }`}
+                                >
+                                  {isSemestralStanding(row.off_semester_standing) ? 'SEMESTRAL' : 'OFFSEM'}
+                                </span>
+                              ) : null}
+                              {row.off_semester && formatOffSemesterTakenTerm(row, data) ? (
+                                <span className="dean-sr__offsem-term">
+                                  {formatOffSemesterTakenTerm(row, data)}
+                                </span>
+                              ) : null}
                               {row.from_previous_program ? (
                                 <span
                                   className="dean-sr__from-tag"

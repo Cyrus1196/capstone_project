@@ -9,6 +9,7 @@ import { useSystemGuide } from './SystemGuide';
 import PromoteSemesterModal from './PromoteSemesterModal';
 import SearchableSelect from './SearchableSelect';
 import SubjectEquivalenceQuickModal from './SubjectEquivalenceQuickModal';
+import { formatOffSemesterTakenTerm } from '../../utils/offSemesterTerm';
 import {
   gradeMeetsPassingThreshold,
   isCompleteGrade,
@@ -889,28 +890,6 @@ function formatPromotionPrerequisiteDisplay(row) {
   }
   if (parts.length) return parts.join(' · ');
   return '';
-}
-
-/**
- * School year + semester an OFFSEM / Semestral subject was taken.
- * Prefers the graded record's term, then the saved load-plan flag, then the current Lookup term.
- */
-function formatOffSemesterTakenTerm(row, data) {
-  const st = row?.off_semester_standing || {};
-  const syRaw =
-    row?.taken_academic_year_name ||
-    st.schoolYearLabel ||
-    data?.active_academic_year?.academic_year_name ||
-    '';
-  const sem =
-    row?.taken_semester_name ||
-    st.takenSemLabel ||
-    st.standingSemLabel ||
-    data?.active_semester?.semester_name ||
-    '';
-  const sy = String(syRaw).trim();
-  const syLabel = sy ? (/^sy\b/i.test(sy) ? sy : `SY ${sy}`) : '';
-  return [syLabel, String(sem).trim()].filter(Boolean).join(' · ');
 }
 
 function isElectiveTrackPendingRow(row) {

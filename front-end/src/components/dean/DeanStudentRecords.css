@@ -85,6 +85,32 @@
   white-space: nowrap;
 }
 
+.dean-sr__offsem-tag {
+  display: inline-flex;
+  padding: 0.08rem 0.4rem;
+  border-radius: 999px;
+  border: 1px solid #c2410c;
+  background: #fff7ed;
+  color: #c2410c;
+  font-size: 0.62rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+}
+
+.dean-sr__offsem-tag--semestral {
+  border-color: #1d4f91;
+  background: #eff6ff;
+  color: #1d4f91;
+}
+
+.dean-sr__offsem-term {
+  flex-basis: 100%;
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: #475569;
+}
+
 /* ---- Summary strip ---- */
 .dean-sr__summary-strip {
   display: flex;
