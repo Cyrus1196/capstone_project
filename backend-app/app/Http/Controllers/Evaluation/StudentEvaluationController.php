@@ -816,6 +816,8 @@ class StudentEvaluationController extends Controller
                         'standingSemLabel' => isset($flag['standingSemLabel']) ? (string) $flag['standingSemLabel'] : null,
                         'homeYearLabel' => isset($flag['homeYearLabel']) ? (string) $flag['homeYearLabel'] : null,
                         'homeSemLabel' => isset($flag['homeSemLabel']) ? (string) $flag['homeSemLabel'] : null,
+                        'schoolYearLabel' => isset($flag['schoolYearLabel']) ? (string) $flag['schoolYearLabel'] : null,
+                        'takenSemLabel' => isset($flag['takenSemLabel']) ? (string) $flag['takenSemLabel'] : null,
                     ];
                 }
             }

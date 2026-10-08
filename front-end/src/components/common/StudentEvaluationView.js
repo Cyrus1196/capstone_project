@@ -891,6 +891,28 @@ function formatPromotionPrerequisiteDisplay(row) {
   return '';
 }
 
+/**
+ * School year + semester an OFFSEM / Semestral subject was taken.
+ * Prefers the graded record's term, then the saved load-plan flag, then the current Lookup term.
+ */
+function formatOffSemesterTakenTerm(row, data) {
+  const st = row?.off_semester_standing || {};
+  const syRaw =
+    row?.taken_academic_year_name ||
+    st.schoolYearLabel ||
+    data?.active_academic_year?.academic_year_name ||
+    '';
+  const sem =
+    row?.taken_semester_name ||
+    st.takenSemLabel ||
+    st.standingSemLabel ||
+    data?.active_semester?.semester_name ||
+    '';
+  const sy = String(syRaw).trim();
+  const syLabel = sy ? (/^sy\b/i.test(sy) ? sy : `SY ${sy}`) : '';
+  return [syLabel, String(sem).trim()].filter(Boolean).join(' · ');
+}
+
 function isElectiveTrackPendingRow(row) {
   return row?.elective_pending === true && (row?.subject_id == null || row.subject_id === '');
 }
@@ -4157,6 +4179,8 @@ const StudentEvaluationView = ({
             standingSemLabel: semLabel,
             homeYearLabel: home.year_level_name || null,
             homeSemLabel: home.semester_name || null,
+            schoolYearLabel: data?.active_academic_year?.academic_year_name || null,
+            takenSemLabel: semLabel || data?.active_semester?.semester_name || null,
             mode,
           };
           nextOffsem[key] = flag;
@@ -4238,6 +4262,8 @@ const StudentEvaluationView = ({
       setStandingLoadSaving(false);
     }
   }, [
+    data?.active_academic_year?.academic_year_name,
+    data?.active_semester?.semester_name,
     canEditEvaluationRows,
     systemGuideOpen,
     standingLoadDirty,
@@ -7650,43 +7676,33 @@ const StudentEvaluationView = ({
                             <div className="eval-title-stack">
                               <span className="eval-title-stack__name">
                                 {displaySubjectName || (gradable ? 'N/A' : '—')}
-                                {row.off_semester ? (
-                                  <span
-                                    className={`eval-offsem-badge${
-                                      String(row.off_semester_standing?.mode || '').toLowerCase() ===
-                                      'semestral'
-                                        ? ' eval-offsem-badge--semestral'
-                                        : ''
-                                    }`}
-                                    title={
-                                      String(row.off_semester_standing?.mode || '').toLowerCase() ===
-                                      'semestral'
-                                        ? `Taken as semestral during ${
-                                            [
-                                              row.off_semester_standing?.standingYearLabel,
-                                              row.off_semester_standing?.standingSemLabel,
-                                            ]
-                                              .filter(Boolean)
-                                              .join(' — ') || 'current standing'
-                                          }`
-                                        : row.off_semester_standing
-                                          ? `Taken off-semester during ${
-                                              [
-                                                row.off_semester_standing.standingYearLabel,
-                                                row.off_semester_standing.standingSemLabel,
-                                              ]
-                                                .filter(Boolean)
-                                                .join(' — ') || 'current standing'
-                                            }`
-                                          : 'Taken off-semester (not in curriculum home term)'
-                                    }
-                                  >
-                                    {String(row.off_semester_standing?.mode || '').toLowerCase() ===
-                                    'semestral'
-                                      ? 'SEMESTRAL'
-                                      : 'OFFSEM'}
-                                  </span>
-                                ) : null}
+                                {row.off_semester ? (() => {
+                                  const isSemestral =
+                                    String(row.off_semester_standing?.mode || '').toLowerCase() ===
+                                    'semestral';
+                                  const takenTerm = formatOffSemesterTakenTerm(row, data);
+                                  return (
+                                    <>
+                                      <span
+                                        className={`eval-offsem-badge${
+                                          isSemestral ? ' eval-offsem-badge--semestral' : ''
+                                        }`}
+                                        title={`${isSemestral ? 'Taken as semestral' : 'Taken off-semester'}${
+                                          takenTerm ? ` in ${takenTerm}` : ''
+                                        }${
+                                          row.off_semester_standing?.standingYearLabel
+                                            ? ` (${row.off_semester_standing.standingYearLabel} standing)`
+                                            : ''
+                                        }`}
+                                      >
+                                        {isSemestral ? 'SEMESTRAL' : 'OFFSEM'}
+                                      </span>
+                                      {takenTerm ? (
+                                        <span className="eval-offsem-term">{takenTerm}</span>
+                                      ) : null}
+                                    </>
+                                  );
+                                })() : null}
                                 {row.from_previous_program ? (
                                   <span
                                     className="eval-previous-program-tag"

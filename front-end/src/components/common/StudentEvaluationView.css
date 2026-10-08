@@ -750,6 +750,14 @@
   color: #1d4f91;
 }
 
+.eval-offsem-term {
+  display: block;
+  margin-top: 2px;
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: #475569;
+}
+
 .eval-metrics-strip {
   display: flex;
   flex-wrap: wrap;

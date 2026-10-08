@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Models\AcademicYear;
 use App\Models\Curriculum;
 use App\Models\CurriculumHeader;
 use App\Models\Evaluation;
@@ -250,6 +251,7 @@ class StudentCurriculumEvaluationBuilder
                 'student' => $this->studentSummary($profile),
                 'curriculum' => null,
                 'active_semester' => $this->activeSemesterSummary(),
+                'active_academic_year' => $this->activeAcademicYearSummary(),
                 'offered_subjects' => [],
                 'summary' => [
                     'total_units_in_curriculum' => 0,
@@ -572,6 +574,12 @@ class StudentCurriculumEvaluationBuilder
                 'student_track_id' => $profile->track_id,
                 'evaluation_id' => $evaluation?->evaluation_id ?? null,
                 'academic_year_id' => $evaluation?->academic_year_id ?? $defaultAcademicYearId,
+                'taken_academic_year_name' => $evaluation?->academic_year_id
+                    ? ($this->academicYearNameMap()[(int) $evaluation->academic_year_id] ?? null)
+                    : null,
+                'taken_semester_name' => $evaluation?->semester_id
+                    ? ($this->semesterNameMap()[(int) $evaluation->semester_id] ?? null)
+                    : null,
                 'evaluated_by' => $evaluation?->evaluatedBy,
                 'evaluation_date' => $evaluation?->evaluation_date,
                 'enrolled_date' => $evaluation?->enrolled_date,
@@ -599,6 +607,7 @@ class StudentCurriculumEvaluationBuilder
             'student' => $this->studentSummary($profile),
             'curriculum' => $this->curriculumHeaderSummary($curriculumHeader),
             'active_semester' => $this->activeSemesterSummary(),
+            'active_academic_year' => $this->activeAcademicYearSummary(),
             'offered_subjects' => $this->activeOfferedSubjectsForProgram($profile, $curriculumHeader),
             'summary' => [
                 'total_units_in_curriculum' => $totalUnitsInCurriculum,
@@ -774,6 +783,42 @@ class StudentCurriculumEvaluationBuilder
     /**
      * @return array{semester_id: int, semester_name: string, status: string}|null
      */
+    /** Current school year (the AY whose range contains today, among active Lookup years). */
+    private function activeAcademicYearSummary(): ?array
+    {
+        return $this->rememberInRequest('eval.active_ay', function () {
+            $years = AcademicYear::forAnalyticsFilters();
+            $id = AcademicYear::resolveCurrentId($years);
+            if ($id <= 0) {
+                return null;
+            }
+            $row = $years->firstWhere('academic_year_id', $id);
+
+            return [
+                'academic_year_id' => $id,
+                'academic_year_name' => (string) ($row?->academic_year_name ?? ''),
+            ];
+        });
+    }
+
+    /** @return array<int, string> academic_year_id => name */
+    private function academicYearNameMap(): array
+    {
+        return $this->rememberInRequest('eval.ay_names', static fn () => DB::table('tbl_academic_year')
+            ->pluck('academic_year_name', 'academic_year_id')
+            ->map(static fn ($n) => (string) $n)
+            ->all());
+    }
+
+    /** @return array<int, string> semester_id => name */
+    private function semesterNameMap(): array
+    {
+        return $this->rememberInRequest('eval.sem_names', static fn () => DB::table('tbl_semester')
+            ->pluck('semester_name', 'semester_id')
+            ->map(static fn ($n) => (string) $n)
+            ->all());
+    }
+
     private function activeSemesterSummary(): ?array
     {
         return $this->rememberInRequest('eval.active_sem', function () {
