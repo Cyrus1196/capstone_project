@@ -424,7 +424,8 @@ const UserManagement = ({ userScope = 'staff' }) => {
   const isEvaluatorProgramRole = () =>
     ['adviser'].includes(selectedRoleName().toLowerCase());
 
-  const isProgramAssignedStaffRole = () => isProgramHeadRole() || isEvaluatorProgramRole();
+  /** Dean included: Dean Analytics always shows the dean's assigned program. */
+  const isProgramAssignedStaffRole = () => isProgramHeadRole() || isEvaluatorProgramRole() || isDeanRole();
 
   const isDepartmentManagedRole = () => {
     if (!formData.role_id) return false;
@@ -1116,7 +1117,7 @@ const UserManagement = ({ userScope = 'staff' }) => {
   const selectedStaffDepartmentId = formData.department_id ? String(formData.department_id) : '';
   const staffProgramOptions = programs
     .filter((program) => {
-      if (!isProgramHeadRole() || !selectedStaffDepartmentId) return true;
+      if (!(isProgramHeadRole() || isDeanRole()) || !selectedStaffDepartmentId) return true;
       const departmentId = program.department_id ?? program.department?.department_id ?? '';
       return String(departmentId) === selectedStaffDepartmentId;
     })
@@ -1930,7 +1931,9 @@ const UserManagement = ({ userScope = 'staff' }) => {
                       aria-label="Program assignment"
                     />
                     <small style={{ color: '#666', fontSize: '0.85rem', display: 'block', marginTop: '0.25rem' }}>
-                      Select the program this user will handle
+                      {isDeanRole()
+                        ? 'Program shown in this dean’s Analytics'
+                        : 'Select the program this user will handle'}
                     </small>
                   </div>
                 </>
