@@ -382,6 +382,7 @@ Route::middleware('auth:api')->group(function () {
             Route::get('/reports/subject-insights', [EvaluationReportController::class, 'subjectInsights']);
             Route::get('/reports/at-risk-students', [EvaluationReportController::class, 'atRiskStudents']);
             Route::get('/reports/dean-decision', [EvaluationReportController::class, 'deanDecisionAnalytics']);
+            Route::get('/reports/dean-program-analytics', [EvaluationReportController::class, 'deanProgramAnalytics']);
             Route::get('/reports/adviser-analytics', [EvaluationReportController::class, 'adviserAnalytics']);
         });
     });

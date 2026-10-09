@@ -1,88 +1,42 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import api from '../../api/axios';
 import './DeanAnalytics.css';
 
-function BarChart({
-  items,
-  valueKey = 'count',
-  labelKey = 'label',
-  colorClass = '',
-  selectedKey = null,
-  onSelect = null,
-}) {
-  const max = Math.max(1, ...items.map((i) => Number(i[valueKey]) || 0));
-  if (!items.length) {
-    return <p className="dean-analytics__empty">No data for this chart yet.</p>;
-  }
-  const selectable = typeof onSelect === 'function';
-  return (
-    <div
-      className="dean-vbar-chart"
-      role="group"
-      aria-label={`Bar chart showing ${items
-        .map((item) => `${item[labelKey]}: ${Number(item[valueKey]) || 0}`)
-        .join(', ')}`}
-    >
-      {items.map((item) => {
-        const value = Number(item[valueKey]) || 0;
-        const height = Math.max(value > 0 ? 8 : 2, (value / max) * 100);
-        const itemKey = item.key || item[labelKey];
-        const selected = selectedKey != null && String(selectedKey) === String(itemKey);
-        const fillClass = `dean-vbar__fill ${colorClass}`.trim();
-        const fillStyle = { height: `${height}%` };
-        return (
-          <div
-            key={itemKey}
-            className={`dean-vbar${selectable ? ' dean-vbar--clickable' : ''}${
-              selected ? ' dean-vbar--selected' : ''
-            }`}
-          >
-            <span className="dean-vbar__value">{value}</span>
-            <div className="dean-vbar__track">
-              {selectable ? (
-                <button
-                  type="button"
-                  className={fillClass}
-                  style={fillStyle}
-                  title={`Show weekday detail for ${item[labelKey]} (${value})`}
-                  aria-label={`Show weekday breakdown for ${item[labelKey]}`}
-                  aria-pressed={selected}
-                  onClick={() => onSelect(selected ? null : itemKey, item)}
-                />
-              ) : (
-                <div
-                  className={fillClass}
-                  style={fillStyle}
-                  title={`${item[labelKey]}: ${value}`}
-                />
-              )}
-            </div>
-            <span className="dean-vbar__label">{item[labelKey]}</span>
-          </div>
-        );
-      })}
-    </div>
-  );
-}
+const LOW_PASS_RATE = 75;
+const CRITICAL_PASS_RATE = 60;
+
+const TABS = [
+  { id: 'subjects', label: 'Subject performance' },
+  { id: 'blockers', label: 'Prerequisite blockers' },
+  { id: 'status', label: 'Regular / Irregular' },
+  { id: 'progress', label: 'Student progress' },
+  { id: 'byyear', label: 'Progress by year level' },
+  { id: 'load', label: 'Load plans' },
+];
+
+const OUTCOME_LABELS = {
+  failed: 'Failed',
+  inc: 'INC',
+  dropped: 'Dropped',
+  not_taken: 'Not taken yet',
+  ongoing: 'In progress',
+};
 
 function DualBarChart({
   items,
-  leftKey = 'last_year',
-  rightKey = 'this_year',
+  leftKey,
+  rightKey,
   midKey = null,
-  leftLabel = 'Last / previous',
-  rightLabel = 'This / current',
+  leftLabel,
+  rightLabel,
   midLabel = null,
-  leftClass = 'dean-dual-pair__fill--last',
-  rightClass = 'dean-dual-pair__fill--this',
-  midClass = 'dean-dual-pair__fill--manual',
-  emptyText = 'No enrollment totals for this program.',
+  leftClass,
+  rightClass,
+  midClass = '',
+  emptyText = 'No data for this chart yet.',
 }) {
   const valueKeys = [leftKey, rightKey, ...(midKey ? [midKey] : [])];
-  const max = Math.max(
-    1,
-    ...items.flatMap((i) => valueKeys.map((k) => Number(i[k]) || 0))
-  );
+  const max = Math.max(1, ...items.flatMap((i) => valueKeys.map((k) => Number(i[k]) || 0)));
   if (!items.length) {
     return <p className="dean-analytics__empty">{emptyText}</p>;
   }
@@ -92,10 +46,7 @@ function DualBarChart({
         <div
           className={`dean-dual-pair__fill ${fillClass}`}
           style={{
-            width: `${Math.max(
-              Number(item[key]) > 0 ? 6 : 0,
-              ((Number(item[key]) || 0) / max) * 100
-            )}%`,
+            width: `${Math.max(Number(item[key]) > 0 ? 6 : 0, ((Number(item[key]) || 0) / max) * 100)}%`,
           }}
         />
       </div>
@@ -131,37 +82,143 @@ function DualBarChart({
   );
 }
 
+function MetricCard({ icon, label, value, small = false, tone = '' }) {
+  return (
+    <div className={`dean-metric-card${tone ? ` dean-metric-card--${tone}` : ''}`}>
+      <div className="dean-metric-card__icon">
+        <i className={`fa-solid ${icon}`} aria-hidden />
+      </div>
+      <div className="dean-metric-card__body">
+        <div className="dean-metric-card__label">{label}</div>
+        <div className={`dean-metric-card__value${small ? ' dean-metric-card__value--sm' : ''}`}>{value}</div>
+      </div>
+    </div>
+  );
+}
+
+function rateTone(rate) {
+  if (rate < CRITICAL_PASS_RATE) return 'bad';
+  if (rate < LOW_PASS_RATE) return 'warn';
+  return 'good';
+}
+
+function RateBar({ value, tone }) {
+  const v = Math.max(0, Math.min(100, Number(value) || 0));
+  return (
+    <div className="dean-rate">
+      <div className="dean-rate__track">
+        <div className={`dean-rate__fill dean-rate__fill--${tone}`} style={{ width: `${v}%` }} />
+      </div>
+      <span className="dean-rate__n">{v.toFixed(1)}%</span>
+    </div>
+  );
+}
+
+function ProgressCompare({ actual, expected }) {
+  const a = Math.max(0, Math.min(100, Number(actual) || 0));
+  const e = Math.max(0, Math.min(100, Number(expected) || 0));
+  const tone = a + 0.05 >= e ? 'good' : e - a <= 10 ? 'warn' : 'bad';
+  return (
+    <div className="dean-progress">
+      <div className="dean-progress__track">
+        <div className={`dean-progress__fill dean-rate__fill--${tone}`} style={{ width: `${a}%` }} />
+        <div className="dean-progress__marker" style={{ left: `${e}%` }} title={`Expected ${e}%`} />
+      </div>
+    </div>
+  );
+}
+
+function StudentTable({ students, yearLabel, columns }) {
+  if (!students?.length) {
+    return <p className="dean-analytics__empty">No students to list.</p>;
+  }
+  return (
+    <div className="dean-mini-table-wrap">
+      <table className="dean-mini-table">
+        <thead>
+          <tr>
+            <th>Student no.</th>
+            <th>Name</th>
+            <th>Year</th>
+            {columns.map((c) => (
+              <th key={c.key}>{c.label}</th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {students.map((s) => (
+            <tr key={s.student_id}>
+              <td>{s.student_id_number || '—'}</td>
+              <td>{s.name}</td>
+              <td>{yearLabel(s.year)}</td>
+              {columns.map((c) => (
+                <td key={c.key}>{c.render(s)}</td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function outcomeCell(s) {
+  const label = OUTCOME_LABELS[s.outcome] || s.outcome || '—';
+  return (
+    <span className={`dean-outcome dean-outcome--${s.outcome || 'none'}`}>
+      {label}
+      {s.grade && s.outcome !== 'not_taken' ? ` (${s.grade})` : ''}
+    </span>
+  );
+}
+
+function statusPill(status) {
+  const irregular = String(status || '').toLowerCase() === 'irregular';
+  return (
+    <span className={`dean-status-pill dean-status-pill--${irregular ? 'irregular' : 'regular'}`}>
+      {status || '—'}
+    </span>
+  );
+}
+
+function matchesSearch(text, query) {
+  const q = query.trim().toLowerCase();
+  return !q || String(text || '').toLowerCase().includes(q);
+}
+
 /**
  * @param {{ showEvalModules: boolean, lockedProgramId?: string|number|null }} props
  */
 const DeanAnalytics = ({ showEvalModules, lockedProgramId = null }) => {
-  const programLocked =
-    lockedProgramId != null && String(lockedProgramId).trim() !== '';
+  const programLocked = lockedProgramId != null && String(lockedProgramId).trim() !== '';
   const lockedProgramIdStr = programLocked ? String(lockedProgramId) : '';
 
-  const [tab, setTab] = useState('workload');
+  const [tab, setTab] = useState('subjects');
   const [programId, setProgramId] = useState(() => (programLocked ? lockedProgramIdStr : ''));
-  const [thisAyId, setThisAyId] = useState('');
-  const [compareAyId, setCompareAyId] = useState('');
-  const [applied, setApplied] = useState(() => ({
-    programId: programLocked ? lockedProgramIdStr : '',
-    thisAyId: '',
-    compareAyId: '',
-  }));
+  const [reloadNonce, setReloadNonce] = useState(0);
+  const forceRefresh = useRef(false);
+  const loadedProgramRef = useRef(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [data, setData] = useState(null);
-  /** Selected week key on Rush forecast chart — unlocks weekday detail. */
-  const [selectedRushWeekKey, setSelectedRushWeekKey] = useState(null);
+
+  const [subjYear, setSubjYear] = useState('');
+  const [subjSem, setSubjSem] = useState('');
+  const [subjType, setSubjType] = useState('');
+  const [minStudents, setMinStudents] = useState(10);
+  const [subjSearch, setSubjSearch] = useState('');
+  const [openSubject, setOpenSubject] = useState(null);
+  const [openBlocker, setOpenBlocker] = useState(null);
+  const [progressSearch, setProgressSearch] = useState('');
+  const [progressBucket, setProgressBucket] = useState('');
 
   useEffect(() => {
-    if (!programLocked) return;
-    setProgramId(lockedProgramIdStr);
-    setApplied((prev) => ({ ...prev, programId: lockedProgramIdStr }));
+    if (programLocked) setProgramId(lockedProgramIdStr);
   }, [programLocked, lockedProgramIdStr]);
 
   useEffect(() => {
     if (!showEvalModules) return undefined;
+    if (!forceRefresh.current && programId && loadedProgramRef.current === programId) return undefined;
     const controller = new AbortController();
     let cancelled = false;
     (async () => {
@@ -169,25 +226,27 @@ const DeanAnalytics = ({ showEvalModules, lockedProgramId = null }) => {
       setError('');
       try {
         const params = {};
-        if (applied.programId) params.program_id = applied.programId;
-        if (applied.thisAyId) params.academic_year_id = applied.thisAyId;
-        if (applied.compareAyId) params.compare_academic_year_id = applied.compareAyId;
-        const res = await api.get('/evaluation/reports/dean-decision', {
+        if (programId) params.program_id = programId;
+        if (forceRefresh.current) params.refresh = 1;
+        forceRefresh.current = false;
+        const res = await api.get('/evaluation/reports/dean-program-analytics', {
           params,
           skipLoading: true,
           signal: controller.signal,
+          timeout: 180000,
         });
         if (cancelled) return;
+        const loadedId = res.data?.selected_program_id ? String(res.data.selected_program_id) : '';
+        loadedProgramRef.current = loadedId;
         setData(res.data);
-        setSelectedRushWeekKey(null);
-        if (!programLocked) {
-          setProgramId((prev) => prev || (res.data?.selected_program_id ? String(res.data.selected_program_id) : ''));
+        setOpenSubject(null);
+        setOpenBlocker(null);
+        if (!programLocked && !programId && loadedId) {
+          setProgramId(loadedId);
         }
-        setThisAyId((prev) => prev || (res.data?.this_academic_year_id ? String(res.data.this_academic_year_id) : ''));
-        setCompareAyId((prev) => prev || (res.data?.compare_academic_year_id ? String(res.data.compare_academic_year_id) : ''));
       } catch (e) {
         if (cancelled || e?.code === 'ERR_CANCELED' || e?.name === 'CanceledError') return;
-        setError(e?.response?.data?.message || 'Could not load decision analytics.');
+        setError(e?.response?.data?.message || 'Could not load program analytics.');
         setData(null);
       } finally {
         if (!cancelled) setLoading(false);
@@ -197,65 +256,61 @@ const DeanAnalytics = ({ showEvalModules, lockedProgramId = null }) => {
       cancelled = true;
       controller.abort();
     };
-  }, [showEvalModules, applied, programLocked]);
+  }, [showEvalModules, programLocked, reloadNonce, programId]);
 
   const programs = data?.programs || [];
-  const academicYears = data?.academic_years || [];
-  const programLabel =
-    data?.selected_program?.program_code ||
-    programs.find((p) => String(p.program_id) === String(programId))?.program_code ||
-    'Program';
+  const yearLevels = useMemo(() => data?.year_levels || [], [data?.year_levels]);
+  const yearLabel = useMemo(() => {
+    const map = new Map(yearLevels.map((y) => [Number(y.year_level_id), y.label]));
+    return (id) => map.get(Number(id)) || (id ? `Year ${id}` : '—');
+  }, [yearLevels]);
 
-  const selectedRushWeek = useMemo(() => {
-    if (!selectedRushWeekKey) return null;
-    return (data?.rush_forecast?.by_week || []).find(
-      (w) => String(w.key) === String(selectedRushWeekKey)
-    ) || null;
-  }, [data?.rush_forecast?.by_week, selectedRushWeekKey]);
+  const subjects = useMemo(() => data?.subject_performance?.subjects || [], [data?.subject_performance?.subjects]);
+  const semOptions = useMemo(
+    () => [...new Set(subjects.map((s) => s.sem_name).filter(Boolean))],
+    [subjects]
+  );
 
-  const selectedRushWeekdayDetail = useMemo(() => {
-    if (!selectedRushWeekKey) {
-      return {
-        by_weekday: data?.rush_forecast?.by_weekday || [],
-        insight_day: data?.rush_forecast?.insight_day || '',
-        scopeLabel: 'current window',
-      };
-    }
-    const byWeek = data?.rush_forecast?.by_weekday_by_week || {};
-    const detail = byWeek[selectedRushWeekKey];
-    if (!detail) {
-      return {
-        by_weekday: [],
-        insight_day: 'No day breakdown for this week.',
-        scopeLabel: selectedRushWeek?.label || 'selected week',
-      };
+  const subjectView = useMemo(() => {
+    const min = Math.max(1, Number(minStudents) || 1);
+    const filtered = subjects.filter(
+      (s) =>
+        (!subjYear || String(s.year) === subjYear) &&
+        (!subjSem || s.sem_name === subjSem) &&
+        (!subjType || s.type === subjType) &&
+        (matchesSearch(s.code, subjSearch) || matchesSearch(s.name, subjSearch))
+    );
+    const shown = filtered.filter((s) => s.enrolled >= min);
+    const enrolled = shown.reduce((n, s) => n + s.enrolled, 0);
+    const passed = shown.reduce((n, s) => n + s.passed, 0);
+    const worst = shown[0] || null;
+    let insight = `No subject has at least ${min} students with a final result for these filters.`;
+    if (worst) {
+      const notPassed = worst.enrolled - worst.passed;
+      insight =
+        worst.pass_rate < LOW_PASS_RATE
+          ? `${worst.code} – ${worst.name} has the highest failure rate (${notPassed} of ${worst.enrolled} students, ${worst.fail_rate}%) and may require academic intervention.`
+          : `All subjects shown pass at least ${LOW_PASS_RATE}% of students. Lowest: ${worst.code} at ${worst.pass_rate}%.`;
     }
     return {
-      ...detail,
-      scopeLabel: selectedRushWeek?.label || 'selected week',
+      min,
+      shown,
+      hidden: filtered.length - shown.length,
+      overallRate: enrolled > 0 ? Math.round((passed / enrolled) * 1000) / 10 : null,
+      lowCount: shown.filter((s) => s.pass_rate < LOW_PASS_RATE).length,
+      insight,
     };
-  }, [
-    data?.rush_forecast?.by_weekday,
-    data?.rush_forecast?.insight_day,
-    data?.rush_forecast?.by_weekday_by_week,
-    selectedRushWeekKey,
-    selectedRushWeek,
-  ]);
+  }, [subjects, subjYear, subjSem, subjType, subjSearch, minStudents]);
 
-  const tabs = [
-    { id: 'workload', label: 'Workload' },
-    { id: 'enrollment', label: 'Enrollment' },
-    { id: 'unevaluated', label: 'Unevaluated' },
-    { id: 'capacity', label: 'Capacity' },
-    { id: 'forecast', label: 'Rush forecast' },
-  ];
-
-  const setAnalyticsTab = (nextTab) => {
-    setTab(nextTab);
-    if (nextTab !== 'forecast') {
-      setSelectedRushWeekKey(null);
-    }
-  };
+  const progressList = useMemo(
+    () =>
+      (data?.student_progress?.most_behind || []).filter(
+        (s) =>
+          (!progressBucket || s.bucket === progressBucket) &&
+          (matchesSearch(s.name, progressSearch) || matchesSearch(s.student_id_number, progressSearch))
+      ),
+    [data?.student_progress?.most_behind, progressBucket, progressSearch]
+  );
 
   if (!showEvalModules) {
     return (
@@ -266,13 +321,593 @@ const DeanAnalytics = ({ showEvalModules, lockedProgramId = null }) => {
     );
   }
 
+  const generatedAt = data?.generated_at ? new Date(data.generated_at) : null;
+  const blockers = data?.prerequisite_blockers?.items || [];
+  const status = data?.academic_status;
+  const progress = data?.student_progress;
+  const byYear = data?.progress_by_year;
+  const load = data?.load_plans;
+
+  const renderSubjects = () => (
+    <>
+      <div className="dean-analytics__metrics">
+        <MetricCard icon="fa-book-open" label="Subjects analyzed" value={subjectView.shown.length} />
+        <MetricCard
+          icon="fa-percent"
+          label="Overall pass rate"
+          value={subjectView.overallRate != null ? `${subjectView.overallRate}%` : '—'}
+        />
+        <MetricCard
+          icon="fa-triangle-exclamation"
+          label={`Below ${LOW_PASS_RATE}% pass rate`}
+          value={subjectView.lowCount}
+          tone={subjectView.lowCount > 0 ? 'warn' : ''}
+        />
+      </div>
+      <p className="dean-analytics__insight">{subjectView.insight}</p>
+      <div className="dean-analytics__subfilters">
+        <div>
+          <label htmlFor="dean-pa-year">Year level</label>
+          <select id="dean-pa-year" value={subjYear} onChange={(e) => setSubjYear(e.target.value)}>
+            <option value="">All</option>
+            {yearLevels.map((y) => (
+              <option key={y.year_level_id} value={y.year_level_id}>
+                {y.label}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div>
+          <label htmlFor="dean-pa-sem">Semester</label>
+          <select id="dean-pa-sem" value={subjSem} onChange={(e) => setSubjSem(e.target.value)}>
+            <option value="">All</option>
+            {semOptions.map((s) => (
+              <option key={s} value={s}>
+                {s}
+              </option>
+            ))}
+          </select>
+        </div>
+        <div>
+          <label htmlFor="dean-pa-type">Type</label>
+          <select id="dean-pa-type" value={subjType} onChange={(e) => setSubjType(e.target.value)}>
+            <option value="">All</option>
+            <option value="major">Major</option>
+            <option value="ge">GE / minor</option>
+          </select>
+        </div>
+        <div>
+          <label htmlFor="dean-pa-min">Min. students</label>
+          <input
+            id="dean-pa-min"
+            type="number"
+            min={1}
+            value={minStudents}
+            onChange={(e) => setMinStudents(e.target.value)}
+          />
+        </div>
+        <div className="dean-analytics__search">
+          <i className="fa-solid fa-magnifying-glass" aria-hidden />
+          <input
+            type="search"
+            placeholder="Search subject"
+            value={subjSearch}
+            onChange={(e) => setSubjSearch(e.target.value)}
+            aria-label="Search subject"
+          />
+        </div>
+      </div>
+      <div className="dean-risk-table-wrap">
+        {subjectView.shown.length === 0 ? (
+          <p className="dean-analytics__empty">No subjects match these filters.</p>
+        ) : (
+          <table className="dean-risk-table dean-pa-table">
+            <thead>
+              <tr>
+                <th>Subject</th>
+                <th>Curriculum term</th>
+                <th className="num">Enrolled</th>
+                <th className="num">Passed</th>
+                <th className="num">Failed</th>
+                <th className="num">INC</th>
+                <th className="num">Dropped</th>
+                <th>Pass rate</th>
+                <th className="num">Avg grade</th>
+                <th aria-label="Details" />
+              </tr>
+            </thead>
+            <tbody>
+              {subjectView.shown.map((s) => {
+                const tone = rateTone(s.pass_rate);
+                const open = openSubject === s.subject_id;
+                const flagged = s.enrolled - s.passed;
+                return (
+                  <React.Fragment key={s.subject_id}>
+                    <tr className={tone !== 'good' ? `dean-pa-row--${tone}` : undefined}>
+                      <td>
+                        <strong>{s.code}</strong>
+                        <div className="dean-pa-sub">{s.name}</div>
+                      </td>
+                      <td>
+                        {yearLabel(s.year)}
+                        <div className="dean-pa-sub">{s.sem_name}</div>
+                      </td>
+                      <td className="num">{s.enrolled}</td>
+                      <td className="num">{s.passed}</td>
+                      <td className="num">{s.failed}</td>
+                      <td className="num">{s.inc}</td>
+                      <td className="num">{s.dropped}</td>
+                      <td>
+                        <RateBar value={s.pass_rate} tone={tone} />
+                      </td>
+                      <td className="num">{s.avg_grade != null ? s.avg_grade.toFixed(2) : '—'}</td>
+                      <td>
+                        {flagged > 0 ? (
+                          <button
+                            type="button"
+                            className="dean-link-btn"
+                            onClick={() => setOpenSubject(open ? null : s.subject_id)}
+                            aria-expanded={open}
+                          >
+                            {open ? 'Hide' : `${flagged} student${flagged === 1 ? '' : 's'}`}
+                          </button>
+                        ) : null}
+                      </td>
+                    </tr>
+                    {open ? (
+                      <tr className="dean-pa-detail">
+                        <td colSpan={10}>
+                          <StudentTable
+                            students={s.students}
+                            yearLabel={yearLabel}
+                            columns={[{ key: 'outcome', label: 'Result', render: outcomeCell }]}
+                          />
+                        </td>
+                      </tr>
+                    ) : null}
+                  </React.Fragment>
+                );
+              })}
+            </tbody>
+          </table>
+        )}
+        {subjectView.hidden > 0 ? (
+          <p className="dean-analytics__note">
+            {subjectView.hidden} subject{subjectView.hidden === 1 ? '' : 's'} hidden (fewer than {subjectView.min}{' '}
+            students with a final result).
+          </p>
+        ) : null}
+        <p className="dean-analytics__note">
+          Each student counts once per subject using their best attempt. Transfer credits and subjects still in
+          progress are excluded.
+        </p>
+      </div>
+    </>
+  );
+
+  const renderBlockers = () => (
+    <>
+      <div className="dean-analytics__metrics">
+        <MetricCard icon="fa-lock" label="Blocking subjects" value={blockers.length} />
+        <MetricCard
+          icon="fa-user-lock"
+          label="Held by top blocker"
+          value={blockers[0] ? `${blockers[0].students_blocked} students` : '—'}
+          small
+        />
+        <MetricCard icon="fa-book" label="Top blocker" value={blockers[0]?.code || '—'} small />
+      </div>
+      <p className="dean-analytics__insight">{data?.prerequisite_blockers?.insight}</p>
+      <div className="dean-risk-table-wrap">
+        {blockers.length === 0 ? (
+          <p className="dean-analytics__empty">No prerequisite is blocking any student right now.</p>
+        ) : (
+          <table className="dean-risk-table dean-pa-table">
+            <thead>
+              <tr>
+                <th>Prerequisite</th>
+                <th>Curriculum term</th>
+                <th className="num">Students blocked</th>
+                <th className="num">Failed / INC</th>
+                <th className="num">Not yet taken</th>
+                <th>Blocks</th>
+                <th aria-label="Details" />
+              </tr>
+            </thead>
+            <tbody>
+              {blockers.map((b) => {
+                const open = openBlocker === b.code;
+                return (
+                  <React.Fragment key={b.code}>
+                    <tr>
+                      <td>
+                        <strong>{b.code}</strong>
+                        <div className="dean-pa-sub">{b.name}</div>
+                      </td>
+                      <td>
+                        {yearLabel(b.year)}
+                        <div className="dean-pa-sub">{b.sem_name}</div>
+                      </td>
+                      <td className="num">
+                        <span className="dean-risk-pill">{b.students_blocked}</span>
+                      </td>
+                      <td className="num">{b.failed_or_inc}</td>
+                      <td className="num">{b.not_yet_passed}</td>
+                      <td>
+                        <div className="dean-chips">
+                          {b.dependents.map((d) => (
+                            <span key={d.code} className="dean-chip" title={d.name}>
+                              {d.code} <b>{d.students}</b>
+                            </span>
+                          ))}
+                        </div>
+                      </td>
+                      <td>
+                        <button
+                          type="button"
+                          className="dean-link-btn"
+                          onClick={() => setOpenBlocker(open ? null : b.code)}
+                          aria-expanded={open}
+                        >
+                          {open ? 'Hide' : 'Students'}
+                        </button>
+                      </td>
+                    </tr>
+                    {open ? (
+                      <tr className="dean-pa-detail">
+                        <td colSpan={7}>
+                          <StudentTable
+                            students={b.students}
+                            yearLabel={yearLabel}
+                            columns={[{ key: 'outcome', label: `${b.code} result`, render: outcomeCell }]}
+                          />
+                        </td>
+                      </tr>
+                    ) : null}
+                  </React.Fragment>
+                );
+              })}
+            </tbody>
+          </table>
+        )}
+        <p className="dean-analytics__note">
+          Counts students whose current or earlier curriculum subject is waiting on this unpassed prerequisite.
+          Year-standing and “all subjects” rules are not counted as blockers.
+        </p>
+      </div>
+    </>
+  );
+
+  const renderStatus = () => {
+    const totals = status?.totals || {};
+    const irregularPct = totals.students > 0 ? Math.round((totals.irregular / totals.students) * 1000) / 10 : 0;
+    return (
+      <>
+        <div className="dean-analytics__metrics">
+          <MetricCard icon="fa-user-check" label="Regular" value={totals.regular ?? 0} />
+          <MetricCard
+            icon="fa-user-clock"
+            label="Irregular"
+            value={`${totals.irregular ?? 0} (${irregularPct}%)`}
+            tone={irregularPct >= 30 ? 'warn' : ''}
+          />
+          <MetricCard icon="fa-circle-xmark" label="Irregular: failed subject" value={totals.failed_subject ?? 0} />
+          <MetricCard icon="fa-shuffle" label="Irregular: out of order" value={totals.sequence_gap ?? 0} />
+        </div>
+        <p className="dean-analytics__insight">{status?.insight}</p>
+        <div className="dean-analytics__two-col">
+          <div className="dean-chart-card">
+            <h3 className="dean-chart-card__title">Regular vs irregular by year level</h3>
+            <DualBarChart
+              items={status?.by_year || []}
+              leftKey="regular"
+              rightKey="irregular"
+              leftLabel="Regular"
+              rightLabel="Irregular"
+              leftClass="dean-dual-pair__fill--good"
+              rightClass="dean-dual-pair__fill--bad"
+            />
+          </div>
+          <div className="dean-chart-card">
+            <h3 className="dean-chart-card__title">Why students are irregular</h3>
+            <div className="dean-mini-table-wrap" style={{ marginTop: 0 }}>
+              <table className="dean-mini-table">
+                <thead>
+                  <tr>
+                    <th>Year level</th>
+                    <th className="num">Irregular</th>
+                    <th className="num">Failed subject</th>
+                    <th className="num">Out of order / backlog</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(status?.by_year || []).map((y) => (
+                    <tr key={y.year_level_id}>
+                      <td>{y.label}</td>
+                      <td className="num">{y.irregular}</td>
+                      <td className="num">{y.failed_subject}</td>
+                      <td className="num">{y.sequence_gap}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <h3 className="dean-chart-card__title" style={{ marginTop: '1.25rem' }}>
+              Irregular students by entry type
+            </h3>
+            {(status?.irregular_by_entry_type || []).length === 0 ? (
+              <p className="dean-analytics__empty">No irregular students.</p>
+            ) : (
+              <div className="dean-chips">
+                {status.irregular_by_entry_type.map((e) => (
+                  <span key={e.label} className="dean-chip">
+                    {e.label} <b>{e.count}</b>
+                  </span>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      </>
+    );
+  };
+
+  const renderProgress = () => {
+    const totals = progress?.totals || {};
+    const maxUnits = progress?.slightly_behind_max_units ?? 9;
+    return (
+      <>
+        <div className="dean-analytics__metrics">
+          <MetricCard icon="fa-circle-check" label="On track" value={totals.on_track ?? 0} />
+          <MetricCard
+            icon="fa-hourglass-half"
+            label={`Slightly behind (1–${maxUnits} units)`}
+            value={totals.slightly_behind ?? 0}
+          />
+          <MetricCard
+            icon="fa-triangle-exclamation"
+            label={`Delayed (${maxUnits + 1}+ units)`}
+            value={totals.delayed ?? 0}
+            tone={(totals.delayed ?? 0) > 0 ? 'warn' : ''}
+          />
+        </div>
+        <p className="dean-analytics__insight">{progress?.insight}</p>
+        <div className="dean-chart-card" style={{ marginBottom: '1.25rem' }}>
+          <h3 className="dean-chart-card__title">Progress status by year level</h3>
+          <p className="dean-chart-card__sub">
+            Backlog = units from earlier curriculum terms (before the student’s current standing) not yet passed.
+          </p>
+          <DualBarChart
+            items={progress?.by_year || []}
+            leftKey="on_track"
+            midKey="slightly_behind"
+            rightKey="delayed"
+            leftLabel="On track"
+            midLabel="Slightly behind"
+            rightLabel="Delayed"
+            leftClass="dean-dual-pair__fill--good"
+            midClass="dean-dual-pair__fill--warn"
+            rightClass="dean-dual-pair__fill--bad"
+          />
+        </div>
+        <div className="dean-risk-table-wrap">
+          <div className="dean-analytics__toolbar">
+            <h3 className="dean-chart-card__title" style={{ margin: 0 }}>
+              Students with backlog
+            </h3>
+            <div className="dean-analytics__subfilters" style={{ margin: 0 }}>
+              <div>
+                <select
+                  value={progressBucket}
+                  onChange={(e) => setProgressBucket(e.target.value)}
+                  aria-label="Progress status"
+                >
+                  <option value="">All behind</option>
+                  <option value="slightly_behind">Slightly behind</option>
+                  <option value="delayed">Delayed</option>
+                </select>
+              </div>
+              <div className="dean-analytics__search">
+                <i className="fa-solid fa-magnifying-glass" aria-hidden />
+                <input
+                  type="search"
+                  placeholder="Search student"
+                  value={progressSearch}
+                  onChange={(e) => setProgressSearch(e.target.value)}
+                  aria-label="Search student"
+                />
+              </div>
+            </div>
+          </div>
+          <StudentTable
+            students={progressList}
+            yearLabel={yearLabel}
+            columns={[
+              {
+                key: 'bucket',
+                label: 'Progress',
+                render: (s) => (
+                  <span className={`dean-outcome dean-outcome--${s.bucket === 'delayed' ? 'failed' : 'inc'}`}>
+                    {s.bucket === 'delayed' ? 'Delayed' : 'Slightly behind'}
+                  </span>
+                ),
+              },
+              { key: 'units', label: 'Backlog units', render: (s) => <strong>{s.backlog_units}</strong> },
+              {
+                key: 'codes',
+                label: 'Backlog subjects',
+                render: (s) =>
+                  `${s.backlog_codes.join(', ')}${s.backlog_subjects > s.backlog_codes.length ? ` +${s.backlog_subjects - s.backlog_codes.length} more` : ''}`,
+              },
+              { key: 'status', label: 'Status', render: (s) => statusPill(s.status) },
+            ]}
+          />
+        </div>
+      </>
+    );
+  };
+
+  const renderByYear = () => (
+    <>
+      <p className="dean-analytics__insight">{byYear?.insight}</p>
+      <div className="dean-risk-table-wrap">
+        <table className="dean-risk-table dean-pa-table">
+          <thead>
+            <tr>
+              <th>Year level</th>
+              <th className="num">Students</th>
+              <th className="num">Expected by now</th>
+              <th className="num">Actual average</th>
+              <th className="num">Gap</th>
+              <th style={{ minWidth: '12rem' }}>Actual vs expected</th>
+              <th className="num">Expected by end of year</th>
+            </tr>
+          </thead>
+          <tbody>
+            {(byYear?.rows || []).map((r) => (
+              <tr key={r.year_level_id}>
+                <td>
+                  <strong>{r.label}</strong>
+                </td>
+                <td className="num">{r.students}</td>
+                <td className="num">{r.expected_by_now != null ? `${r.expected_by_now}%` : '—'}</td>
+                <td className="num">{r.actual_average != null ? `${r.actual_average}%` : '—'}</td>
+                <td className="num">
+                  {r.gap != null ? (
+                    <span className={`dean-gap dean-gap--${r.gap < -10 ? 'bad' : r.gap < 0 ? 'warn' : 'good'}`}>
+                      {r.gap > 0 ? '+' : ''}
+                      {r.gap}
+                    </span>
+                  ) : (
+                    '—'
+                  )}
+                </td>
+                <td>
+                  {r.students > 0 ? <ProgressCompare actual={r.actual_average} expected={r.expected_by_now} /> : '—'}
+                </td>
+                <td className="num">{r.expected_end_of_year != null ? `${r.expected_end_of_year}%` : '—'}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        <p className="dean-analytics__note">
+          Percentages are curriculum units passed (including transfer credits) out of the full curriculum. “Expected
+          by now” counts every term before the student’s current standing; the marker on each bar shows it.
+        </p>
+      </div>
+    </>
+  );
+
+  const renderLoad = () => {
+    const totals = load?.totals || {};
+    return (
+      <>
+        <div className="dean-analytics__metrics">
+          <MetricCard icon="fa-clipboard-list" label="Saved load plans" value={totals.planned ?? 0} />
+          <MetricCard
+            icon="fa-arrow-down"
+            label="Underload"
+            value={totals.underload ?? 0}
+            tone={(totals.underload ?? 0) > 0 ? 'warn' : ''}
+          />
+          <MetricCard icon="fa-check" label="Full load" value={totals.full ?? 0} />
+          <MetricCard icon="fa-arrow-up" label="Over cap" value={totals.overload ?? 0} />
+          <MetricCard icon="fa-circle-question" label="No plan this term" value={totals.no_plan ?? 0} />
+        </div>
+        <p className="dean-analytics__insight">{load?.insight}</p>
+        <div className="dean-analytics__two-col">
+          <div className="dean-chart-card">
+            <h3 className="dean-chart-card__title">Load status by year level</h3>
+            <div className="dean-mini-table-wrap" style={{ marginTop: 0 }}>
+              <table className="dean-mini-table">
+                <thead>
+                  <tr>
+                    <th>Year level</th>
+                    <th className="num">Unit cap</th>
+                    <th className="num">Avg units</th>
+                    <th className="num">Under</th>
+                    <th className="num">Full</th>
+                    <th className="num">Over</th>
+                    <th className="num">No plan</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(load?.by_year || []).map((y) => (
+                    <tr key={y.year_level_id}>
+                      <td>{y.label}</td>
+                      <td className="num">{y.cap ?? '—'}</td>
+                      <td className="num">{y.avg_units ?? '—'}</td>
+                      <td className="num">{y.underload}</td>
+                      <td className="num">{y.full}</td>
+                      <td className="num">{y.overload}</td>
+                      <td className="num">{y.no_plan}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+          <div className="dean-chart-card">
+            <h3 className="dean-chart-card__title">Most dropped subjects this term</h3>
+            <p className="dean-chart-card__sub">Current-term subjects marked DROP in saved load plans.</p>
+            {(load?.most_dropped || []).length === 0 ? (
+              <p className="dean-analytics__empty">No dropped subjects in saved plans.</p>
+            ) : (
+              <table className="dean-mini-table">
+                <thead>
+                  <tr>
+                    <th>Subject</th>
+                    <th className="num">Students</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {load.most_dropped.map((d) => (
+                    <tr key={d.code}>
+                      <td>
+                        <strong>{d.code}</strong>
+                        <div className="dean-pa-sub">{d.name}</div>
+                      </td>
+                      <td className="num">{d.count}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )}
+          </div>
+        </div>
+        <div className="dean-risk-table-wrap" style={{ marginTop: '1.25rem' }}>
+          <h3 className="dean-chart-card__title">Underloaded students</h3>
+          <StudentTable
+            students={load?.underloaded || []}
+            yearLabel={yearLabel}
+            columns={[
+              { key: 'units', label: 'Units planned', render: (s) => `${s.units} / ${s.cap}` },
+              { key: 'short', label: 'Short by', render: (s) => <strong>{s.cap - s.units}</strong> },
+              { key: 'status', label: 'Status', render: (s) => statusPill(s.status) },
+            ]}
+          />
+        </div>
+      </>
+    );
+  };
+
+  const views = {
+    subjects: renderSubjects,
+    blockers: renderBlockers,
+    status: renderStatus,
+    progress: renderProgress,
+    byyear: renderByYear,
+    load: renderLoad,
+  };
+
   return (
     <div className="dean-analytics" data-tour="page-dean-analytics">
       <div className="dean-analytics__head">
         <div>
-          <h1 className="dean-analytics__title">Decision analytics</h1>
+          <h1 className="dean-analytics__title">Program analytics</h1>
           <p className="dean-analytics__lead">
-            One-program views for staffing, backlog, and evaluation rush decisions.
+            Built from each student’s current curriculum evaluation — the same pass, credit, and Regular/Irregular
+            rules used on the evaluation screen.
           </p>
         </div>
         <div className="dean-analytics__filters">
@@ -282,10 +917,7 @@ const DeanAnalytics = ({ showEvalModules, lockedProgramId = null }) => {
               id="dean-an-program"
               value={programId}
               onChange={(e) => {
-                if (programLocked) return;
-                const v = e.target.value;
-                setProgramId(v);
-                setApplied((a) => ({ ...a, programId: v }));
+                if (!programLocked) setProgramId(e.target.value);
               }}
               disabled={programLocked}
               aria-label="Program"
@@ -300,58 +932,38 @@ const DeanAnalytics = ({ showEvalModules, lockedProgramId = null }) => {
               ))}
             </select>
           </div>
-          <div>
-            <label htmlFor="dean-an-this-ay">This period</label>
-            <select
-              id="dean-an-this-ay"
-              value={thisAyId}
-              onChange={(e) => {
-                const v = e.target.value;
-                setThisAyId(v);
-                setApplied((a) => ({ ...a, thisAyId: v }));
+          <div className="dean-analytics__refresh">
+            <button
+              type="button"
+              onClick={() => {
+                forceRefresh.current = true;
+                setReloadNonce((n) => n + 1);
               }}
-              aria-label="This academic year"
+              disabled={loading}
             >
-              <option value="">Current standing</option>
-              {academicYears.map((y) => (
-                <option key={y.academic_year_id} value={y.academic_year_id}>
-                  {y.academic_year_name}
-                </option>
-              ))}
-            </select>
-          </div>
-          <div>
-            <label htmlFor="dean-an-last-ay">Last period</label>
-            <select
-              id="dean-an-last-ay"
-              value={compareAyId}
-              onChange={(e) => {
-                const v = e.target.value;
-                setCompareAyId(v);
-                setApplied((a) => ({ ...a, compareAyId: v }));
-              }}
-              aria-label="Compare academic year"
-            >
-              <option value="">Auto previous</option>
-              {academicYears.map((y) => (
-                <option key={`c-${y.academic_year_id}`} value={y.academic_year_id}>
-                  {y.academic_year_name}
-                </option>
-              ))}
-            </select>
+              <i className={`fa-solid fa-rotate${loading ? ' fa-spin' : ''}`} aria-hidden /> Refresh
+            </button>
+            <span>
+              {generatedAt
+                ? `${data?.student_count ?? 0} students · updated ${generatedAt.toLocaleTimeString([], {
+                    hour: '2-digit',
+                    minute: '2-digit',
+                  })}`
+                : '\u00a0'}
+            </span>
           </div>
         </div>
       </div>
 
       <div className="dean-analytics__tabs" role="tablist" aria-label="Analytics sections">
-        {tabs.map((t) => (
+        {TABS.map((t) => (
           <button
             key={t.id}
             type="button"
             role="tab"
             aria-selected={tab === t.id}
             className={`dean-analytics__tab${tab === t.id ? ' dean-analytics__tab--active' : ''}`}
-            onClick={() => setAnalyticsTab(t.id)}
+            onClick={() => setTab(t.id)}
           >
             {t.label}
           </button>
@@ -359,309 +971,13 @@ const DeanAnalytics = ({ showEvalModules, lockedProgramId = null }) => {
       </div>
 
       {loading && !data ? (
-        <p className="dean-analytics__empty">Loading…</p>
+        <p className="dean-analytics__empty">Computing analytics for this program… this can take a few seconds.</p>
       ) : error ? (
         <p className="dean-analytics__empty">{error}</p>
+      ) : !data?.student_count ? (
+        <p className="dean-analytics__hint">No students with a curriculum record in this program yet.</p>
       ) : (
-        <>
-          {tab === 'workload' && (
-            <>
-              <div className="dean-analytics__metrics">
-                <div className="dean-metric-card">
-                  <div className="dean-metric-card__icon">
-                    <i className="fa-solid fa-calendar-day" aria-hidden />
-                  </div>
-                  <div className="dean-metric-card__body">
-                    <div className="dean-metric-card__label">Evaluations today</div>
-                    <div className="dean-metric-card__value">
-                      {data?.workload?.today_count ?? 0}
-                    </div>
-                  </div>
-                </div>
-                <div className="dean-metric-card">
-                  <div className="dean-metric-card__icon">
-                    <i className="fa-solid fa-calendar-week" aria-hidden />
-                  </div>
-                  <div className="dean-metric-card__body">
-                    <div className="dean-metric-card__label">This week</div>
-                    <div className="dean-metric-card__value">
-                      {data?.workload?.week_total ?? 0}
-                    </div>
-                  </div>
-                </div>
-                <div className="dean-metric-card">
-                  <div className="dean-metric-card__icon">
-                    <i className="fa-solid fa-building-columns" aria-hidden />
-                  </div>
-                  <div className="dean-metric-card__body">
-                    <div className="dean-metric-card__label">Program</div>
-                    <div className="dean-metric-card__value dean-metric-card__value--sm">
-                      {programLabel}
-                    </div>
-                  </div>
-                </div>
-              </div>
-              <p className="dean-analytics__insight">{data?.workload?.insight}</p>
-              <div className="dean-chart-card">
-                <h3 className="dean-chart-card__title">
-                  Evaluations completed per day (this week)
-                </h3>
-                <p className="dean-chart-card__sub">{data?.workload?.week_label}</p>
-                <BarChart items={data?.workload?.by_weekday || []} />
-              </div>
-            </>
-          )}
-
-          {tab === 'enrollment' && (
-            <>
-              <p className="dean-analytics__insight">{data?.enrollment_compare?.insight}</p>
-              <div className="dean-analytics__two-col">
-                <div className="dean-chart-card">
-                  <h3 className="dean-chart-card__title">
-                    Last period — {data?.enrollment_compare?.last_year_label || '—'}
-                  </h3>
-                  <p className="dean-chart-card__sub">1st–4th year student totals</p>
-                  <BarChart
-                    items={(data?.enrollment_compare?.series || []).map((r) => ({
-                      key: `last-${r.year_level_id}`,
-                      label: r.label,
-                      count: r.last_year,
-                    }))}
-                    colorClass="dean-vbar__fill--muted"
-                  />
-                </div>
-                <div className="dean-chart-card">
-                  <h3 className="dean-chart-card__title">
-                    This period — {data?.enrollment_compare?.this_year_label || '—'}
-                  </h3>
-                  <p className="dean-chart-card__sub">1st–4th year student totals</p>
-                  <BarChart
-                    items={(data?.enrollment_compare?.series || []).map((r) => ({
-                      key: `this-${r.year_level_id}`,
-                      label: r.label,
-                      count: r.this_year,
-                    }))}
-                  />
-                </div>
-              </div>
-              <div className="dean-chart-card" style={{ marginTop: '1.25rem' }}>
-                <h3 className="dean-chart-card__title">Side-by-side compare</h3>
-                <DualBarChart items={data?.enrollment_compare?.series || []} />
-              </div>
-            </>
-          )}
-
-          {tab === 'unevaluated' && (
-            <>
-              <div className="dean-analytics__metrics">
-                <div className="dean-metric-card">
-                  <div className="dean-metric-card__icon">
-                    <i className="fa-solid fa-robot" aria-hidden />
-                  </div>
-                  <div className="dean-metric-card__body">
-                    <div className="dean-metric-card__label">Auto-evaluated (system)</div>
-                    <div className="dean-metric-card__value">
-                      {data?.unevaluated_by_year?.totals?.auto_evaluated ?? 0}
-                    </div>
-                  </div>
-                </div>
-                <div className="dean-metric-card">
-                  <div className="dean-metric-card__icon">
-                    <i className="fa-solid fa-clipboard-check" aria-hidden />
-                  </div>
-                  <div className="dean-metric-card__body">
-                    <div className="dean-metric-card__label">Manually evaluated</div>
-                    <div className="dean-metric-card__value">
-                      {data?.unevaluated_by_year?.totals?.manual_evaluated ?? 0}
-                    </div>
-                  </div>
-                </div>
-                <div className="dean-metric-card">
-                  <div className="dean-metric-card__icon">
-                    <i className="fa-solid fa-arrow-up-right-dots" aria-hidden />
-                  </div>
-                  <div className="dean-metric-card__body">
-                    <div className="dean-metric-card__label">Auto-promoted</div>
-                    <div className="dean-metric-card__value">
-                      {data?.unevaluated_by_year?.totals?.auto_promoted ?? 0}
-                    </div>
-                  </div>
-                </div>
-                <div className="dean-metric-card">
-                  <div className="dean-metric-card__icon">
-                    <i className="fa-solid fa-clipboard-question" aria-hidden />
-                  </div>
-                  <div className="dean-metric-card__body">
-                    <div className="dean-metric-card__label">Unevaluated left</div>
-                    <div className="dean-metric-card__value">
-                      {data?.unevaluated_by_year?.totals?.unevaluated ?? 0}
-                    </div>
-                  </div>
-                </div>
-              </div>
-              <p className="dean-analytics__insight">{data?.unevaluated_by_year?.insight}</p>
-              <div className="dean-chart-card">
-                <h3 className="dean-chart-card__title">
-                  Unevaluated students by year level ({programLabel})
-                </h3>
-                <p className="dean-chart-card__sub">
-                  Remaining backlog — irregulars and incomplete loads. Regulars who passed all
-                  subjects are auto-evaluated; irregulars evaluated by staff count as manual.
-                </p>
-                <BarChart
-                  items={(data?.unevaluated_by_year?.series || []).map((r) => ({
-                    key: r.year_level_id,
-                    label: r.label,
-                    count: r.unevaluated,
-                  }))}
-                  colorClass="dean-vbar__fill--warn"
-                />
-                <div className="dean-mini-table-wrap">
-                  <table className="dean-mini-table">
-                    <thead>
-                      <tr>
-                        <th>Year</th>
-                        <th>Unevaluated</th>
-                        <th>Manual</th>
-                        <th>Auto-evaluated</th>
-                        <th>Auto-promoted</th>
-                        <th>Total</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {(data?.unevaluated_by_year?.series || []).map((r) => (
-                        <tr key={r.year_level_id}>
-                          <td>{r.label}</td>
-                          <td>
-                            <strong>{r.unevaluated}</strong>
-                          </td>
-                          <td>{r.manual_evaluated ?? 0}</td>
-                          <td>{r.auto_evaluated ?? 0}</td>
-                          <td>{r.auto_promoted ?? 0}</td>
-                          <td>{r.total_students}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-              <div className="dean-chart-card" style={{ marginTop: '1.25rem' }}>
-                <h3 className="dean-chart-card__title">
-                  Unevaluated vs manual vs auto-evaluated
-                </h3>
-                <p className="dean-chart-card__sub">
-                  Unevaluated = still needs action. Manual = evaluator completed the evaluation.
-                  Auto = system marked complete (passed all subjects). Auto-promoted is separate
-                  (moved to next term when semester is activated).
-                </p>
-                <DualBarChart
-                  items={data?.unevaluated_by_year?.series || []}
-                  leftKey="unevaluated"
-                  midKey="manual_evaluated"
-                  rightKey="auto_evaluated"
-                  leftLabel="Unevaluated (still needs action)"
-                  midLabel="Manually evaluated (by staff)"
-                  rightLabel="Auto-evaluated (system)"
-                  leftClass="dean-dual-pair__fill--uneval"
-                  midClass="dean-dual-pair__fill--manual"
-                  rightClass="dean-dual-pair__fill--auto"
-                  emptyText="No evaluation totals for this program."
-                />
-              </div>
-            </>
-          )}
-
-          {tab === 'capacity' && (
-            <>
-              <p className="dean-analytics__insight">
-                {(data?.decision_hints || []).find((h) => h.section === 'capacity')?.text ||
-                  'Compare evaluator coverage with remaining unevaluated load per year level.'}
-              </p>
-              <div className="dean-analytics__two-col">
-                <div className="dean-chart-card">
-                  <h3 className="dean-chart-card__title">Evaluators by assigned year level</h3>
-                  <p className="dean-chart-card__sub">Manpower map — who covers which year</p>
-                  {(data?.evaluators_by_year?.series || []).map((row) => (
-                    <div key={row.year_level_id} className="dean-eval-year-block">
-                      <div className="dean-eval-year-block__head">
-                        <strong>{row.label}</strong>
-                        <span>{row.count} evaluator{row.count === 1 ? '' : 's'}</span>
-                      </div>
-                      {row.evaluators?.length ? (
-                        <ul className="dean-eval-year-block__list">
-                          {row.evaluators.map((ev) => (
-                            <li key={`${row.year_level_id}-${ev.user_id}`}>
-                              {ev.name}
-                              {ev.scope === 'all_years' ? (
-                                <em className="dean-eval-year-block__tag"> all years</em>
-                              ) : null}
-                            </li>
-                          ))}
-                        </ul>
-                      ) : (
-                        <p className="dean-analytics__empty" style={{ margin: '0.35rem 0 0' }}>
-                          No evaluator assigned
-                        </p>
-                      )}
-                    </div>
-                  ))}
-                </div>
-                <div className="dean-chart-card">
-                  <h3 className="dean-chart-card__title">Unevaluated students by year level</h3>
-                  <p className="dean-chart-card__sub">
-                    Remaining irregular / incomplete load — auto-evaluated regulars are excluded
-                  </p>
-                  <BarChart
-                    items={(data?.unevaluated_by_year?.series || []).map((r) => ({
-                      key: `cap-${r.year_level_id}`,
-                      label: r.label,
-                      count: r.unevaluated,
-                    }))}
-                    colorClass="dean-vbar__fill--warn"
-                  />
-                </div>
-              </div>
-            </>
-          )}
-
-          {tab === 'forecast' && (
-            <>
-              <p className="dean-analytics__insight">{data?.rush_forecast?.insight_week}</p>
-              <div className="dean-chart-card">
-                <h3 className="dean-chart-card__title">Evaluation rush — by week</h3>
-                <p className="dean-chart-card__sub">
-                  {data?.rush_forecast?.range_label} · calendar weeks · click a week
-                  to filter the day chart below
-                </p>
-                <BarChart
-                  items={data?.rush_forecast?.by_week || []}
-                  selectedKey={selectedRushWeekKey}
-                  onSelect={(key) => setSelectedRushWeekKey(key)}
-                />
-              </div>
-              <p className="dean-analytics__insight" style={{ marginTop: '1.25rem' }}>
-                {selectedRushWeekdayDetail.insight_day}
-              </p>
-              <div className="dean-chart-card">
-                <h3 className="dean-chart-card__title">
-                  Inside the rush — by day
-                  {selectedRushWeekKey && selectedRushWeek?.label
-                    ? ` (${selectedRushWeek.label})`
-                    : ' (current window)'}
-                </h3>
-                <p className="dean-chart-card__sub">
-                  {selectedRushWeekKey
-                    ? `${selectedRushWeek?.full_label || selectedRushWeek?.label || 'Selected week'} · Mon–Sat working days · click the week again for the full window`
-                    : 'Mon–Sat totals across the calendar weeks above'}
-                </p>
-                <BarChart
-                  items={selectedRushWeekdayDetail.by_weekday || []}
-                  colorClass="dean-vbar__fill--accent"
-                />
-              </div>
-            </>
-          )}
-        </>
+        <div className={loading ? 'dean-analytics__body is-loading' : 'dean-analytics__body'}>{views[tab]()}</div>
       )}
     </div>
   );

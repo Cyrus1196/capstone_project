@@ -682,3 +682,272 @@ button.dean-vbar__fill:focus-visible {
   font-size: 0.72rem;
   margin-left: 0.25rem;
 }
+
+/* Program analytics (subject performance, blockers, progress, load plans) */
+.dean-analytics__refresh {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.dean-analytics__refresh button {
+  border: 1px solid #60a5fa;
+  border-radius: 8px;
+  padding: 0.35rem 0.75rem;
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: #1e3a8a;
+  background: #fff;
+  cursor: pointer;
+}
+
+.dean-analytics__refresh button:disabled {
+  opacity: 0.6;
+  cursor: wait;
+}
+
+.dean-analytics__refresh span {
+  font-size: 0.7rem;
+  color: #475569;
+}
+
+.dean-analytics__body.is-loading {
+  opacity: 0.55;
+  pointer-events: none;
+}
+
+.dean-metric-card--warn .dean-metric-card__icon {
+  background: #fff7ed;
+  color: #ea580c;
+}
+
+.dean-analytics__subfilters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 0.65rem;
+  margin-bottom: 0.85rem;
+}
+
+.dean-analytics__subfilters label {
+  display: block;
+  font-size: 0.68rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #475569;
+  margin-bottom: 0.2rem;
+}
+
+.dean-analytics__subfilters select,
+.dean-analytics__subfilters input[type='number'] {
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  padding: 0.35rem 0.5rem;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: #0f172a;
+  background: #fff;
+}
+
+.dean-analytics__subfilters input[type='number'] {
+  width: 5.5rem;
+}
+
+.dean-analytics__note {
+  margin: 0.75rem 0 0;
+  font-size: 0.76rem;
+  color: #64748b;
+}
+
+.dean-pa-table th.num,
+.dean-pa-table td.num,
+.dean-mini-table th.num,
+.dean-mini-table td.num {
+  text-align: right;
+}
+
+.dean-pa-table td {
+  vertical-align: middle;
+}
+
+.dean-pa-sub {
+  font-size: 0.74rem;
+  color: #64748b;
+  margin-top: 0.1rem;
+}
+
+.dean-pa-row--bad td {
+  background: #fef2f2;
+}
+
+.dean-pa-row--warn td {
+  background: #fffbeb;
+}
+
+.dean-pa-detail > td {
+  background: #f8fafc;
+  padding: 0.25rem 0.75rem 0.75rem;
+}
+
+.dean-pa-detail .dean-mini-table-wrap {
+  margin-top: 0.25rem;
+}
+
+.dean-rate {
+  display: grid;
+  grid-template-columns: minmax(5rem, 1fr) 3.4rem;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.dean-rate__track,
+.dean-progress__track {
+  position: relative;
+  height: 10px;
+  background: #e2e8f0;
+  border-radius: 999px;
+  overflow: visible;
+}
+
+.dean-rate__fill,
+.dean-progress__fill {
+  height: 100%;
+  border-radius: 999px;
+}
+
+.dean-rate__fill--good {
+  background: #2e7d32;
+}
+
+.dean-rate__fill--warn {
+  background: #f59e0b;
+}
+
+.dean-rate__fill--bad {
+  background: #ef4444;
+}
+
+.dean-rate__n {
+  font-weight: 800;
+  font-size: 0.8rem;
+  color: #0f172a;
+  text-align: right;
+}
+
+.dean-progress__marker {
+  position: absolute;
+  top: -4px;
+  width: 3px;
+  height: 18px;
+  margin-left: -1px;
+  background: #0f172a;
+  border-radius: 2px;
+}
+
+.dean-link-btn {
+  border: none;
+  background: none;
+  padding: 0;
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: #1d4ed8;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.dean-link-btn:hover {
+  text-decoration: underline;
+}
+
+.dean-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.dean-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.15rem 0.55rem;
+  border-radius: 999px;
+  background: #eef2ff;
+  color: #3730a3;
+  font-size: 0.76rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.dean-chip b {
+  background: #c7d2fe;
+  border-radius: 999px;
+  padding: 0 0.4rem;
+}
+
+.dean-outcome {
+  display: inline-block;
+  padding: 0.1rem 0.5rem;
+  border-radius: 6px;
+  font-size: 0.76rem;
+  font-weight: 700;
+  background: #f1f5f9;
+  color: #475569;
+}
+
+.dean-outcome--failed,
+.dean-outcome--dropped {
+  background: #fee2e2;
+  color: #b91c1c;
+}
+
+.dean-outcome--inc {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+.dean-status-pill {
+  display: inline-block;
+  padding: 0.1rem 0.5rem;
+  border-radius: 999px;
+  font-size: 0.74rem;
+  font-weight: 700;
+}
+
+.dean-status-pill--regular {
+  background: #dcfce7;
+  color: #166534;
+}
+
+.dean-status-pill--irregular {
+  background: #ffedd5;
+  color: #9a3412;
+}
+
+.dean-gap {
+  font-weight: 800;
+}
+
+.dean-gap--good {
+  color: #166534;
+}
+
+.dean-gap--warn {
+  color: #b45309;
+}
+
+.dean-gap--bad {
+  color: #b91c1c;
+}
+
+.dean-dual-pair__fill--good {
+  background: #2e7d32;
+}
+
+.dean-dual-pair__fill--warn {
+  background: #f59e0b;
+}
+
+.dean-dual-pair__fill--bad {
+  background: #ef4444;
+}

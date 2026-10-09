@@ -12,12 +12,14 @@ use App\Models\StudentProfile;
 use App\Models\Subject;
 use App\Models\TblUser;
 use App\Models\YearLevel;
+use App\Services\DeanProgramAnalytics;
 use App\Services\RegularStudentAutoPromotion;
 use App\Support\CachedSchema;
 use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 
 class EvaluationReportController extends Controller
@@ -674,6 +676,63 @@ class EvaluationReportController extends Controller
         }
 
         return $query;
+    }
+
+    /**
+     * Program analytics: subject performance, prerequisite blockers, regular/irregular,
+     * student progress, progress by year level, and load plans. Filter: one program.
+     */
+    public function deanProgramAnalytics(Request $request, DeanProgramAnalytics $analytics)
+    {
+        if ($resp = $this->assertEvaluationAccess($request)) {
+            return $resp;
+        }
+        $user = $request->user();
+
+        $programs = $this->programsInDeanScope($request, $user);
+        $staffPid = $this->staffAssignedProgramId($user);
+        if ($staffPid) {
+            $programId = $staffPid;
+        } elseif ($request->filled('program_id')) {
+            $programId = (int) $request->query('program_id');
+        } else {
+            $programId = (int) ($programs[0]['program_id'] ?? 0);
+        }
+
+        $allowed = collect($programs)->pluck('program_id')->map(fn ($id) => (int) $id)->all();
+        if ($programId > 0 && $allowed !== [] && ! in_array($programId, $allowed, true)) {
+            return response()->json(['message' => 'Program is outside your scope.'], 403);
+        }
+
+        $program = $programId > 0 ? Program::query()->find($programId) : null;
+        $meta = [
+            'programs' => $programs,
+            'selected_program_id' => $program ? (int) $program->program_id : null,
+            'selected_program' => $program ? [
+                'program_id' => (int) $program->program_id,
+                'program_code' => $program->program_code,
+                'program_name' => $program->program_name,
+            ] : null,
+        ];
+        if (! $program) {
+            return response()->json($meta + ['student_count' => 0]);
+        }
+
+        $cacheKey = 'dean_program_analytics:v1:'.$program->program_id;
+        if ($request->boolean('refresh')) {
+            Cache::forget($cacheKey);
+        }
+
+        @set_time_limit(120);
+        try {
+            $data = Cache::remember($cacheKey, now()->addMinutes(10), fn () => $analytics->build($program));
+        } catch (\Throwable $e) {
+            report($e);
+
+            return response()->json(['message' => 'Could not compute program analytics.'], 500);
+        }
+
+        return response()->json($meta + $data);
     }
 
     /**
