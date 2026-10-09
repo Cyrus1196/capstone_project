@@ -133,6 +133,9 @@ php artisan migrate --path=database/migrations/2026_10_07_130000_restore_prerequ
   || echo "WARN: elective prerequisite_slot migration skipped or failed."
 php artisan electives:sync-it-prerequisite-chain || echo "WARN: IT elective prerequisite sync skipped or failed."
 
+php artisan migrate --path=database/migrations/2026_10_09_120000_add_term_to_academic_record_evaluation_complete.php --force \
+  || echo "WARN: evaluation-complete term migration skipped or failed."
+
 php artisan config:cache || true
 php artisan route:cache || true
 

@@ -619,7 +619,7 @@ class StudentEvaluationController extends Controller
                 'completed_at' => now(),
                 'completed_by' => $user->user_id,
                 'notes' => $promotionNote,
-            ]);
+            ] + AcademicRecordEvaluationComplete::currentTermAttributes());
 
             DB::commit();
 
@@ -1455,7 +1455,7 @@ class StudentEvaluationController extends Controller
                 'completed_at' => now(),
                 'completed_by' => $user->user_id,
                 'notes' => $validated['notes'] ?? null,
-            ]);
+            ] + AcademicRecordEvaluationComplete::currentTermAttributes());
 
             $record->load('completedByUser');
 

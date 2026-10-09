@@ -2,9 +2,12 @@
 
 namespace App\Services;
 
+use App\Models\AcademicRecordEvaluationComplete;
+use App\Models\AcademicYear;
 use App\Models\Curriculum;
 use App\Models\Evaluation;
 use App\Models\Program;
+use App\Models\Semester;
 use App\Models\StudentProfile;
 use App\Models\Subject;
 use App\Models\YearLevel;
@@ -14,63 +17,23 @@ use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 
 /**
- * Program-level dean analytics computed in bulk from each student's current curriculum record.
- * Pass / attempt / transfer-credit / Regular-Irregular rules match the evaluation screen
- * (StudentCurriculumEvaluationBuilder), so totals agree with what staff see per student.
+ * Dean analytics for one program and one term (school year + optional semester + optional year level).
+ *
+ * Who belongs to a past term comes from the grades recorded in that term (tbl_evaluation);
+ * the current term also counts every current student by their standing. A student's year level
+ * in a past term is the curriculum year of most subjects they took that term.
+ * Pass / attempt / transfer-credit / Regular-Irregular rules match the evaluation screen.
  */
 class DeanProgramAnalytics
 {
-    /** Same per-year unit caps as the evaluation load plan (StudentEvaluationView EVAL_YEAR_UNIT_CAPS). */
-    private const YEAR_UNIT_CAPS = [1 => 23, 2 => 24, 3 => 19, 4 => 12];
+    private const GRADE_BUCKETS = ['1.00', '1.25', '1.50', '1.75', '2.00', '2.25', '2.50', '2.75', '3.00', '5.00', 'INC', 'DRP'];
 
-    /** Up to this many backlog units counts as "slightly behind"; more is "delayed". */
-    private const SLIGHTLY_BEHIND_MAX_UNITS = 9;
+    private const TREND_YEARS = 6;
 
     private const LIST_LIMIT = 100;
 
-    /** Backlog-unit histogram buckets: [label, inclusive upper bound]. */
-    private const BACKLOG_BUCKETS = [
-        ['0', 0],
-        ['1–3', 3],
-        ['4–6', 6],
-        ['7–9', 9],
-        ['10–15', 15],
-        ['16–24', 24],
-        ['25+', PHP_INT_MAX],
-    ];
-
-    /** Load-plan gap buckets vs the year cap: [label, inclusive upper bound of (units - cap)]. */
-    private const LOAD_GAP_BUCKETS = [
-        ['10+ under', -10],
-        ['4–9 under', -4],
-        ['1–3 under', -1],
-        ['Full load', 0],
-        ['Over cap', PHP_INT_MAX],
-    ];
-
-    private const TAKEN_OUTCOMES = ['passed', 'failed', 'inc', 'dropped'];
-
-    /** Mirrors StudentCurriculumEvaluationBuilder: shared subjects whose requisites do not apply in a program. */
-    private const PROGRAM_REQUISITE_SUPPRESSIONS = [
-        'BECED' => ['EDU011', 'EDU532'],
-        'BSEE' => ['BES024', 'ECO017', 'CPE036'],
-        'BSME' => ['BES024', 'ECO017', 'CPE036', 'ECE069', 'GEN006'],
-        'BSARCH' => ['BES025'],
-        'BSCE' => ['BES024', 'ECE069'],
-    ];
-
-    /** Mirrors StudentCurriculumEvaluationBuilder: program-only prerequisites. */
-    private const PROGRAM_SPECIFIC_PREREQUISITES = [
-        'BSME' => [
-            'ECE069' => ['BES 062'],
-            'GEN006' => ['GEN 002'],
-        ],
-    ];
-
-    /** @var array<string, list<array<string, mixed>>> */
+    /** @var array<string, array{rows: list<array<string, mixed>>, subject_years: array<int, int>, subjects: array<int, array>}> */
     private array $templates = [];
-
-    private string $programCode = '';
 
     public function __construct(
         private readonly StudentCurriculumEvaluationBuilder $builder,
@@ -78,53 +41,209 @@ class DeanProgramAnalytics
     ) {
     }
 
-    public function build(Program $program): array
+    /**
+     * @param  int  $ayId  school year (0 = current)
+     * @param  int|null  $semId  semester (0 = whole school year, null = current semester when the year is current)
+     * @param  int  $yearFilter  year level (0 = all)
+     */
+    public function build(Program $program, int $ayId, ?int $semId, int $yearFilter): array
     {
         $programId = (int) $program->program_id;
-        $this->programCode = strtoupper(trim((string) ($program->program_code ?? '')));
         $this->templates = [];
-        $yearLabels = YearLevel::query()
-            ->orderBy('year_level_id')
-            ->pluck('year_level', 'year_level_id')
-            ->map(static fn ($label) => (string) $label)
-            ->all();
+
+        $academicYears = AcademicYear::forAnalyticsFilters();
+        $activeAyId = AcademicYear::resolveCurrentId($academicYears);
+        $semesters = Semester::query()->orderBy('semester_id')->get(['semester_id', 'semester_name', 'status']);
+        $activeSemId = (int) ($semesters->first(fn ($s) => strtolower(trim((string) $s->status)) === 'active')?->semester_id ?? 0);
+
+        $ayId = $ayId > 0 ? $ayId : $activeAyId;
+        if ($semId === null) {
+            $semId = $ayId === $activeAyId ? $activeSemId : 0;
+        }
+        $isCurrentTerm = $ayId === $activeAyId && ($semId === 0 || $semId === $activeSemId);
+
+        $ayStart = $this->academicYearStartMap();
+        $yearLabels = YearLevel::query()->orderBy('year_level_id')->pluck('year_level', 'year_level_id')
+            ->map(static fn ($l) => (string) $l)->all();
 
         $students = $this->studentsForProgram($programId);
         $studentIds = $students->pluck('student_id')->map(static fn ($id) => (int) $id)->all();
-        $evaluationsByStudent = $this->evaluationsByStudent($studentIds);
+        $attemptsByStudent = $this->evaluationsByStudent($studentIds);
         $creditsByStudent = $this->transferCreditsByStudent($studentIds);
-        $ayStart = $this->academicYearStartMap();
+        $completionsByStudent = $this->completionsByStudent($studentIds, $activeAyId, $activeSemId);
 
-        $records = [];
+        $upperKey = $semId > 0 ? $this->termKey($ayStart, $ayId, $semId) : (($ayStart[$ayId] ?? 0) * 10 + 9);
+        $activeStart = $ayStart[$activeAyId] ?? 0;
+
+        $population = [];
+        $evaluation = [];
+        $status = [];
+        $subjectStats = [];
+        $gradeCounts = array_fill_keys(self::GRADE_BUCKETS, 0);
+        $trendIds = $academicYears->sortBy(fn ($y) => $y->startYear())->pluck('academic_year_id')
+            ->map(static fn ($id) => (int) $id)->take(-self::TREND_YEARS)->values()->all();
+        $trend = array_fill_keys($trendIds, []);
+        $failedStudents = [];
+
         foreach ($students as $profile) {
+            $sid = (int) $profile->student_id;
             $header = $this->builder->resolveCurriculumHeaderForStudent($profile);
             $template = $this->curriculumTemplate($programId, $header?->curriculum_header_id);
-            if ($template === []) {
+            $attempts = $attemptsByStudent[$sid] ?? [];
+            $profileYear = (int) ($profile->year_level_id ?? 0);
+
+            foreach ($trendIds as $tAy) {
+                $rows = array_filter($attempts, static fn ($a) => (int) $a->academic_year_id === $tAy);
+                if ($rows === [] && $tAy !== $activeAyId) {
+                    continue;
+                }
+                $y = $tAy === $activeAyId
+                    ? $profileYear
+                    : $this->yearInTerm($rows, $template, $profileYear, $activeStart - ($ayStart[$tAy] ?? $activeStart));
+                if ($y > 0 && (! $yearFilter || $y === $yearFilter)) {
+                    $trend[$tAy][$y] = ($trend[$tAy][$y] ?? 0) + 1;
+                }
+            }
+
+            $termAttempts = array_values(array_filter(
+                $attempts,
+                static fn ($a) => (int) $a->academic_year_id === $ayId && ($semId === 0 || (int) $a->semester_id === $semId)
+            ));
+            if ($termAttempts === [] && ! $isCurrentTerm) {
                 continue;
             }
-            $sid = (int) $profile->student_id;
-            $records[] = $this->studentRecord(
-                $profile,
-                $template,
-                $evaluationsByStudent[$sid] ?? [],
-                $creditsByStudent[$sid] ?? [],
-                $ayStart
+            $year = $isCurrentTerm
+                ? $profileYear
+                : $this->yearInTerm($termAttempts, $template, $profileYear, $activeStart - ($ayStart[$ayId] ?? $activeStart));
+            if ($year <= 0 || ($yearFilter && $year !== $yearFilter)) {
+                continue;
+            }
+
+            $population[$year] = ($population[$year] ?? 0) + 1;
+
+            $evaluated = null;
+            foreach ($completionsByStudent[$sid] ?? [] as $c) {
+                if ($c['ay'] === $ayId && ($semId === 0 || $c['sem'] === $semId)) {
+                    $evaluated = $evaluated === 'manual' || ! $c['auto'] ? 'manual' : 'auto';
+                }
+            }
+            $evaluation[$year][$evaluated ?? 'unevaluated'] = ($evaluation[$year][$evaluated ?? 'unevaluated'] ?? 0) + 1;
+
+            $asOf = array_filter(
+                $attempts,
+                fn ($a) => $a->academic_year_id === null || $this->termKey($ayStart, (int) $a->academic_year_id, (int) $a->semester_id) <= $upperKey
             );
+            $classified = $this->classify($template, $asOf, $creditsByStudent[$sid] ?? [], $ayStart);
+            if ($classified['status'] === 'Irregular') {
+                $reason = $classified['failed'] ? 'failed_subject' : 'sequence_gap';
+                $status[$year]['irregular'] = ($status[$year]['irregular'] ?? 0) + 1;
+                $status[$year][$reason] = ($status[$year][$reason] ?? 0) + 1;
+            } else {
+                $status[$year]['regular'] = ($status[$year]['regular'] ?? 0) + 1;
+            }
+
+            $bySubject = [];
+            foreach ($termAttempts as $a) {
+                if ($a->subject_id !== null) {
+                    $bySubject[(int) $a->subject_id][] = $a;
+                }
+            }
+            $studentFailed = 0;
+            foreach ($bySubject as $subjectId => $list) {
+                $best = EvaluationAttemptPicker::prefer($list, $ayStart);
+                $st = strtolower(trim((string) ($best->evaluation_status ?? '')));
+                if (in_array($st, ['credit', 'credited'], true)) {
+                    continue;
+                }
+                $passing = $template['passing'][$subjectId] ?? null;
+                $outcome = $this->outcome($best, $passing);
+                if (! in_array($outcome, ['passed', 'failed', 'inc', 'dropped'], true)) {
+                    continue;
+                }
+                $s = &$subjectStats[$subjectId];
+                $s ??= ['enrolled' => 0, 'passed' => 0, 'failed' => 0, 'inc' => 0, 'dropped' => 0, 'grade_sum' => 0.0, 'grade_n' => 0, 'students' => []];
+                $s['enrolled']++;
+                $s[$outcome]++;
+                $sis = $this->sisGrade($best->grade, $passing);
+                if ($sis !== null) {
+                    $s['grade_sum'] += $sis;
+                    $s['grade_n']++;
+                }
+                if ($outcome !== 'passed' && count($s['students']) < self::LIST_LIMIT) {
+                    $s['students'][] = $this->studentSummary($profile, $year) + [
+                        'outcome' => $outcome,
+                        'grade' => $this->grades->cleanGrade($best->grade),
+                    ];
+                }
+                unset($s);
+                $gradeCounts[$this->gradeBucket($outcome, $sis)]++;
+                if ($outcome !== 'passed') {
+                    $studentFailed++;
+                }
+            }
+            if ($studentFailed > 0) {
+                $failedStudents[] = $this->studentSummary($profile, $year) + [
+                    'not_passed' => $studentFailed,
+                    'status' => $classified['status'],
+                ];
+            }
         }
 
-        $years = $this->yearBuckets($records, $yearLabels);
+        $years = $this->yearBuckets($population, $yearLabels, $yearFilter);
+        $subjects = $this->subjectRows($subjectStats);
+        usort($failedStudents, static fn ($a, $b) => $b['not_passed'] <=> $a['not_passed']);
 
-        return [
+        $ayName = fn (int $id) => (string) ($academicYears->firstWhere('academic_year_id', $id)?->academic_year_name ?? "AY #{$id}");
+        $semName = fn (int $id) => (string) ($semesters->firstWhere('semester_id', $id)?->semester_name ?? '');
+        $termLabel = $ayName($ayId).($semId > 0 ? ' · '.$semName($semId) : ' · whole school year');
+
+        $result = [
+            'filters' => [
+                'academic_years' => $academicYears->map(fn ($y) => [
+                    'academic_year_id' => (int) $y->academic_year_id,
+                    'academic_year_name' => $y->academic_year_name,
+                    'is_active' => (int) $y->academic_year_id === $activeAyId,
+                ])->values()->all(),
+                'semesters' => $semesters->map(fn ($s) => [
+                    'semester_id' => (int) $s->semester_id,
+                    'semester_name' => $s->semester_name,
+                    'is_active' => (int) $s->semester_id === $activeSemId,
+                ])->values()->all(),
+                'year_levels' => array_map(
+                    static fn ($id) => ['year_level_id' => $id, 'label' => $yearLabels[$id] ?? "Year {$id}"],
+                    $this->sortedYearIds(array_keys($population))
+                ),
+                'selected' => ['academic_year_id' => $ayId, 'semester_id' => $semId, 'year_level_id' => $yearFilter],
+                'active' => ['academic_year_id' => $activeAyId, 'semester_id' => $activeSemId],
+                'is_current_term' => $isCurrentTerm,
+                'term_label' => $termLabel,
+            ],
             'generated_at' => now()->toIso8601String(),
-            'student_count' => count($records),
-            'year_levels' => $years,
-            'subject_performance' => $this->subjectPerformance($records),
-            'prerequisite_blockers' => $this->prerequisiteBlockers($records),
-            'academic_status' => $this->academicStatus($records, $years),
-            'student_progress' => $this->studentProgress($records, $years),
-            'progress_by_year' => $this->progressByYear($records, $years),
-            'load_plans' => $this->loadPlans($records, $years),
+            'population_by_year' => array_map(fn ($y) => $y + ['count' => $population[$y['year_level_id']] ?? 0], $years),
+            'evaluation_by_year' => array_map(fn ($y) => $y + [
+                'evaluated_manual' => $evaluation[$y['year_level_id']]['manual'] ?? 0,
+                'evaluated_auto' => $evaluation[$y['year_level_id']]['auto'] ?? 0,
+                'unevaluated' => $evaluation[$y['year_level_id']]['unevaluated'] ?? 0,
+            ], $years),
+            'status_by_year' => array_map(fn ($y) => $y + [
+                'regular' => $status[$y['year_level_id']]['regular'] ?? 0,
+                'irregular' => $status[$y['year_level_id']]['irregular'] ?? 0,
+                'failed_subject' => $status[$y['year_level_id']]['failed_subject'] ?? 0,
+                'sequence_gap' => $status[$y['year_level_id']]['sequence_gap'] ?? 0,
+            ], $years),
+            'subject_performance' => $subjects,
+            'grade_distribution' => array_map(
+                static fn ($label) => ['label' => $label, 'count' => $gradeCounts[$label]],
+                self::GRADE_BUCKETS
+            ),
+            'students_not_passing' => array_slice($failedStudents, 0, self::LIST_LIMIT),
+            'trend' => array_map(fn ($tAy) => ['academic_year_id' => $tAy, 'label' => $ayName($tAy)]
+                + $this->trendRow($trend[$tAy], $years), $trendIds),
         ];
+        $result['kpis'] = $this->kpis($result, $ayId, $trendIds);
+        $result['insights'] = $this->insights($result);
+
+        return $result;
     }
 
     // ---------------------------------------------------------------------
@@ -148,7 +267,7 @@ class DeanProgramAnalytics
 
     /**
      * @param  list<int>  $studentIds
-     * @return array<int, array<int, list<Evaluation>>> student_id => subject_id => attempts
+     * @return array<int, list<Evaluation>>
      */
     private function evaluationsByStudent(array $studentIds): array
     {
@@ -158,10 +277,9 @@ class DeanProgramAnalytics
                 ->whereIn('student_id', $chunk)
                 ->get(['evaluation_id', 'student_id', 'subject_id', 'grade', 'evaluation_status', 'academic_year_id', 'semester_id']);
             foreach ($rows as $row) {
-                if ($row->subject_id === null) {
-                    continue;
+                if ($row->subject_id !== null) {
+                    $out[(int) $row->student_id][] = $row;
                 }
-                $out[(int) $row->student_id][(int) $row->subject_id][] = $row;
             }
         }
 
@@ -169,17 +287,14 @@ class DeanProgramAnalytics
     }
 
     /**
-     * Approved, active student transfer credits (same rule as the evaluation builder).
+     * Approved, active transfer credits (same rule as the evaluation builder).
      *
      * @param  list<int>  $studentIds
-     * @return array<int, array<int, true>> student_id => subject_id => true
+     * @return array<int, array<int, true>>
      */
     private function transferCreditsByStudent(array $studentIds): array
     {
         $out = [];
-        if ($studentIds === []) {
-            return $out;
-        }
         $idSet = array_fill_keys($studentIds, true);
         foreach (array_chunk($studentIds, 800) as $chunk) {
             $rows = DB::table('tbl_credit_evaluation_details as d')
@@ -203,26 +318,52 @@ class DeanProgramAnalytics
         return $out;
     }
 
+    /**
+     * "Academic record evaluated" marks with their term. Marks saved before terms were recorded
+     * count for the current term.
+     *
+     * @param  list<int>  $studentIds
+     * @return array<int, list<array{ay: int, sem: int, auto: bool}>>
+     */
+    private function completionsByStudent(array $studentIds, int $activeAyId, int $activeSemId): array
+    {
+        $table = 'tbl_academic_record_evaluation_complete';
+        $hasTerm = CachedSchema::hasColumn($table, 'academic_year_id');
+        $columns = ['student_id', 'notes'];
+        if ($hasTerm) {
+            $columns[] = 'academic_year_id';
+            $columns[] = 'semester_id';
+        }
+        $out = [];
+        foreach (array_chunk($studentIds, 800) as $chunk) {
+            foreach (AcademicRecordEvaluationComplete::query()->whereIn('student_id', $chunk)->get($columns) as $c) {
+                $out[(int) $c->student_id][] = [
+                    'ay' => (int) ($hasTerm && $c->academic_year_id ? $c->academic_year_id : $activeAyId),
+                    'sem' => (int) ($hasTerm && $c->semester_id ? $c->semester_id : $activeSemId),
+                    'auto' => stripos((string) $c->notes, 'Auto-promoted on semester activation') !== false,
+                ];
+            }
+        }
+
+        return $out;
+    }
+
     /** @return array<int, int> academic_year_id => start calendar year */
     private function academicYearStartMap(): array
     {
         $map = [];
         foreach (DB::table('tbl_academic_year')->get(['academic_year_id', 'academic_year_name']) as $row) {
-            $id = (int) $row->academic_year_id;
-            $start = 0;
-            if (preg_match('/(\d{4})\s*[-–\/]/', (string) ($row->academic_year_name ?? ''), $m)) {
-                $start = (int) $m[1];
-            }
-            $map[$id] = $start > 0 ? $start : $id;
+            $range = AcademicYear::parseYearRange((string) ($row->academic_year_name ?? ''));
+            $map[(int) $row->academic_year_id] = $range[0] ?? (int) $row->academic_year_id;
         }
 
         return $map;
     }
 
     /**
-     * Curriculum rows for one program / curriculum version, in program order.
+     * Curriculum rows for one program / curriculum version, plus subject → curriculum year lookups.
      *
-     * @return list<array<string, mixed>>
+     * @return array{rows: list<array<string, mixed>>, subject_years: array<int, int>, subjects: array<int, array>, passing: array<int, mixed>}
      */
     private function curriculumTemplate(int $programId, ?int $headerId): array
     {
@@ -233,11 +374,7 @@ class DeanProgramAnalytics
 
         $query = Curriculum::query()
             ->where('program_id', $programId)
-            ->with([
-                'subject.prerequisites.requiredSubject',
-                'semester',
-                'electiveSlot.electiveSubjects.subject',
-            ]);
+            ->with(['subject', 'electiveSlot.electiveSubjects.subject']);
         if ($headerId) {
             $query->where('curriculum_header_id', $headerId);
         }
@@ -247,230 +384,142 @@ class DeanProgramAnalytics
             ->orderBy('curriculum_id')
             ->get();
 
-        $template = [];
+        $rows = [];
+        $subjectYears = [];
+        $subjects = [];
+        $passing = [];
         foreach ($items as $item) {
             $year = (int) ($item->year_level ?? 0);
-            $sem = (int) ($item->semester_id ?? 0);
             $row = [
-                'key' => 'cur-'.$item->curriculum_id,
                 'year' => $year,
-                'sem' => $sem,
-                'order' => $this->termOrder($year, $sem),
-                'sem_name' => (string) ($item->semester->semester_name ?? ''),
                 'passing_grade' => $item->passing_grade,
-                'subject_type' => $item->subject_type ?? null,
-                'subject' => null,
+                'subject_id' => null,
                 'choices' => [],
-                'pending_units' => 0,
-                'slot_name' => null,
-                'prereq_codes' => [],
             ];
-
             if ($item->subject) {
-                $row['subject'] = $this->subjectMeta($item->subject);
-                $row['prereq_codes'] = $this->prerequisiteCodes($item->subject);
+                $id = (int) $item->subject->subject_id;
+                $row['subject_id'] = $id;
+                $subjects[$id] = $this->subjectMeta($item->subject, $year);
+                $subjectYears[$id] ??= $year;
+                $passing[$id] ??= $item->passing_grade;
             } elseif ($item->electiveSlot) {
-                $slot = $item->electiveSlot;
-                $row['slot_name'] = $slot->slot_name ?? null;
-                $units = [];
-                foreach ($slot->electiveSubjects ?? [] as $es) {
+                foreach ($item->electiveSlot->electiveSubjects ?? [] as $es) {
                     if ($es->subject) {
-                        $meta = $this->subjectMeta($es->subject);
-                        $row['choices'][$meta['id']] = $meta;
-                        if ($meta['units'] > 0) {
-                            $units[] = $meta['units'];
-                        }
+                        $id = (int) $es->subject->subject_id;
+                        $row['choices'][] = $id;
+                        $subjects[$id] ??= $this->subjectMeta($es->subject, $year);
+                        $subjectYears[$id] ??= $year;
+                        $passing[$id] ??= $item->passing_grade;
                     }
                 }
-                if ($units !== []) {
-                    $counts = array_count_values($units);
-                    arsort($counts);
-                    $row['pending_units'] = (int) array_key_first($counts);
-                } else {
-                    $row['pending_units'] = 3;
-                }
             }
-
-            $template[] = $row;
+            $rows[] = $row;
         }
 
-        return $this->templates[$cacheKey] = $template;
-    }
-
-    /** @return array{id: int, code: string, name: string, units: int} */
-    private function subjectMeta(Subject $subject): array
-    {
-        return [
-            'id' => (int) $subject->subject_id,
-            'code' => trim((string) ($subject->subject_code ?? '')),
-            'name' => trim((string) ($subject->subject_name ?? '')),
-            'units' => (int) ($subject->number_of_units ?? 0),
+        return $this->templates[$cacheKey] = [
+            'rows' => $rows,
+            'subject_years' => $subjectYears,
+            'subjects' => $subjects,
+            'passing' => $passing,
         ];
     }
 
-    /**
-     * Direct prerequisite subject codes. "All subjects" and "Nth year standing" rules are
-     * standing gates, not a single blocking subject, so they are left out.
-     *
-     * @return list<string>
-     */
-    private function prerequisiteCodes(Subject $subject): array
+    private function subjectMeta(Subject $subject, int $year): array
     {
-        $subjectKey = str_replace(' ', '', $this->normCode($subject->subject_code));
-        $specific = array_map(
-            fn ($code) => $this->normCode($code),
-            self::PROGRAM_SPECIFIC_PREREQUISITES[$this->programCode][$subjectKey] ?? []
-        );
-        if (in_array($subjectKey, self::PROGRAM_REQUISITE_SUPPRESSIONS[$this->programCode] ?? [], true)) {
-            return $specific;
-        }
-
-        $edges = collect($subject->prerequisites ?? [])
-            ->filter(static fn ($e) => strtolower((string) ($e->requisite_type ?? 'prerequisite')) !== 'corequisite');
-
-        foreach ($edges as $edge) {
-            if (preg_match('/^all\s+subjects?$/', strtolower(trim((string) ($edge->rule_label ?? ''))))) {
-                return $specific;
-            }
-        }
-
-        $codes = $specific;
-        foreach ($edges as $edge) {
-            $label = strtolower(trim((string) ($edge->rule_label ?? '')));
-            if ($label !== '' && preg_match('/year\s+standing$/', $label)) {
-                continue;
-            }
-            $code = $this->normCode($edge->requiredSubject->subject_code ?? null);
-            if ($code !== '') {
-                $codes[] = $code;
-            }
-        }
-
-        return array_values(array_unique($codes));
+        return [
+            'code' => trim((string) ($subject->subject_code ?? '')),
+            'name' => trim((string) ($subject->subject_name ?? '')),
+            'year' => $year,
+        ];
     }
 
     // ---------------------------------------------------------------------
-    // Per-student record
+    // Per-student helpers
     // ---------------------------------------------------------------------
 
     /**
-     * @param  list<array<string, mixed>>  $template
-     * @param  array<int, list<Evaluation>>  $attemptsBySubject
-     * @param  array<int, true>  $credits
-     * @param  array<int, int>  $ayStart
+     * Year level during a past term: curriculum year of most subjects taken that term
+     * (ties go to the higher year, since retakes are lower-year subjects).
+     *
+     * @param  array<int, Evaluation>  $termAttempts
      */
-    private function studentRecord(
-        StudentProfile $profile,
-        array $template,
-        array $attemptsBySubject,
-        array $credits,
-        array $ayStart
-    ): array {
-        $preferred = [];
-        foreach ($attemptsBySubject as $subjectId => $attempts) {
-            $preferred[$subjectId] = EvaluationAttemptPicker::prefer($attempts, $ayStart);
+    private function yearInTerm(array $termAttempts, array $template, int $profileYear, int $yearsAgo): int
+    {
+        $counts = [];
+        foreach ($termAttempts as $a) {
+            $y = $template['subject_years'][(int) $a->subject_id] ?? null;
+            if ($y) {
+                $counts[$y] = ($counts[$y] ?? 0) + 1;
+            }
         }
-
-        $rows = [];
-        $usedChoices = [];
-        foreach ($template as $t) {
-            $subject = $t['subject'];
-            if ($subject === null && $t['choices'] !== []) {
-                $subject = $this->pickElectiveChoice($t, $preferred, $credits, $usedChoices);
-                if ($subject !== null) {
-                    $usedChoices[$subject['id']] = true;
+        if ($counts !== []) {
+            $max = max($counts);
+            $best = 0;
+            foreach ($counts as $y => $n) {
+                if ($n === $max && $y > $best) {
+                    $best = $y;
                 }
             }
 
-            $pending = $subject === null;
-            $evaluation = $pending ? null : ($preferred[$subject['id']] ?? null);
-            $credited = ! $pending && isset($credits[$subject['id']]);
-            $outcome = $this->outcome($evaluation, $t['passing_grade']);
-            $grade = $evaluation ? $this->grades->cleanGrade($evaluation->grade) : null;
+            return $best;
+        }
 
+        return $profileYear > 0 ? max(1, $profileYear - max(0, $yearsAgo)) : 0;
+    }
+
+    /**
+     * Regular / Irregular from the records available up to the selected term.
+     *
+     * @param  array<int, Evaluation>  $attempts
+     * @param  array<int, true>  $credits
+     * @return array{status: string, failed: bool}
+     */
+    private function classify(array $template, array $attempts, array $credits, array $ayStart): array
+    {
+        $bySubject = [];
+        foreach ($attempts as $a) {
+            $bySubject[(int) $a->subject_id][] = $a;
+        }
+        $preferred = [];
+        foreach ($bySubject as $id => $list) {
+            $preferred[$id] = EvaluationAttemptPicker::prefer($list, $ayStart);
+        }
+
+        $passedSeq = [];
+        $rows = [];
+        $used = [];
+        foreach ($template['rows'] as $t) {
+            $id = $t['subject_id'];
+            if ($id === null && $t['choices'] !== []) {
+                foreach ($t['choices'] as $choice) {
+                    if (! isset($used[$choice]) && (isset($credits[$choice]) || isset($preferred[$choice]))) {
+                        $id = $choice;
+                        $used[$choice] = true;
+                        break;
+                    }
+                }
+            }
+            $evaluation = $id !== null ? ($preferred[$id] ?? null) : null;
+            $credited = $id !== null && isset($credits[$id]);
+            $outcome = $this->outcome($evaluation, $t['passing_grade']);
+            $passedSeq[] = $credited || $outcome === 'passed';
             $rows[] = [
-                'key' => $t['key'],
-                'year' => $t['year'],
-                'sem' => $t['sem'],
-                'order' => $t['order'],
-                'sem_name' => $t['sem_name'],
-                'subject_type' => $t['subject_type'],
-                'prereq_codes' => $t['subject'] !== null ? $t['prereq_codes'] : [],
-                'subject' => $subject,
-                'code' => $subject['code'] ?? ($t['slot_name'] ?: 'Elective'),
-                'units' => $pending ? (int) $t['pending_units'] : (int) $subject['units'],
-                'pending' => $pending,
-                'grade' => $grade,
-                'outcome' => $outcome,
-                'credited' => $credited,
-                'passed' => $credited || $outcome === 'passed',
-                'classifier' => [
-                    'elective_pending' => $pending,
-                    'grade' => $grade,
-                    'passing_grade' => $t['passing_grade'],
-                    'status' => $credited && $outcome !== 'passed'
-                        ? 'Credit'
-                        : ($evaluation?->evaluation_status ?? null),
-                ],
+                'elective_pending' => $id === null,
+                'grade' => $evaluation ? $this->grades->cleanGrade($evaluation->grade) : null,
+                'passing_grade' => $t['passing_grade'],
+                'status' => $credited && $outcome !== 'passed' ? 'Credit' : ($evaluation?->evaluation_status ?? null),
             ];
         }
 
-        $classified = AcademicStatusClassifier::fromPassSequence(
-            array_map(static fn ($r) => (bool) $r['passed'], $rows),
-            array_map(static fn ($r) => $r['classifier'], $rows)
-        );
-
-        $year = (int) ($profile->year_level_id ?? 0);
-        $sem = (int) ($profile->semester_id ?? 0);
-        $name = trim(
-            ($profile->last_name ? $profile->last_name.', ' : '').
-            ($profile->first_name ?? '').
-            ($profile->middle_name ? ' '.$profile->middle_name : '')
-        );
-
-        return [
-            'student' => [
-                'student_id' => (int) $profile->student_id,
-                'student_id_number' => (string) ($profile->student_id_number ?? ''),
-                'name' => $name !== '' ? $name : 'Student #'.$profile->student_id,
-                'year' => $year,
-            ],
-            'year' => $year,
-            'sem' => $sem,
-            'standing_order' => $year > 0 && $sem > 0 ? $this->termOrder($year, $sem) : null,
-            'entry_type' => trim((string) ($profile->student_entry_type ?? '')),
-            'rows' => $rows,
-            'status' => $classified['status'],
-            'reasons' => $classified['reasons'],
-            'load' => is_array($profile->standing_term_load) ? $profile->standing_term_load : null,
-            'deferred' => is_array($profile->standing_deferred_keys) ? $profile->standing_deferred_keys : [],
-        ];
-    }
-
-    /**
-     * Elective slot: the choice the student actually has a record for (each choice used once).
-     *
-     * @param  array<string, mixed>  $t
-     * @param  array<int, mixed>  $preferred
-     * @param  array<int, true>  $credits
-     * @param  array<int, true>  $usedChoices
-     */
-    private function pickElectiveChoice(array $t, array $preferred, array $credits, array $usedChoices): ?array
-    {
-        $fallback = null;
-        foreach ($t['choices'] as $id => $meta) {
-            if (isset($usedChoices[$id])) {
-                continue;
-            }
-            if (isset($credits[$id]) || $this->outcome($preferred[$id] ?? null, $t['passing_grade']) === 'passed') {
-                return $meta;
-            }
-            if ($fallback === null && isset($preferred[$id]) && $this->outcome($preferred[$id], $t['passing_grade']) !== null) {
-                $fallback = $meta;
+        $result = AcademicStatusClassifier::fromPassSequence($passedSeq, $rows);
+        $failed = false;
+        foreach ($result['reasons'] as $reason) {
+            if (stripos($reason, 'failing') !== false) {
+                $failed = true;
             }
         }
 
-        return $fallback;
+        return ['status' => $result['status'], 'failed' => $failed];
     }
 
     /** passed | failed | inc | dropped | ongoing | null (no record). */
@@ -512,590 +561,68 @@ class DeanProgramAnalytics
         return 'ongoing';
     }
 
-    // ---------------------------------------------------------------------
-    // 1. Subject performance
-    // ---------------------------------------------------------------------
-
-    private function subjectPerformance(array $records): array
+    private function sisGrade(mixed $grade, mixed $passing): ?float
     {
-        $stats = [];
-        foreach ($records as $record) {
-            $seen = [];
-            foreach ($record['rows'] as $row) {
-                if ($row['subject'] === null || $row['credited'] || ! in_array($row['outcome'], self::TAKEN_OUTCOMES, true)) {
-                    continue;
-                }
-                $sid = $row['subject']['id'];
-                if (isset($seen[$sid])) {
-                    continue;
-                }
-                $seen[$sid] = true;
-
-                if (! isset($stats[$sid])) {
-                    $stats[$sid] = [
-                        'subject_id' => $sid,
-                        'code' => $row['subject']['code'],
-                        'name' => $row['subject']['name'],
-                        'units' => $row['subject']['units'],
-                        'year' => $row['year'],
-                        'sem' => $row['sem'],
-                        'sem_name' => $row['sem_name'],
-                        'type' => $this->builder->isMajorEvaluationRow([
-                            'subject_id' => $sid,
-                            'subject_type' => $row['subject_type'],
-                            'subject_code' => $row['subject']['code'],
-                        ]) ? 'major' : 'ge',
-                        'enrolled' => 0,
-                        'passed' => 0,
-                        'failed' => 0,
-                        'inc' => 0,
-                        'dropped' => 0,
-                        'grade_sum' => 0.0,
-                        'grade_n' => 0,
-                        'students' => [],
-                    ];
-                }
-                $s = &$stats[$sid];
-                $s['enrolled']++;
-                $s[$row['outcome']]++;
-                if ($row['grade'] !== null && $this->grades->isNumericalGradeScale($row['grade'])) {
-                    $s['grade_sum'] += (float) str_replace(',', '.', $row['grade']);
-                    $s['grade_n']++;
-                }
-                if ($row['outcome'] !== 'passed' && count($s['students']) < self::LIST_LIMIT) {
-                    $s['students'][] = $record['student'] + [
-                        'outcome' => $row['outcome'],
-                        'grade' => $row['grade'],
-                    ];
-                }
-                unset($s);
-            }
+        $sis = $this->grades->coerceToSisGrade($grade, $passing ?? 50);
+        if ($sis === null || ! $this->grades->isNumericalGradeScale($sis)) {
+            return null;
         }
+        $g = (float) str_replace(',', '.', $sis);
 
-        $subjects = array_map(function (array $s) {
-            $s['pass_rate'] = $s['enrolled'] > 0 ? round($s['passed'] / $s['enrolled'] * 100, 1) : 0.0;
-            $s['fail_rate'] = $s['enrolled'] > 0 ? round(($s['enrolled'] - $s['passed']) / $s['enrolled'] * 100, 1) : 0.0;
-            $s['avg_grade'] = $s['grade_n'] > 0 ? round($s['grade_sum'] / $s['grade_n'], 2) : null;
-            unset($s['grade_sum'], $s['grade_n']);
-
-            return $s;
-        }, array_values($stats));
-
-        usort($subjects, static fn ($a, $b) => [$a['pass_rate'], -$a['enrolled']] <=> [$b['pass_rate'], -$b['enrolled']]);
-
-        return ['subjects' => $subjects];
+        return $g >= 1 && $g <= 5 ? $g : null;
     }
 
-    // ---------------------------------------------------------------------
-    // 2. Prerequisite blockers
-    // ---------------------------------------------------------------------
-
-    private function prerequisiteBlockers(array $records): array
+    private function gradeBucket(string $outcome, ?float $sis): string
     {
-        $blockers = [];
-        foreach ($records as $record) {
-            if ($record['standing_order'] === null) {
-                continue;
-            }
-            $byCode = [];
-            foreach ($record['rows'] as $row) {
-                if ($row['subject'] !== null) {
-                    $byCode[$this->normCode($row['subject']['code'])] ??= $row;
-                }
-            }
-            $sid = $record['student']['student_id'];
-            foreach ($record['rows'] as $target) {
-                if ($target['subject'] === null || $target['passed'] || $target['order'] > $record['standing_order']) {
-                    continue;
-                }
-                foreach ($target['prereq_codes'] as $code) {
-                    $pre = $byCode[$code] ?? null;
-                    if ($pre === null || $pre['passed']) {
-                        continue;
-                    }
-                    if (! isset($blockers[$code])) {
-                        $blockers[$code] = [
-                            'code' => $pre['subject']['code'],
-                            'name' => $pre['subject']['name'],
-                            'year' => $pre['year'],
-                            'sem_name' => $pre['sem_name'],
-                            'students' => [],
-                            'dependents' => [],
-                        ];
-                    }
-                    $blockers[$code]['students'][$sid] ??= $record['student'] + [
-                        'outcome' => $pre['outcome'] ?? 'not_taken',
-                        'grade' => $pre['grade'],
-                    ];
-                    $depCode = $target['subject']['code'];
-                    $blockers[$code]['dependents'][$depCode] ??= [
-                        'code' => $depCode,
-                        'name' => $target['subject']['name'],
-                        'students' => [],
-                    ];
-                    $blockers[$code]['dependents'][$depCode]['students'][$sid] = true;
-                }
-            }
+        if ($outcome === 'inc') {
+            return 'INC';
+        }
+        if ($outcome === 'dropped') {
+            return 'DRP';
+        }
+        if ($sis === null) {
+            return $outcome === 'passed' ? '3.00' : '5.00';
+        }
+        if ($sis > 3.0) {
+            return '5.00';
         }
 
-        $items = [];
-        foreach ($blockers as $b) {
-            $students = array_values($b['students']);
-            $failedOrInc = count(array_filter(
-                $students,
-                static fn ($s) => in_array($s['outcome'], ['failed', 'inc', 'dropped'], true)
-            ));
-            $dependents = array_map(static fn ($d) => [
-                'code' => $d['code'],
-                'name' => $d['name'],
-                'students' => count($d['students']),
-            ], array_values($b['dependents']));
-            usort($dependents, static fn ($x, $y) => $y['students'] <=> $x['students']);
-
-            $items[] = [
-                'code' => $b['code'],
-                'name' => $b['name'],
-                'year' => $b['year'],
-                'sem_name' => $b['sem_name'],
-                'students_blocked' => count($students),
-                'failed_or_inc' => $failedOrInc,
-                'not_yet_passed' => count($students) - $failedOrInc,
-                'dependents' => $dependents,
-                'students' => array_slice($students, 0, self::LIST_LIMIT),
-            ];
-        }
-        usort($items, static fn ($a, $b) => [$b['students_blocked'], $b['failed_or_inc']] <=> [$a['students_blocked'], $a['failed_or_inc']]);
-
-        $insight = 'No student is currently held back by an unpassed prerequisite.';
-        if ($items !== []) {
-            $top = $items[0];
-            $deps = implode(', ', array_map(
-                static fn ($d) => $d['code'].' ('.$d['students'].')',
-                array_slice($top['dependents'], 0, 3)
-            ));
-            $insight = sprintf(
-                '%s – %s is blocking %d student%s from %s. Offering or retaking it unlocks the most progress.',
-                $top['code'],
-                $top['name'],
-                $top['students_blocked'],
-                $top['students_blocked'] === 1 ? '' : 's',
-                $deps
-            );
-        }
-
-        return ['items' => $items, 'insight' => $insight];
+        return number_format(round($sis * 4) / 4, 2);
     }
 
-    // ---------------------------------------------------------------------
-    // 3. Regular vs Irregular
-    // ---------------------------------------------------------------------
-
-    private function academicStatus(array $records, array $years): array
+    private function studentSummary(StudentProfile $profile, int $year): array
     {
-        $byYear = [];
-        foreach ($years as $y) {
-            $byYear[$y['year_level_id']] = [
-                'year_level_id' => $y['year_level_id'],
-                'label' => $y['label'],
-                'regular' => 0,
-                'irregular' => 0,
-                'failed_subject' => 0,
-                'sequence_gap' => 0,
-            ];
-        }
-        $entryTypes = [];
-        $totals = ['regular' => 0, 'irregular' => 0, 'failed_subject' => 0, 'sequence_gap' => 0];
-
-        foreach ($records as $record) {
-            $isIrregular = $record['status'] === 'Irregular';
-            $key = $isIrregular ? 'irregular' : 'regular';
-            $totals[$key]++;
-            if (isset($byYear[$record['year']])) {
-                $byYear[$record['year']][$key]++;
-            }
-            if (! $isIrregular) {
-                continue;
-            }
-            $reason = $this->statusReasonKey($record['reasons']);
-            $totals[$reason]++;
-            if (isset($byYear[$record['year']])) {
-                $byYear[$record['year']][$reason]++;
-            }
-            $entry = $record['entry_type'] !== '' ? $record['entry_type'] : 'Standard';
-            $entryTypes[$entry] = ($entryTypes[$entry] ?? 0) + 1;
-        }
-
-        $all = $totals['regular'] + $totals['irregular'];
-        $series = array_values($byYear);
-        $insight = 'No students found for this program.';
-        if ($all > 0) {
-            $worst = collect($series)->sortByDesc('irregular')->first();
-            $insight = sprintf(
-                '%d of %d students (%s%%) are irregular.',
-                $totals['irregular'],
-                $all,
-                $this->pct($totals['irregular'], $all)
-            );
-            if ($worst && $worst['irregular'] > 0) {
-                $insight .= sprintf(' %s has the most irregular students (%d).', $worst['label'], $worst['irregular']);
-            }
-            if ($totals['irregular'] > 0) {
-                $insight .= $totals['failed_subject'] >= $totals['sequence_gap']
-                    ? sprintf(' Main cause: a failed subject (%d students).', $totals['failed_subject'])
-                    : sprintf(' Main cause: subjects taken out of curriculum order (%d students).', $totals['sequence_gap']);
-            }
-        }
-
-        arsort($entryTypes);
-        $entryList = [];
-        foreach ($entryTypes as $label => $count) {
-            $entryList[] = ['label' => $label, 'count' => $count];
-        }
+        $name = trim(
+            ($profile->last_name ? $profile->last_name.', ' : '').
+            ($profile->first_name ?? '').
+            ($profile->middle_name ? ' '.$profile->middle_name : '')
+        );
 
         return [
-            'by_year' => $series,
-            'totals' => $totals + ['students' => $all],
-            'irregular_by_entry_type' => $entryList,
-            'insight' => $insight,
-        ];
-    }
-
-    /** @param  list<string>  $reasons */
-    private function statusReasonKey(array $reasons): string
-    {
-        foreach ($reasons as $reason) {
-            if (stripos($reason, 'failing') !== false) {
-                return 'failed_subject';
-            }
-        }
-
-        return 'sequence_gap';
-    }
-
-    // ---------------------------------------------------------------------
-    // 4. Student progress (backlog units vs completed curriculum terms)
-    // ---------------------------------------------------------------------
-
-    private function studentProgress(array $records, array $years): array
-    {
-        $byYear = [];
-        foreach ($years as $y) {
-            $byYear[$y['year_level_id']] = [
-                'year_level_id' => $y['year_level_id'],
-                'label' => $y['label'],
-                'on_track' => 0,
-                'slightly_behind' => 0,
-                'delayed' => 0,
-            ];
-        }
-        $totals = ['on_track' => 0, 'slightly_behind' => 0, 'delayed' => 0];
-        $behind = [];
-        $histogram = [];
-        foreach (self::BACKLOG_BUCKETS as [$label]) {
-            $histogram[$label] = 0;
-        }
-
-        foreach ($records as $record) {
-            if ($record['standing_order'] === null) {
-                continue;
-            }
-            $backlogUnits = 0;
-            $backlogCodes = [];
-            $earned = 0;
-            $expected = 0;
-            foreach ($record['rows'] as $row) {
-                if ($row['passed']) {
-                    $earned += $row['units'];
-                }
-                if ($row['order'] < $record['standing_order']) {
-                    $expected += $row['units'];
-                    if (! $row['passed']) {
-                        $backlogUnits += $row['units'];
-                        $backlogCodes[] = $row['code'];
-                    }
-                }
-            }
-            $bucket = $backlogUnits === 0
-                ? 'on_track'
-                : ($backlogUnits <= self::SLIGHTLY_BEHIND_MAX_UNITS ? 'slightly_behind' : 'delayed');
-            $totals[$bucket]++;
-            if (isset($byYear[$record['year']])) {
-                $byYear[$record['year']][$bucket]++;
-            }
-            foreach (self::BACKLOG_BUCKETS as [$label, $max]) {
-                if ($backlogUnits <= $max) {
-                    $histogram[$label]++;
-                    break;
-                }
-            }
-            if ($backlogUnits > 0) {
-                $behind[] = $record['student'] + [
-                    'status' => $record['status'],
-                    'backlog_units' => $backlogUnits,
-                    'backlog_subjects' => count($backlogCodes),
-                    'backlog_codes' => array_slice($backlogCodes, 0, 8),
-                    'earned_units' => $earned,
-                    'expected_units' => $expected,
-                    'bucket' => $bucket,
-                ];
-            }
-        }
-
-        usort($behind, static fn ($a, $b) => $b['backlog_units'] <=> $a['backlog_units']);
-        $all = array_sum($totals);
-        $insight = 'No students with a recorded standing yet.';
-        if ($all > 0) {
-            $insight = sprintf(
-                '%d of %d students (%s%%) are on track. %d are slightly behind (1–%d units) and %d are delayed (more than %d units of backlog).',
-                $totals['on_track'],
-                $all,
-                $this->pct($totals['on_track'], $all),
-                $totals['slightly_behind'],
-                self::SLIGHTLY_BEHIND_MAX_UNITS,
-                $totals['delayed'],
-                self::SLIGHTLY_BEHIND_MAX_UNITS
-            );
-        }
-
-        return [
-            'by_year' => array_values($byYear),
-            'totals' => $totals + ['students' => $all],
-            'slightly_behind_max_units' => self::SLIGHTLY_BEHIND_MAX_UNITS,
-            'backlog_histogram' => array_map(
-                static fn ($label, $count) => ['label' => $label, 'count' => $count],
-                array_keys($histogram),
-                array_values($histogram)
-            ),
-            'most_behind' => array_slice($behind, 0, self::LIST_LIMIT),
-            'insight' => $insight,
+            'student_id' => (int) $profile->student_id,
+            'student_id_number' => (string) ($profile->student_id_number ?? ''),
+            'name' => $name !== '' ? $name : 'Student #'.$profile->student_id,
+            'year' => $year,
         ];
     }
 
     // ---------------------------------------------------------------------
-    // 5. Curriculum progress by year level (expected vs actual completion)
+    // Output shaping
     // ---------------------------------------------------------------------
 
-    private function progressByYear(array $records, array $years): array
+    /** @return list<int> */
+    private function sortedYearIds(array $extra): array
     {
-        $acc = [];
-        foreach ($records as $record) {
-            $year = $record['year'];
-            if ($year <= 0 || $record['standing_order'] === null) {
-                continue;
-            }
-            $total = 0;
-            $earned = 0;
-            $byNow = 0;
-            $endOfYear = 0;
-            foreach ($record['rows'] as $row) {
-                $total += $row['units'];
-                if ($row['passed']) {
-                    $earned += $row['units'];
-                }
-                if ($row['order'] < $record['standing_order']) {
-                    $byNow += $row['units'];
-                }
-                if ($row['year'] <= $year) {
-                    $endOfYear += $row['units'];
-                }
-            }
-            if ($total <= 0) {
-                continue;
-            }
-            $acc[$year]['n'] = ($acc[$year]['n'] ?? 0) + 1;
-            $acc[$year]['actual'] = ($acc[$year]['actual'] ?? 0) + $earned / $total * 100;
-            $decile = min(9, (int) floor($earned / $total * 10));
-            $acc[$year]['deciles'] ??= array_fill(0, 10, 0);
-            $acc[$year]['deciles'][$decile]++;
-            $acc[$year]['by_now'] = ($acc[$year]['by_now'] ?? 0) + $byNow / $total * 100;
-            $acc[$year]['end'] = ($acc[$year]['end'] ?? 0) + $endOfYear / $total * 100;
-        }
+        $ids = array_values(array_unique(array_merge([1, 2, 3, 4], array_map('intval', $extra))));
+        sort($ids);
 
-        $rows = [];
-        foreach ($years as $y) {
-            $a = $acc[$y['year_level_id']] ?? null;
-            $n = (int) ($a['n'] ?? 0);
-            $actual = $n > 0 ? round($a['actual'] / $n, 1) : null;
-            $byNow = $n > 0 ? round($a['by_now'] / $n, 1) : null;
-            $rows[] = [
-                'year_level_id' => $y['year_level_id'],
-                'label' => $y['label'],
-                'students' => $n,
-                'expected_by_now' => $byNow,
-                'expected_end_of_year' => $n > 0 ? round($a['end'] / $n, 1) : null,
-                'actual_average' => $actual,
-                'gap' => $n > 0 ? round($actual - $byNow, 1) : null,
-                'completion_deciles' => $a['deciles'] ?? array_fill(0, 10, 0),
-            ];
-        }
-
-        $withData = array_values(array_filter($rows, static fn ($r) => $r['students'] > 0));
-        $insight = 'No students with a recorded standing yet.';
-        if ($withData !== []) {
-            usort($withData, static fn ($a, $b) => $a['gap'] <=> $b['gap']);
-            $worst = $withData[0];
-            $insight = $worst['gap'] < 0
-                ? sprintf(
-                    '%s students are %s percentage points behind the expected curriculum progression (%s%% completed vs %s%% expected by now).',
-                    $worst['label'],
-                    abs($worst['gap']),
-                    $worst['actual_average'],
-                    $worst['expected_by_now']
-                )
-                : 'Every year level is at or ahead of the expected curriculum progression.';
-        }
-
-        return ['rows' => $rows, 'insight' => $insight];
+        return $ids;
     }
-
-    // ---------------------------------------------------------------------
-    // 6. Load plans (current term)
-    // ---------------------------------------------------------------------
-
-    private function loadPlans(array $records, array $years): array
-    {
-        $byYear = [];
-        foreach ($years as $y) {
-            $byYear[$y['year_level_id']] = [
-                'year_level_id' => $y['year_level_id'],
-                'label' => $y['label'],
-                'cap' => self::YEAR_UNIT_CAPS[$y['year_level_id']] ?? null,
-                'no_plan' => 0,
-                'underload' => 0,
-                'full' => 0,
-                'overload' => 0,
-                'units_sum' => 0,
-                'planned' => 0,
-            ];
-        }
-        $totals = ['no_plan' => 0, 'underload' => 0, 'full' => 0, 'overload' => 0];
-        $dropped = [];
-        $underloaded = [];
-        $gapHistogram = [];
-        foreach (self::LOAD_GAP_BUCKETS as [$label]) {
-            $gapHistogram[$label] = 0;
-        }
-
-        foreach ($records as $record) {
-            if ($record['standing_order'] === null) {
-                continue;
-            }
-            $load = $record['load'];
-            $valid = is_array($load)
-                && (int) ($load['year_level_id'] ?? 0) === $record['year']
-                && (int) ($load['semester_id'] ?? 0) === $record['sem'];
-            if (! $valid) {
-                $totals['no_plan']++;
-                if (isset($byYear[$record['year']])) {
-                    $byYear[$record['year']]['no_plan']++;
-                }
-                continue;
-            }
-
-            $rowsByKey = [];
-            foreach ($record['rows'] as $row) {
-                $rowsByKey[$row['key']] = $row;
-            }
-            $units = 0;
-            foreach ((array) ($load['take_keys'] ?? []) as $key) {
-                $units += (int) ($rowsByKey[(string) $key]['units'] ?? 0);
-            }
-            $cap = self::YEAR_UNIT_CAPS[$record['year']] ?? null;
-            $bucket = $cap === null || $units === $cap ? 'full' : ($units < $cap ? 'underload' : 'overload');
-            $totals[$bucket]++;
-            $diff = $cap === null ? 0 : $units - $cap;
-            foreach (self::LOAD_GAP_BUCKETS as [$label, $max]) {
-                if ($diff <= $max) {
-                    $gapHistogram[$label]++;
-                    break;
-                }
-            }
-            if (isset($byYear[$record['year']])) {
-                $byYear[$record['year']][$bucket]++;
-                $byYear[$record['year']]['units_sum'] += $units;
-                $byYear[$record['year']]['planned']++;
-            }
-            if ($bucket === 'underload' && count($underloaded) < self::LIST_LIMIT) {
-                $underloaded[] = $record['student'] + [
-                    'status' => $record['status'],
-                    'units' => $units,
-                    'cap' => $cap,
-                ];
-            }
-
-            $deferredKeys = (array) ($load['deferred_keys'] ?? $record['deferred']);
-            foreach ($deferredKeys as $key) {
-                $row = $rowsByKey[(string) $key] ?? null;
-                if ($row === null || $row['passed'] || $row['year'] !== $record['year'] || $row['sem'] !== $record['sem']) {
-                    continue;
-                }
-                $code = $row['code'];
-                $dropped[$code] ??= [
-                    'code' => $code,
-                    'name' => $row['subject']['name'] ?? ($row['pending'] ? 'Elective slot' : ''),
-                    'count' => 0,
-                ];
-                $dropped[$code]['count']++;
-            }
-        }
-
-        $series = array_map(static function ($y) {
-            $y['avg_units'] = $y['planned'] > 0 ? round($y['units_sum'] / $y['planned'], 1) : null;
-            unset($y['units_sum']);
-
-            return $y;
-        }, array_values($byYear));
-
-        $droppedList = array_values($dropped);
-        usort($droppedList, static fn ($a, $b) => $b['count'] <=> $a['count']);
-        usort($underloaded, static fn ($a, $b) => ($a['units'] - $a['cap']) <=> ($b['units'] - $b['cap']));
-
-        $planned = $totals['underload'] + $totals['full'] + $totals['overload'];
-        $insight = $planned === 0
-            ? 'No load plans saved for the current term yet. Plans are saved from Subject placement on each student’s evaluation.'
-            : sprintf(
-                '%d of %d saved load plans are underloaded.',
-                $totals['underload'],
-                $planned
-            );
-        if ($planned > 0 && $droppedList !== []) {
-            $insight .= sprintf(
-                ' Most often not taken this term: %s – %s (%d students).',
-                $droppedList[0]['code'],
-                $droppedList[0]['name'],
-                $droppedList[0]['count']
-            );
-        }
-
-        return [
-            'by_year' => $series,
-            'totals' => $totals + ['planned' => $planned],
-            'gap_histogram' => array_map(
-                static fn ($label, $count) => ['label' => $label, 'count' => $count],
-                array_keys($gapHistogram),
-                array_values($gapHistogram)
-            ),
-            'most_dropped' => array_slice($droppedList, 0, 15),
-            'underloaded' => $underloaded,
-            'insight' => $insight,
-        ];
-    }
-
-    // ---------------------------------------------------------------------
-    // Helpers
-    // ---------------------------------------------------------------------
 
     /** @return list<array{year_level_id: int, label: string}> */
-    private function yearBuckets(array $records, array $yearLabels): array
+    private function yearBuckets(array $population, array $yearLabels, int $yearFilter): array
     {
-        $ids = [1, 2, 3, 4];
-        foreach ($records as $record) {
-            if ($record['year'] > 4) {
-                $ids[] = $record['year'];
-            }
-        }
-        $ids = array_values(array_unique($ids));
-        sort($ids);
+        $ids = $yearFilter ? [$yearFilter] : $this->sortedYearIds(array_keys($population));
 
         return array_map(static fn ($id) => [
             'year_level_id' => $id,
@@ -1103,19 +630,170 @@ class DeanProgramAnalytics
         ], $ids);
     }
 
-    /** Program order: summer (semester 3) sorts before 1st semester, same as the evaluation builder. */
-    private function termOrder(int $year, int $sem): int
+    private function trendRow(array $counts, array $years): array
     {
-        return $year * 10 + ($sem === 3 ? 0 : $sem);
+        $row = ['total' => 0];
+        foreach ($years as $y) {
+            $n = $counts[$y['year_level_id']] ?? 0;
+            $row['y'.$y['year_level_id']] = $n;
+            $row['total'] += $n;
+        }
+
+        return $row;
     }
 
-    private function normCode(mixed $code): string
+    private function subjectRows(array $stats): array
     {
-        return strtoupper(trim((string) ($code ?? '')));
+        if ($stats === []) {
+            return [];
+        }
+        $meta = [];
+        foreach ($this->templates as $template) {
+            $meta += $template['subjects'];
+        }
+        $missing = array_diff(array_keys($stats), array_keys($meta));
+        if ($missing !== []) {
+            foreach (Subject::query()->whereIn('subject_id', $missing)->get(['subject_id', 'subject_code', 'subject_name']) as $s) {
+                $meta[(int) $s->subject_id] = $this->subjectMeta($s, 0);
+            }
+        }
+
+        $rows = [];
+        foreach ($stats as $id => $s) {
+            $m = $meta[$id] ?? ['code' => "#{$id}", 'name' => '', 'year' => 0];
+            $rows[] = [
+                'subject_id' => $id,
+                'code' => $m['code'],
+                'name' => $m['name'],
+                'year' => $m['year'],
+                'enrolled' => $s['enrolled'],
+                'passed' => $s['passed'],
+                'failed' => $s['failed'],
+                'inc' => $s['inc'],
+                'dropped' => $s['dropped'],
+                'pass_rate' => round($s['passed'] / $s['enrolled'] * 100, 1),
+                'avg_grade' => $s['grade_n'] > 0 ? round($s['grade_sum'] / $s['grade_n'], 2) : null,
+                'students' => $s['students'],
+            ];
+        }
+        usort($rows, static fn ($a, $b) => [$a['pass_rate'], -$a['enrolled']] <=> [$b['pass_rate'], -$b['enrolled']]);
+
+        return $rows;
     }
 
-    private function pct(int $part, int $whole): string
+    private function kpis(array $r, int $ayId, array $trendIds): array
     {
-        return $whole > 0 ? (string) round($part / $whole * 100, 1) : '0';
+        $sum = static fn (array $rows, string $key) => array_sum(array_column($rows, $key));
+        $students = $sum($r['population_by_year'], 'count');
+        $manual = $sum($r['evaluation_by_year'], 'evaluated_manual');
+        $auto = $sum($r['evaluation_by_year'], 'evaluated_auto');
+        $irregular = $sum($r['status_by_year'], 'irregular');
+        $enrolled = $sum($r['subject_performance'], 'enrolled');
+        $passed = $sum($r['subject_performance'], 'passed');
+
+        $prev = null;
+        $idx = array_search($ayId, $trendIds, true);
+        if ($idx !== false && $idx > 0) {
+            $row = $r['trend'][$idx - 1];
+            $prev = ['label' => $row['label'], 'students' => $row['total']];
+        }
+
+        return [
+            'students' => $students,
+            'evaluated' => $manual + $auto,
+            'evaluated_manual' => $manual,
+            'evaluated_auto' => $auto,
+            'unevaluated' => $sum($r['evaluation_by_year'], 'unevaluated'),
+            'evaluated_pct' => $this->pct($manual + $auto, $students),
+            'regular' => $sum($r['status_by_year'], 'regular'),
+            'irregular' => $irregular,
+            'irregular_pct' => $this->pct($irregular, $students),
+            'failed_subject' => $sum($r['status_by_year'], 'failed_subject'),
+            'sequence_gap' => $sum($r['status_by_year'], 'sequence_gap'),
+            'graded_results' => $enrolled,
+            'pass_rate' => $enrolled > 0 ? $this->pct($passed, $enrolled) : null,
+            'subjects_graded' => count($r['subject_performance']),
+            'previous_year' => $prev,
+        ];
+    }
+
+    private function insights(array $r): array
+    {
+        $k = $r['kpis'];
+        $out = [];
+
+        $pop = $r['population_by_year'];
+        $largest = $pop === [] ? null : array_reduce($pop, static fn ($c, $y) => $c === null || $y['count'] > $c['count'] ? $y : $c);
+        $out['population'] = $k['students'] === 0
+            ? 'No students recorded for this term yet.'
+            : sprintf('%d students this term. %s is the largest group (%d, %s%%).',
+                $k['students'], $largest['label'], $largest['count'], $this->pct($largest['count'], $k['students']));
+        if ($k['previous_year'] && $k['previous_year']['students'] > 0) {
+            $diff = $k['students'] - $k['previous_year']['students'];
+            $out['population'] .= sprintf(' %s %d vs %s.', $diff >= 0 ? 'Up' : 'Down', abs($diff), $k['previous_year']['label']);
+        }
+
+        $worstEval = null;
+        foreach ($r['evaluation_by_year'] as $y) {
+            $total = $y['evaluated_manual'] + $y['evaluated_auto'] + $y['unevaluated'];
+            if ($total > 0 && ($worstEval === null || $y['unevaluated'] / $total > $worstEval['ratio'])) {
+                $worstEval = ['label' => $y['label'], 'n' => $y['unevaluated'], 'ratio' => $y['unevaluated'] / $total];
+            }
+        }
+        $out['evaluation'] = $k['students'] === 0
+            ? 'No students to evaluate for this term.'
+            : ($k['unevaluated'] === 0
+                ? 'Every student in this term has been evaluated.'
+                : sprintf('%s%% evaluated. %s needs the most attention: %d students (%s%%) still unevaluated.',
+                    $k['evaluated_pct'], $worstEval['label'], $worstEval['n'], round($worstEval['ratio'] * 100, 1)));
+
+        $worstStatus = null;
+        foreach ($r['status_by_year'] as $y) {
+            $total = $y['regular'] + $y['irregular'];
+            if ($total > 0 && ($worstStatus === null || $y['irregular'] / $total > $worstStatus['ratio'])) {
+                $worstStatus = ['label' => $y['label'], 'n' => $y['irregular'], 'ratio' => $y['irregular'] / $total];
+            }
+        }
+        $out['status'] = $k['irregular'] === 0
+            ? 'All students in this term are regular.'
+            : sprintf('%d irregular students (%s%%). %s has the highest share (%d, %s%%) and may need academic guidance. Main cause: %s.',
+                $k['irregular'], $k['irregular_pct'], $worstStatus['label'], $worstStatus['n'], round($worstStatus['ratio'] * 100, 1),
+                $k['failed_subject'] >= $k['sequence_gap'] ? 'failed subjects' : 'subjects taken out of curriculum order');
+
+        $low = array_values(array_filter($r['subject_performance'], static fn ($s) => $s['enrolled'] >= 10));
+        $out['subjects'] = $low === []
+            ? ($r['subject_performance'] === [] ? 'No final grades recorded for this term yet.' : 'No subject has 10 or more graded students in this term.')
+            : ($low[0]['pass_rate'] < 75
+                ? sprintf('%s – %s has the highest failure rate (%d of %d did not pass, %s%% pass rate) and may require academic intervention.',
+                    $low[0]['code'], $low[0]['name'], $low[0]['enrolled'] - $low[0]['passed'], $low[0]['enrolled'], $low[0]['pass_rate'])
+                : sprintf('Every subject with 10+ students passes at least 75%%. Lowest: %s at %s%%.', $low[0]['code'], $low[0]['pass_rate']));
+
+        $dist = array_column($r['grade_distribution'], 'count', 'label');
+        $graded = array_sum($dist);
+        arsort($dist);
+        $out['grades'] = $graded === 0
+            ? 'No grades recorded for this term yet.'
+            : sprintf('Most common grade: %s (%d of %d results). %s%% of results are failing, INC or dropped.',
+                array_key_first($dist), reset($dist), $graded,
+                $this->pct(($dist['5.00'] ?? 0) + ($dist['INC'] ?? 0) + ($dist['DRP'] ?? 0), $graded));
+
+        $trend = array_values(array_filter($r['trend'], static fn ($t) => $t['total'] > 0));
+        $out['trend'] = count($trend) < 2
+            ? 'Not enough school years with records to show a trend yet.'
+            : sprintf('From %s to %s, the program went from %d to %d students.',
+                $trend[0]['label'], end($trend)['label'], $trend[0]['total'], end($trend)['total']);
+
+        return $out;
+    }
+
+    /** Chronological order: school year, then 1st sem, 2nd sem, summer. */
+    private function termKey(array $ayStart, int $ayId, int $semId): int
+    {
+        return ($ayStart[$ayId] ?? 0) * 10 + max(0, min(9, $semId));
+    }
+
+    private function pct(int $part, int $whole): float
+    {
+        return $whole > 0 ? round($part / $whole * 100, 1) : 0.0;
     }
 }

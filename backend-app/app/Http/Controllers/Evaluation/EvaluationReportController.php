@@ -715,17 +715,31 @@ class EvaluationReportController extends Controller
             ] : null,
         ];
         if (! $program) {
-            return response()->json($meta + ['student_count' => 0]);
+            return response()->json($meta);
         }
 
-        $cacheKey = 'dean_program_analytics:v2:'.$program->program_id;
+        $ayId = (int) $request->query('academic_year_id', 0);
+        $semId = $request->filled('semester_id') ? (int) $request->query('semester_id') : null;
+        $yearId = (int) $request->query('year_level_id', 0);
+
+        $cacheKey = sprintf(
+            'dean_program_analytics:v3:%d:%d:%s:%d',
+            $program->program_id,
+            $ayId,
+            $semId === null ? 'current' : (string) $semId,
+            $yearId
+        );
         if ($request->boolean('refresh')) {
             Cache::forget($cacheKey);
         }
 
         @set_time_limit(120);
         try {
-            $data = Cache::remember($cacheKey, now()->addMinutes(10), fn () => $analytics->build($program));
+            $data = Cache::remember(
+                $cacheKey,
+                now()->addMinutes(5),
+                fn () => $analytics->build($program, $ayId, $semId, $yearId)
+            );
         } catch (\Throwable $e) {
             report($e);
 

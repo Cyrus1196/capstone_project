@@ -174,7 +174,7 @@ class RegularStudentAutoPromotion
                     $newY,
                     $newS
                 ),
-            ]);
+            ] + AcademicRecordEvaluationComplete::currentTermAttributes());
         }
 
         return 'promoted';

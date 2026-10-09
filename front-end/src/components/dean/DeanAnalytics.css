@@ -1051,45 +1051,6 @@ button.dean-vbar__fill:focus-visible {
   opacity: 0.7;
 }
 
-.dean-viz-tabs {
-  display: flex;
-  gap: 0.4rem;
-  padding: 0.35rem;
-  margin-bottom: 1.1rem;
-  border-radius: 16px;
-  background: #f1f5f9;
-  overflow-x: auto;
-}
-
-.dean-viz-tab {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.45rem;
-  flex: 1 0 auto;
-  justify-content: center;
-  padding: 0.6rem 0.9rem;
-  border: none;
-  border-radius: 12px;
-  background: transparent;
-  color: #475569;
-  font-weight: 700;
-  font-size: 0.84rem;
-  cursor: pointer;
-  white-space: nowrap;
-  transition: background 0.18s, color 0.18s, box-shadow 0.18s;
-}
-
-.dean-viz-tab:hover {
-  color: #14532d;
-  background: rgba(255, 255, 255, 0.6);
-}
-
-.dean-viz-tab--active {
-  background: #fff;
-  color: #14532d;
-  box-shadow: 0 4px 14px rgba(15, 23, 42, 0.1);
-}
-
 .dean-analytics--viz .dean-analytics__body {
   animation: dean-fade-up 0.35s ease;
 }
@@ -1301,16 +1262,34 @@ button.dean-vbar__fill:focus-visible {
   font-size: 0.88rem;
 }
 
-.dean-viz-donut__value {
-  font-size: 1.7rem;
-  font-weight: 900;
-  fill: #0f172a;
+.dean-pie {
+  position: relative;
+  width: 100%;
 }
 
-.dean-viz-donut__label {
-  font-size: 0.75rem;
+.dean-pie__center {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+}
+
+.dean-pie__center strong {
+  font-size: 1.8rem;
+  font-weight: 900;
+  color: #0f172a;
+  line-height: 1.1;
+}
+
+.dean-pie__center span {
+  font-size: 0.76rem;
   font-weight: 600;
-  fill: #64748b;
+  color: #64748b;
 }
 
 .dean-viz-label {
@@ -1342,17 +1321,6 @@ button.dean-vbar__fill:focus-visible {
   color: #0f172a;
 }
 
-.dean-viz-sankey__label {
-  font-size: 12px;
-  font-weight: 700;
-  fill: #0f172a;
-}
-
-.dean-viz-sankey__n {
-  font-weight: 800;
-  fill: #64748b;
-}
-
 .dean-viz-loading {
   display: flex;
   align-items: center;
@@ -1363,60 +1331,6 @@ button.dean-vbar__fill:focus-visible {
   background: #f8fafc;
   color: #475569;
   font-weight: 600;
-}
-
-.dean-heatmap {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  overflow-x: auto;
-}
-
-.dean-heatmap__row {
-  display: grid;
-  grid-template-columns: 5.5rem repeat(10, minmax(2rem, 1fr));
-  gap: 4px;
-  align-items: center;
-}
-
-.dean-heatmap__row--head span {
-  font-size: 0.68rem;
-  font-weight: 700;
-  color: #64748b;
-  text-align: center;
-}
-
-.dean-heatmap__label {
-  font-size: 0.8rem;
-  font-weight: 700;
-  color: #334155;
-}
-
-.dean-heatmap__cell {
-  display: grid;
-  place-items: center;
-  height: 2.6rem;
-  border-radius: 8px;
-  background: #f1f5f9;
-  font-size: 0.8rem;
-  font-weight: 800;
-  outline: 1px solid #eef2f7;
-  transition: transform 0.15s;
-}
-
-.dean-heatmap__cell:hover {
-  transform: scale(1.08);
-}
-
-.dean-heatmap__cell--expected {
-  outline: 2px solid #0f172a;
-  outline-offset: 1px;
-}
-
-.dean-heatmap__legend {
-  margin: 0.5rem 0 0;
-  font-size: 0.74rem;
-  color: #64748b;
 }
 
 .dean-report {
@@ -1455,4 +1369,179 @@ button.dean-vbar__fill:focus-visible {
 .dean-report__body {
   padding: 0 1.1rem 1rem;
   overflow-x: auto;
+}
+
+/* Single-page analytics module */
+.dean-hero__badge {
+  display: inline-block;
+  margin-left: 0.5rem;
+  padding: 0.1rem 0.55rem;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.22);
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.dean-hero__controls--labeled {
+  align-items: flex-end;
+}
+
+.dean-hero__controls--labeled label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.dean-hero__controls--labeled label span {
+  font-size: 0.68rem;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  opacity: 0.85;
+}
+
+.dean-hero__controls--labeled button {
+  height: 2.45rem;
+}
+
+.dean-kpi__bar {
+  margin-top: 0.4rem;
+  height: 6px;
+  width: 9rem;
+  max-width: 100%;
+  border-radius: 999px;
+  background: #e2e8f0;
+  overflow: hidden;
+}
+
+.dean-kpi__bar span {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: var(--kpi);
+  transition: width 0.6s ease;
+}
+
+.dean-viz-grid--split {
+  grid-template-columns: minmax(0, 2fr) minmax(0, 1fr);
+}
+
+@media (max-width: 1000px) {
+  .dean-viz-grid--split {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.dean-viz-card__head--icon {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+}
+
+.dean-viz-card__icon {
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  width: 2.4rem;
+  height: 2.4rem;
+  border-radius: 12px;
+  background: #ecfdf5;
+  color: #15803d;
+  font-size: 1rem;
+}
+
+.dean-viz-card__head h3 {
+  font-size: 1.05rem;
+}
+
+.dean-stat-chips {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 0.6rem;
+  margin-top: 0.9rem;
+}
+
+.dean-stat-chip {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  padding: 0.65rem 0.85rem;
+  border-radius: 14px;
+  border: 1px solid transparent;
+}
+
+.dean-stat-chip__label {
+  font-size: 0.72rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.dean-stat-chip__value {
+  font-size: 1.5rem;
+  font-weight: 900;
+  line-height: 1.1;
+}
+
+.dean-stat-chip__sub {
+  font-size: 0.74rem;
+  opacity: 0.85;
+}
+
+.dean-stat-chip--green {
+  background: #ecfdf5;
+  border-color: #bbf7d0;
+  color: #166534;
+}
+
+.dean-stat-chip--red {
+  background: #fef2f2;
+  border-color: #fecaca;
+  color: #b91c1c;
+}
+
+.dean-stat-chip--blue {
+  background: #eff6ff;
+  border-color: #bfdbfe;
+  color: #1e40af;
+}
+
+.dean-stat-chip--amber {
+  background: #fffbeb;
+  border-color: #fde68a;
+  color: #92400e;
+}
+
+.dean-insight--inline {
+  margin: 0.75rem 0 0;
+  padding: 0.7rem 0.9rem;
+  border-radius: 12px;
+}
+
+.dean-insight--inline p {
+  font-size: 0.85rem;
+}
+
+.dean-inline-filter {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.45rem;
+  margin-bottom: 0.25rem;
+  font-size: 0.8rem;
+  color: #475569;
+}
+
+.dean-inline-filter input {
+  width: 4.5rem;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  padding: 0.25rem 0.45rem;
+  font-weight: 700;
+}
+
+.dean-viz-card .dean-report {
+  margin-top: 0.75rem;
 }
