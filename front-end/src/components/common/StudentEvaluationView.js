@@ -9059,12 +9059,12 @@ const StudentEvaluationView = ({
                                                   }}
                                                   aria-label={
                                                     taking
-                                                      ? `Take ${code}`
-                                                      : `Drop ${code}`
+                                                      ? `Drop ${code}`
+                                                      : `Take ${code}`
                                                   }
                                                 />
                                                 <span>
-                                                  {taking ? 'Take' : 'Drop'}
+                                                  {taking ? 'Drop' : 'Take'}
                                                   {priorTakeFlag}
                                                 </span>
                                               </label>
