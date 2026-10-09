@@ -777,12 +777,6 @@ class DeanProgramAnalytics
                 array_key_first($dist), reset($dist), $graded,
                 $this->pct(($dist['5.00'] ?? 0) + ($dist['INC'] ?? 0) + ($dist['DRP'] ?? 0), $graded));
 
-        $trend = array_values(array_filter($r['trend'], static fn ($t) => $t['total'] > 0));
-        $out['trend'] = count($trend) < 2
-            ? 'Not enough school years with records to show a trend yet.'
-            : sprintf('From %s to %s, the program went from %d to %d students.',
-                $trend[0]['label'], end($trend)['label'], $trend[0]['total'], end($trend)['total']);
-
         return $out;
     }
 

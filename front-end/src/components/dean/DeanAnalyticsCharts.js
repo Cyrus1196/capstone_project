@@ -4,11 +4,9 @@ import {
   BarChart,
   CartesianGrid,
   Cell,
-  ComposedChart,
   Label,
   LabelList,
   Legend,
-  Line,
   Pie,
   PieChart,
   ReferenceLine,
@@ -228,48 +226,6 @@ export function GradeDistributionChart({ data, height = 300 }) {
           <LabelList dataKey="count" position="top" className="dean-viz-label dean-viz-label--sm" />
         </Bar>
       </BarChart>
-    </ResponsiveContainer>
-  );
-}
-
-/** Students per school year, stacked by year level, with the total as a line. */
-export function EnrollmentTrendChart({ data, years, selectedId, height = 320 }) {
-  if (!data.length || data.every((d) => !d.total)) return <EmptyChart text="No school-year records yet." />;
-  return (
-    <ResponsiveContainer width="100%" height={height}>
-      <ComposedChart data={data} margin={{ top: 24, right: 16, left: 0, bottom: 8 }} barCategoryGap="30%">
-        <CartesianGrid vertical={false} stroke={COLORS.grid} />
-        <XAxis
-          dataKey="label"
-          tick={(props) => {
-            const { x, y, payload } = props;
-            const row = data[payload.index];
-            const active = row && String(row.academic_year_id) === String(selectedId);
-            return (
-              <text x={x} y={y + 14} textAnchor="middle" fontSize={12} fontWeight={active ? 800 : 500} fill={active ? '#14532d' : '#64748b'}>
-                {payload.value}
-              </text>
-            );
-          }}
-        />
-        <YAxis tick={AXIS_TICK} allowDecimals={false} />
-        <Tooltip contentStyle={TOOLTIP_STYLE} cursor={CURSOR} />
-        <Legend itemSorter={null} iconType="circle" wrapperStyle={{ fontSize: 12 }} />
-        {years.map((y, i) => (
-          <Bar
-            key={y.year_level_id}
-            dataKey={`y${y.year_level_id}`}
-            name={y.label}
-            stackId="t"
-            fill={yearColor(y.year_level_id)}
-            radius={i === years.length - 1 ? [8, 8, 0, 0] : [0, 0, 0, 0]}
-            animationDuration={900}
-          />
-        ))}
-        <Line type="monotone" dataKey="total" name="Total" stroke={COLORS.ink} strokeWidth={2.5} dot={{ r: 4 }}>
-          <LabelList dataKey="total" position="top" className="dean-viz-label" />
-        </Line>
-      </ComposedChart>
     </ResponsiveContainer>
   );
 }

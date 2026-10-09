@@ -3,7 +3,6 @@ import api from '../../api/axios';
 import {
   COLORS,
   DonutChart,
-  EnrollmentTrendChart,
   GradeDistributionChart,
   GroupedYearChart,
   PassRateBarChart,
@@ -554,16 +553,6 @@ const DeanAnalytics = ({ showEvalModules, lockedProgramId = null }) => {
                   </div>
                 </details>
               ) : null}
-            </Section>
-
-            <Section
-              icon="fa-chart-line"
-              title="Enrollment Trend by School Year"
-              subtitle="Students per school year, stacked by year level (selected year in bold)"
-              insight={ins.trend}
-              wide
-            >
-              <EnrollmentTrendChart data={data.trend || []} years={yearLevels.filter((y) => !selected.year_level_id || y.year_level_id === selected.year_level_id)} selectedId={selected.academic_year_id} />
             </Section>
 
             <Section
