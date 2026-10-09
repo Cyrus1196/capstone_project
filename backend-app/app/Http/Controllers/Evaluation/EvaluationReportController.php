@@ -19,7 +19,6 @@ use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 
 class EvaluationReportController extends Controller
@@ -722,24 +721,10 @@ class EvaluationReportController extends Controller
         $semId = $request->filled('semester_id') ? (int) $request->query('semester_id') : null;
         $yearId = (int) $request->query('year_level_id', 0);
 
-        $cacheKey = sprintf(
-            'dean_program_analytics:v3:%d:%d:%s:%d',
-            $program->program_id,
-            $ayId,
-            $semId === null ? 'current' : (string) $semId,
-            $yearId
-        );
-        if ($request->boolean('refresh')) {
-            Cache::forget($cacheKey);
-        }
-
+        // Not cached: counts must match the Student evaluation list right after each evaluation.
         @set_time_limit(120);
         try {
-            $data = Cache::remember(
-                $cacheKey,
-                now()->addMinutes(5),
-                fn () => $analytics->build($program, $ayId, $semId, $yearId)
-            );
+            $data = $analytics->build($program, $ayId, $semId, $yearId);
         } catch (\Throwable $e) {
             report($e);
 

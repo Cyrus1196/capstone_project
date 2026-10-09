@@ -14,6 +14,7 @@ use App\Models\YearLevel;
 use App\Services\GradeScaleHelper;
 use App\Services\StudentCurriculumEvaluationBuilder;
 use App\Support\CachedSchema;
+use App\Support\EvaluationStanding;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -23,12 +24,7 @@ class StudentEvaluationController extends Controller
 {
     private function effectiveEvaluationYearLevelId(StudentProfile $profile): ?int
     {
-        $target = $profile->promotion_target_year_level_id ?? null;
-        if ($target !== null && $target !== '') {
-            return (int) $target;
-        }
-
-        return $profile->year_level_id !== null ? (int) $profile->year_level_id : null;
+        return EvaluationStanding::effectiveYearLevelId($profile);
     }
 
     /**
@@ -294,8 +290,8 @@ class StudentEvaluationController extends Controller
 
             $studentIds = $students->pluck('student_id')->all();
             $lastCompletedByStudent = [];
-            /** @var array<int, true> student_ids with a staff Complete / manual promote (not auto-promote leftovers) */
-            $manualEvaluatedStudentIds = [];
+            /** @var array<int, list<string|null>> */
+            $completionNotesByStudent = [];
             if ($studentIds !== []) {
                 $completionRows = AcademicRecordEvaluationComplete::query()
                     ->select('student_id', 'completed_at', 'notes')
@@ -308,20 +304,7 @@ class StudentEvaluationController extends Controller
                     if (! array_key_exists($sid, $lastCompletedByStudent)) {
                         $lastCompletedByStudent[$sid] = $row->completed_at;
                     }
-                    $notes = (string) ($row->notes ?? '');
-                    $notesTrim = trim($notes);
-                    // Irregular queue: only real irregular manual promote / Complete.
-                    // Ignore auto-promote and Regular-era "Semester promotion" leftovers.
-                    if (str_contains($notes, 'Irregular manual promotion')) {
-                        $manualEvaluatedStudentIds[$sid] = true;
-                    } elseif ($notesTrim === '') {
-                        $manualEvaluatedStudentIds[$sid] = true;
-                    } elseif (
-                        ! str_contains($notes, 'Auto-promoted on semester activation')
-                        && ! str_contains($notes, 'Semester promotion')
-                    ) {
-                        $manualEvaluatedStudentIds[$sid] = true;
-                    }
+                    $completionNotesByStudent[$sid][] = $row->notes;
                 }
             }
 
@@ -343,7 +326,7 @@ class StudentEvaluationController extends Controller
 
             $students = $students->map(function ($student) use (
                 $lastCompletedByStudent,
-                $manualEvaluatedStudentIds,
+                $completionNotesByStudent,
                 $extraYearNames
             ) {
                 $fullName = trim(
@@ -354,15 +337,11 @@ class StudentEvaluationController extends Controller
 
                 $sid = (int) $student->student_id;
                 $lastAt = $lastCompletedByStudent[$sid] ?? null;
-                $status = strtolower(trim((string) ($student->academic_status ?? '')));
-                $isIrregular = $status === 'irregular';
-                // Unevaluated = not yet staff-evaluated for this standing.
-                // Regulars: auto-promote OR any completion log.
-                // Irregulars: only Irregular manual promote / Complete (see above).
-                $autoPromotedRegular = ! $isIrregular && ! empty($student->promoted_next_sem_at);
-                $isEvaluated = $isIrregular
-                    ? isset($manualEvaluatedStudentIds[$sid])
-                    : ($lastAt !== null || $autoPromotedRegular);
+                $isEvaluated = EvaluationStanding::evaluatedState(
+                    EvaluationStanding::isIrregular($student),
+                    $completionNotesByStudent[$sid] ?? [],
+                    $student->promoted_next_sem_at
+                ) !== null;
                 $effectiveYearLevelId = $this->effectiveEvaluationYearLevelId($student);
                 $effectiveYearLevelName = $student->yearLevel?->year_level;
                 if (

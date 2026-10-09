@@ -584,9 +584,9 @@ const DeanAnalytics = ({ showEvalModules, lockedProgramId = null }) => {
             </Section>
           </div>
           <p className="dean-analytics__note">
-            A past term counts students who have grades recorded in it; the current term also counts every current
-            student by standing. Evaluated = marked evaluated (or auto-promoted) during that term. Regular / Irregular is
-            computed from the records up to the end of the selected term.
+            Current term: the same students, year levels, Regular / Irregular standing and Evaluated status shown in
+            Evaluation → Student (practice students are not counted). Past terms: students with grades recorded in that
+            term, with standing rebuilt from their records up to the end of that term.
           </p>
         </div>
       )}

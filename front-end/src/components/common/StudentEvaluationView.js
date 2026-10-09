@@ -1361,7 +1361,7 @@ const StudentEvaluationView = ({
   }, [evaluationDraftStorageKey]);
 
   const [listYearLevelFilter, setListYearLevelFilter] = useState('');
-  /** '' | unevaluated | irregular | unevaluated_irregular */
+  /** '' | regular | irregular | unevaluated | unevaluated_irregular */
   const [listStandingFilter, setListStandingFilter] = useState('');
   const [evalFilterCurriculumId, setEvalFilterCurriculumId] = useState('');
   const [evalFilterYearId, setEvalFilterYearId] = useState('');
@@ -2342,17 +2342,13 @@ const StudentEvaluationView = ({
 
     if (listStandingFilter) {
       list = list.filter((s) => {
-        // Practice dummies are for Guide/testing only — keep them out of Unevaluated queues.
-        if (
-          (listStandingFilter === 'unevaluated' ||
-            listStandingFilter === 'unevaluated_irregular') &&
-          s.is_simulation
-        ) {
-          return false;
-        }
+        // Practice dummies are for Guide/testing only — they are not counted in any standing
+        // (same as Dean Analytics).
+        if (s.is_simulation) return false;
         const isIrregular = /^irregular$/i.test(String(s.academic_status || '').trim());
         const isUnevaluated = !s.academic_record_evaluated;
         if (listStandingFilter === 'unevaluated') return isUnevaluated;
+        if (listStandingFilter === 'regular') return !isIrregular;
         if (listStandingFilter === 'irregular') return isIrregular;
         if (listStandingFilter === 'unevaluated_irregular') return isUnevaluated && isIrregular;
         return true;
@@ -8595,9 +8591,10 @@ const StudentEvaluationView = ({
                 value={listStandingFilter}
                 onChange={(e) => setListStandingFilter(e.target.value)}
                 aria-label="Filter by evaluation standing"
-                title="Unevaluated = not yet staff-evaluated (missed auto-promote or still needs review). Unevaluated irregular = Irregular students who still need manual Promote/Complete. Practice students are excluded."
+                title="Unevaluated = not yet staff-evaluated (missed auto-promote or still needs review). Unevaluated irregular = Irregular students who still need manual Promote/Complete. Practice students are excluded from every standing filter."
               >
                 <option value="">All students</option>
+                <option value="regular">Regular</option>
                 <option value="irregular">Irregular</option>
                 <option value="unevaluated">Unevaluated</option>
                 <option value="unevaluated_irregular">Unevaluated irregular</option>

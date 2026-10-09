@@ -13,6 +13,7 @@ use App\Models\Subject;
 use App\Models\YearLevel;
 use App\Support\CachedSchema;
 use App\Support\EvaluationAttemptPicker;
+use App\Support\EvaluationStanding;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 
@@ -90,7 +91,7 @@ class DeanProgramAnalytics
             $header = $this->builder->resolveCurriculumHeaderForStudent($profile);
             $template = $this->curriculumTemplate($programId, $header?->curriculum_header_id);
             $attempts = $attemptsByStudent[$sid] ?? [];
-            $profileYear = (int) ($profile->year_level_id ?? 0);
+            $profileYear = (int) (EvaluationStanding::effectiveYearLevelId($profile) ?? 0);
 
             foreach ($trendIds as $tAy) {
                 $rows = array_filter($attempts, static fn ($a) => (int) $a->academic_year_id === $tAy);
@@ -121,19 +122,32 @@ class DeanProgramAnalytics
 
             $population[$year] = ($population[$year] ?? 0) + 1;
 
-            $evaluated = null;
-            foreach ($completionsByStudent[$sid] ?? [] as $c) {
-                if ($c['ay'] === $ayId && ($semId === 0 || $c['sem'] === $semId)) {
-                    $evaluated = $evaluated === 'manual' || ! $c['auto'] ? 'manual' : 'auto';
-                }
-            }
-            $evaluation[$year][$evaluated ?? 'unevaluated'] = ($evaluation[$year][$evaluated ?? 'unevaluated'] ?? 0) + 1;
-
             $asOf = array_filter(
                 $attempts,
                 fn ($a) => $a->academic_year_id === null || $this->termKey($ayStart, (int) $a->academic_year_id, (int) $a->semester_id) <= $upperKey
             );
             $classified = $this->classify($template, $asOf, $creditsByStudent[$sid] ?? [], $ayStart);
+            $completions = $completionsByStudent[$sid] ?? [];
+
+            // Current term: the saved standing the Student evaluation list filters on.
+            // Past terms: rebuilt from the grades and completions recorded in that term.
+            if ($isCurrentTerm) {
+                $classified['status'] = EvaluationStanding::isIrregular($profile) ? 'Irregular' : 'Regular';
+                $evaluated = EvaluationStanding::evaluatedState(
+                    $classified['status'] === 'Irregular',
+                    array_column($completions, 'notes'),
+                    $profile->promoted_next_sem_at
+                );
+            } else {
+                $evaluated = null;
+                foreach ($completions as $c) {
+                    if ($c['ay'] === $ayId && ($semId === 0 || $c['sem'] === $semId)) {
+                        $evaluated = $evaluated === 'manual' || ! $c['auto'] ? 'manual' : 'auto';
+                    }
+                }
+            }
+            $evaluation[$year][$evaluated ?? 'unevaluated'] = ($evaluation[$year][$evaluated ?? 'unevaluated'] ?? 0) + 1;
+
             if ($classified['status'] === 'Irregular') {
                 $reason = $classified['failed'] ? 'failed_subject' : 'sequence_gap';
                 $status[$year]['irregular'] = ($status[$year]['irregular'] ?? 0) + 1;
@@ -340,7 +354,8 @@ class DeanProgramAnalytics
                 $out[(int) $c->student_id][] = [
                     'ay' => (int) ($hasTerm && $c->academic_year_id ? $c->academic_year_id : $activeAyId),
                     'sem' => (int) ($hasTerm && $c->semester_id ? $c->semester_id : $activeSemId),
-                    'auto' => stripos((string) $c->notes, 'Auto-promoted on semester activation') !== false,
+                    'auto' => ! EvaluationStanding::isManualCompletionNote($c->notes),
+                    'notes' => $c->notes,
                 ];
             }
         }
