@@ -42,14 +42,11 @@ function pct(part, whole) {
 }
 
 /**
- * @param {{ showEvalModules: boolean, lockedProgramId?: string|number|null }} props
+ * The program is always the signed-in user's assigned program (resolved by the API).
+ * @param {{ showEvalModules: boolean }} props
  */
-const DeanAnalytics = ({ showEvalModules, lockedProgramId = null }) => {
-  const programLocked = lockedProgramId != null && String(lockedProgramId).trim() !== '';
-  const lockedProgramIdStr = programLocked ? String(lockedProgramId) : '';
-
+const DeanAnalytics = ({ showEvalModules }) => {
   const [filters, setFilters] = useState(() => ({
-    programId: programLocked ? lockedProgramIdStr : '',
     ayId: '',
     semId: '',
     yearId: '',
@@ -61,10 +58,6 @@ const DeanAnalytics = ({ showEvalModules, lockedProgramId = null }) => {
   const [data, setData] = useState(null);
 
   useEffect(() => {
-    if (programLocked) setFilters((f) => ({ ...f, programId: lockedProgramIdStr }));
-  }, [programLocked, lockedProgramIdStr]);
-
-  useEffect(() => {
     if (!showEvalModules) return undefined;
     const controller = new AbortController();
     let cancelled = false;
@@ -73,7 +66,6 @@ const DeanAnalytics = ({ showEvalModules, lockedProgramId = null }) => {
       setError('');
       try {
         const params = {};
-        if (filters.programId) params.program_id = filters.programId;
         if (filters.ayId) params.academic_year_id = filters.ayId;
         if (filters.semId !== '') params.semester_id = filters.semId;
         if (filters.yearId) params.year_level_id = filters.yearId;
@@ -126,7 +118,6 @@ const DeanAnalytics = ({ showEvalModules, lockedProgramId = null }) => {
   const setFilter = (key, value) => setFilters((prev) => ({ ...prev, [key]: value }));
   const k = data?.kpis || {};
   const ins = data?.insights || {};
-  const programs = data?.programs || [];
   const population = data?.population_by_year || [];
   const status = data?.status_by_year || [];
 
@@ -147,22 +138,6 @@ const DeanAnalytics = ({ showEvalModules, lockedProgramId = null }) => {
           </p>
         </div>
         <div className="dean-hero__controls dean-hero__controls--labeled">
-          {!programLocked ? (
-            <label>
-              <span>Program</span>
-              <select
-                value={filters.programId || (data?.selected_program_id ? String(data.selected_program_id) : '')}
-                onChange={(e) => setFilter('programId', e.target.value)}
-              >
-                {programs.length === 0 ? <option value="">No programs</option> : null}
-                {programs.map((p) => (
-                  <option key={p.program_id} value={p.program_id}>
-                    {p.program_code}
-                  </option>
-                ))}
-              </select>
-            </label>
-          ) : null}
           <label>
             <span>Academic year</span>
             <select

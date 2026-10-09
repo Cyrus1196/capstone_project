@@ -688,15 +688,14 @@ class EvaluationReportController extends Controller
         }
         $user = $request->user();
 
+        // Always the user's own assigned program (no program picker on this page).
         $programs = $this->programsInDeanScope($request, $user);
-        $staffPid = $this->staffAssignedProgramId($user);
-        if ($staffPid) {
-            $programId = $staffPid;
-        } elseif ($request->filled('program_id')) {
+        $programId = $this->staffAssignedProgramId($user)
+            ?? $this->deanAssignedProgramId($user, $programs);
+        if (! $programId && $user->isAdmin() && $request->filled('program_id')) {
             $programId = (int) $request->query('program_id');
-        } else {
-            $programId = (int) ($programs[0]['program_id'] ?? 0);
         }
+        $programId = $programId ?: (int) ($programs[0]['program_id'] ?? 0);
 
         $allowed = collect($programs)->pluck('program_id')->map(fn ($id) => (int) $id)->all();
         if ($programId > 0 && $allowed !== [] && ! in_array($programId, $allowed, true)) {
@@ -878,6 +877,18 @@ class EvaluationReportController extends Controller
     /**
      * @return list<array{program_id:int,program_code:?string,program_name:?string}>
      */
+    /** Dean's own program from their profile, when it is inside their scope. */
+    private function deanAssignedProgramId($user, array $programs): ?int
+    {
+        if (! $user->hasRole('Dean') || $user->isAdmin()) {
+            return null;
+        }
+        $pid = (int) (DeanProfile::where('user_id', $user->user_id)->value('program_id') ?? 0);
+        $inScope = collect($programs)->contains(fn ($p) => (int) $p['program_id'] === $pid);
+
+        return $pid > 0 && $inScope ? $pid : null;
+    }
+
     private function programsInDeanScope(Request $request, $user): array
     {
         $q = Program::query()->orderBy('program_code');

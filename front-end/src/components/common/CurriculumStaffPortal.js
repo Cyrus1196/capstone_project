@@ -475,7 +475,7 @@ const CurriculumStaffPortal = ({
             />
           )}
           {activeTab === 'analytics' && useDecisionAnalytics && (
-            <DeanAnalytics showEvalModules={useDecisionAnalytics} lockedProgramId={lockedProgramId} />
+            <DeanAnalytics showEvalModules={useDecisionAnalytics} />
           )}
           {activeTab === 'analytics' && !useDecisionAnalytics && showEvalModules && (
             <EvaluatorAnalytics showEvalModules={showEvalModules} onNavigate={setActiveTab} />
