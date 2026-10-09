@@ -1,40 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import api from '../../api/axios';
-import {
-  COLORS,
-  DonutChart,
-  GradeDistributionChart,
-  GroupedYearChart,
-  PassRateBarChart,
-  StackedYearChart,
-  YearPopulationChart,
-  yearColor,
-} from './DeanAnalyticsCharts';
+import { COLORS, GroupedYearChart, YearPopulationChart } from './DeanAnalyticsCharts';
 import './DeanAnalytics.css';
-
-const LOW_PASS_RATE = 75;
-
-const OUTCOME_LABELS = { failed: 'Failed', inc: 'INC', dropped: 'Dropped' };
-
-function KpiCard({ icon, label, value, sub, tone = 'green', progress = null }) {
-  return (
-    <div className={`dean-kpi dean-kpi--${tone}`}>
-      <div className="dean-kpi__icon">
-        <i className={`fa-solid ${icon}`} aria-hidden />
-      </div>
-      <div className="dean-kpi__body">
-        <div className="dean-kpi__label">{label}</div>
-        <div className="dean-kpi__value">{value}</div>
-        {sub ? <div className="dean-kpi__sub">{sub}</div> : null}
-        {progress != null ? (
-          <div className="dean-kpi__bar">
-            <span style={{ width: `${Math.max(0, Math.min(100, progress))}%` }} />
-          </div>
-        ) : null}
-      </div>
-    </div>
-  );
-}
 
 function Section({ icon, title, subtitle, insight, alert = false, wide = false, chips = null, children }) {
   return (
@@ -70,40 +37,6 @@ function StatChip({ tone, label, value, sub }) {
   );
 }
 
-function StudentTable({ students, yearLabel, columns }) {
-  if (!students?.length) {
-    return <p className="dean-analytics__empty">No students to list.</p>;
-  }
-  return (
-    <div className="dean-mini-table-wrap">
-      <table className="dean-mini-table">
-        <thead>
-          <tr>
-            <th>Student no.</th>
-            <th>Name</th>
-            <th>Year</th>
-            {columns.map((c) => (
-              <th key={c.key}>{c.label}</th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {students.map((s) => (
-            <tr key={s.student_id}>
-              <td>{s.student_id_number || '—'}</td>
-              <td>{s.name}</td>
-              <td>{yearLabel(s.year)}</td>
-              {columns.map((c) => (
-                <td key={c.key}>{c.render(s)}</td>
-              ))}
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  );
-}
-
 function pct(part, whole) {
   return whole > 0 ? Math.round((part / whole) * 1000) / 10 : 0;
 }
@@ -126,8 +59,6 @@ const DeanAnalytics = ({ showEvalModules, lockedProgramId = null }) => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [data, setData] = useState(null);
-  const [minStudents, setMinStudents] = useState(10);
-  const [openSubject, setOpenSubject] = useState(null);
 
   useEffect(() => {
     if (programLocked) setFilters((f) => ({ ...f, programId: lockedProgramIdStr }));
@@ -156,7 +87,6 @@ const DeanAnalytics = ({ showEvalModules, lockedProgramId = null }) => {
         });
         if (cancelled) return;
         setData(res.data);
-        setOpenSubject(null);
       } catch (e) {
         if (cancelled || e?.code === 'ERR_CANCELED' || e?.name === 'CanceledError') return;
         setError(e?.response?.data?.message || 'Could not load analytics.');
@@ -174,15 +104,6 @@ const DeanAnalytics = ({ showEvalModules, lockedProgramId = null }) => {
   const f = data?.filters;
   const selected = f?.selected || {};
   const yearLevels = useMemo(() => f?.year_levels || [], [f?.year_levels]);
-  const yearLabel = useMemo(() => {
-    const map = new Map(yearLevels.map((y) => [Number(y.year_level_id), y.label]));
-    return (id) => map.get(Number(id)) || (id ? `Year ${id}` : '—');
-  }, [yearLevels]);
-
-  const subjectsShown = useMemo(() => {
-    const min = Math.max(1, Number(minStudents) || 1);
-    return (data?.subject_performance || []).filter((s) => s.enrolled >= min);
-  }, [data?.subject_performance, minStudents]);
 
   const evaluationRows = useMemo(
     () =>
@@ -208,8 +129,6 @@ const DeanAnalytics = ({ showEvalModules, lockedProgramId = null }) => {
   const programs = data?.programs || [];
   const population = data?.population_by_year || [];
   const status = data?.status_by_year || [];
-  const prev = k.previous_year;
-  const delta = prev && prev.students > 0 ? k.students - prev.students : null;
 
   return (
     <div className="dean-analytics dean-analytics--viz" data-tour="page-dean-analytics">
@@ -309,62 +228,17 @@ const DeanAnalytics = ({ showEvalModules, lockedProgramId = null }) => {
         <p className="dean-analytics__hint">No program available for analytics.</p>
       ) : (
         <div className={loading ? 'dean-analytics__body is-loading' : 'dean-analytics__body'}>
-          <div className="dean-kpis">
-            <KpiCard
-              icon="fa-users"
-              label="Students"
-              value={k.students ?? 0}
-              sub={
-                delta != null
-                  ? `${delta >= 0 ? '▲' : '▼'} ${Math.abs(delta)} vs ${prev.label}`
-                  : f.term_label
-              }
-              tone="blue"
-            />
-            <KpiCard
-              icon="fa-clipboard-check"
-              label="Evaluated"
-              value={`${k.evaluated_pct ?? 0}%`}
-              sub={`${k.evaluated ?? 0} done · ${k.unevaluated ?? 0} pending`}
-              tone={(k.evaluated_pct ?? 0) >= 80 ? 'green' : 'amber'}
-              progress={k.evaluated_pct ?? 0}
-            />
-            <KpiCard
-              icon="fa-user-clock"
-              label="Irregular"
-              value={`${k.irregular_pct ?? 0}%`}
-              sub={`${k.irregular ?? 0} of ${k.students ?? 0} students`}
-              tone={(k.irregular_pct ?? 0) >= 30 ? 'red' : 'violet'}
-            />
-            <KpiCard
-              icon="fa-percent"
-              label="Pass rate"
-              value={k.pass_rate != null ? `${k.pass_rate}%` : '—'}
-              sub={`${k.graded_results ?? 0} graded results · ${k.subjects_graded ?? 0} subjects`}
-              tone={k.pass_rate != null && k.pass_rate < LOW_PASS_RATE ? 'red' : 'green'}
-            />
-          </div>
-
-          <div className="dean-viz-grid dean-viz-grid--split">
+          <div className="dean-viz-grid">
             <Section
               icon="fa-people-group"
               title="Student Population by Year Level"
               subtitle={`Number of students per year level · ${f.term_label}`}
               insight={ins.population}
+              wide
             >
               <YearPopulationChart data={population} />
             </Section>
-            <Section icon="fa-chart-pie" title="Share by Year Level" subtitle="Percent of the program">
-              <DonutChart
-                data={population.map((y) => ({ name: y.label, value: y.count, color: yearColor(y.year_level_id) }))}
-                centerValue={k.students ?? 0}
-                centerLabel="students"
-                height={320}
-              />
-            </Section>
-          </div>
 
-          <div className="dean-viz-grid">
             <Section
               icon="fa-clipboard-list"
               title="Evaluation Progress by Year Level"
@@ -396,6 +270,7 @@ const DeanAnalytics = ({ showEvalModules, lockedProgramId = null }) => {
                 ]}
               />
             </Section>
+
             <Section
               icon="fa-graduation-cap"
               title="Academic Status Distribution"
@@ -414,171 +289,6 @@ const DeanAnalytics = ({ showEvalModules, lockedProgramId = null }) => {
                 series={[
                   { key: 'regular', label: 'Regular', color: COLORS.info, labelColor: '#1e3a8a' },
                   { key: 'irregular', label: 'Irregular', color: '#fbbf24', labelColor: '#92400e' },
-                ]}
-              />
-            </Section>
-          </div>
-
-          <div className="dean-viz-grid">
-            <Section
-              icon="fa-circle-question"
-              title="Why Students Are Irregular"
-              subtitle="Failed subject vs. subjects taken out of curriculum order"
-              chips={
-                <>
-                  <StatChip tone="red" label="Failed subject" value={k.failed_subject ?? 0} />
-                  <StatChip tone="amber" label="Out of order" value={k.sequence_gap ?? 0} />
-                </>
-              }
-            >
-              <StackedYearChart
-                data={status}
-                series={[
-                  { key: 'failed_subject', label: 'Failed subject', color: COLORS.bad },
-                  { key: 'sequence_gap', label: 'Out of order / backlog', color: COLORS.warn },
-                ]}
-              />
-            </Section>
-            <Section
-              icon="fa-ranking-star"
-              title="Grade Distribution"
-              subtitle="All final grades recorded in this term"
-              insight={ins.grades}
-            >
-              <GradeDistributionChart data={data.grade_distribution || []} />
-            </Section>
-          </div>
-
-          <div className="dean-viz-grid">
-            <Section
-              icon="fa-book-open-reader"
-              title="Subject Performance"
-              subtitle={`Lowest pass rates this term · dashed line = ${LOW_PASS_RATE}% intervention threshold`}
-              insight={ins.subjects}
-              alert={subjectsShown[0] != null && subjectsShown[0].pass_rate < LOW_PASS_RATE}
-              wide
-            >
-              <div className="dean-inline-filter">
-                <label htmlFor="dean-min-students">Only subjects with at least</label>
-                <input
-                  id="dean-min-students"
-                  type="number"
-                  min={1}
-                  value={minStudents}
-                  onChange={(e) => setMinStudents(e.target.value)}
-                />
-                <span>graded students</span>
-              </div>
-              <PassRateBarChart subjects={subjectsShown.slice(0, 10)} threshold={LOW_PASS_RATE} />
-              {subjectsShown.length > 0 ? (
-                <details className="dean-report">
-                  <summary>
-                    <i className="fa-solid fa-table-list" aria-hidden /> All {subjectsShown.length} subjects
-                  </summary>
-                  <div className="dean-report__body">
-                    <table className="dean-risk-table dean-pa-table">
-                      <thead>
-                        <tr>
-                          <th>Subject</th>
-                          <th className="num">Enrolled</th>
-                          <th className="num">Passed</th>
-                          <th className="num">Failed</th>
-                          <th className="num">INC</th>
-                          <th className="num">Dropped</th>
-                          <th className="num">Pass rate</th>
-                          <th className="num">Avg grade</th>
-                          <th aria-label="Students" />
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {subjectsShown.map((s) => {
-                          const open = openSubject === s.subject_id;
-                          const flagged = s.enrolled - s.passed;
-                          return (
-                            <React.Fragment key={s.subject_id}>
-                              <tr className={s.pass_rate < LOW_PASS_RATE ? 'dean-pa-row--warn' : undefined}>
-                                <td>
-                                  <strong>{s.code}</strong>
-                                  <div className="dean-pa-sub">{s.name}</div>
-                                </td>
-                                <td className="num">{s.enrolled}</td>
-                                <td className="num">{s.passed}</td>
-                                <td className="num">{s.failed}</td>
-                                <td className="num">{s.inc}</td>
-                                <td className="num">{s.dropped}</td>
-                                <td className="num">
-                                  <strong>{s.pass_rate}%</strong>
-                                </td>
-                                <td className="num">{s.avg_grade != null ? s.avg_grade.toFixed(2) : '—'}</td>
-                                <td>
-                                  {flagged > 0 ? (
-                                    <button
-                                      type="button"
-                                      className="dean-link-btn"
-                                      onClick={() => setOpenSubject(open ? null : s.subject_id)}
-                                      aria-expanded={open}
-                                    >
-                                      {open ? 'Hide' : `${flagged} student${flagged === 1 ? '' : 's'}`}
-                                    </button>
-                                  ) : null}
-                                </td>
-                              </tr>
-                              {open ? (
-                                <tr className="dean-pa-detail">
-                                  <td colSpan={9}>
-                                    <StudentTable
-                                      students={s.students}
-                                      yearLabel={yearLabel}
-                                      columns={[
-                                        {
-                                          key: 'outcome',
-                                          label: 'Result',
-                                          render: (st) => (
-                                            <span className={`dean-outcome dean-outcome--${st.outcome}`}>
-                                              {OUTCOME_LABELS[st.outcome] || st.outcome}
-                                              {st.grade ? ` (${st.grade})` : ''}
-                                            </span>
-                                          ),
-                                        },
-                                      ]}
-                                    />
-                                  </td>
-                                </tr>
-                              ) : null}
-                            </React.Fragment>
-                          );
-                        })}
-                      </tbody>
-                    </table>
-                  </div>
-                </details>
-              ) : null}
-            </Section>
-
-            <Section
-              icon="fa-user-shield"
-              title="Students Needing Attention"
-              subtitle="Students with a failed, INC or dropped subject in this term"
-              wide
-            >
-              <StudentTable
-                students={data.students_not_passing || []}
-                yearLabel={yearLabel}
-                columns={[
-                  { key: 'n', label: 'Subjects not passed', render: (s) => <strong>{s.not_passed}</strong> },
-                  {
-                    key: 'status',
-                    label: 'Status',
-                    render: (s) => (
-                      <span
-                        className={`dean-status-pill dean-status-pill--${
-                          String(s.status).toLowerCase() === 'irregular' ? 'irregular' : 'regular'
-                        }`}
-                      >
-                        {s.status}
-                      </span>
-                    ),
-                  },
                 ]}
               />
             </Section>
