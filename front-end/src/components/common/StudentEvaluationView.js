@@ -5462,11 +5462,15 @@ const StudentEvaluationView = ({
               ...incPayload,
             });
           } else {
+            // OFFSEM / Semestral takes belong to the present school year they were offered in.
+            const presentAyId = data?.active_academic_year?.academic_year_id;
+            const academicYearId =
+              offSemesterTakeMap[key] && presentAyId ? presentAyId : draft.academic_year_id;
             await api.post('/evaluation', {
               student_id: data.student.student_id,
               subject_id: draft.subject_id,
               elective_slot_id: draft.elective_slot_id || null,
-              academic_year_id: draft.academic_year_id,
+              academic_year_id: academicYearId,
               semester_id: draft.semester_id,
               grade: gradeValue,
               evaluation_status,

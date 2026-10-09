@@ -15,19 +15,20 @@ export function isSemestralStanding(standing) {
 
 /**
  * School year + semester an OFFSEM / Semestral subject was taken.
- * Prefers the graded record's term, then the saved load-plan flag, then the current Lookup term.
+ * Prefers the saved load-plan flag (school year it was offered in), then the graded
+ * record's term, then the current Lookup term.
  */
 export function formatOffSemesterTakenTerm(row, data) {
   const st = row?.off_semester_standing || {};
   const syRaw =
-    row?.taken_academic_year_name ||
     st.schoolYearLabel ||
+    row?.taken_academic_year_name ||
     data?.active_academic_year?.academic_year_name ||
     '';
   const sem =
-    row?.taken_semester_name ||
     st.takenSemLabel ||
     st.standingSemLabel ||
+    row?.taken_semester_name ||
     data?.active_semester?.semester_name ||
     '';
   const sy = String(syRaw).trim();
