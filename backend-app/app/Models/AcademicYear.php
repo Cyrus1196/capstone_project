@@ -50,8 +50,16 @@ class AcademicYear extends Model
         return $range[0] ?? 0;
     }
 
+    public function isActive(): bool
+    {
+        $status = strtolower(trim((string) ($this->status ?? '')));
+
+        return in_array($status, ['active', 'open', 'current'], true);
+    }
+
     /**
      * Plausible years for filters (drops far-future demo rows like 2099-2099).
+     * Inactive past years stay listed so history remains filterable.
      *
      * @return Collection<int, self>
      */
@@ -63,9 +71,8 @@ class AcademicYear extends Model
         return self::query()
             ->get(['academic_year_id', 'academic_year_name', 'status'])
             ->filter(function (self $y) use ($maxStart) {
-                $status = strtolower(trim((string) ($y->status ?? '')));
-                if ($status !== '' && ! in_array($status, ['active', 'open', 'current'], true)) {
-                    return false;
+                if ($y->isActive()) {
+                    return true;
                 }
                 $range = self::parseYearRange((string) $y->academic_year_name);
                 if ($range === null) {
@@ -78,14 +85,15 @@ class AcademicYear extends Model
             ->values();
     }
 
-    /** The present school year (active Lookup year whose range contains today). */
+    /** The present school year: the active Lookup academic year. */
     public static function currentId(): int
     {
         return self::resolveCurrentId(self::forAnalyticsFilters());
     }
 
     /**
-     * Prefer the year range that contains the current calendar year.
+     * The active year is the current school year. If several are active, prefer the
+     * one whose range contains today, then the latest start.
      *
      * @param  Collection<int, self>  $years
      */
@@ -93,6 +101,13 @@ class AcademicYear extends Model
     {
         if ($years->isEmpty()) {
             return 0;
+        }
+        $active = $years->filter(fn ($y) => $y instanceof self ? $y->isActive() : false)->values();
+        if ($active->count() === 1) {
+            return (int) $active->first()->academic_year_id;
+        }
+        if ($active->isNotEmpty()) {
+            $years = $active;
         }
         $ref = $referenceYear ?? (int) date('Y');
         foreach ($years as $y) {

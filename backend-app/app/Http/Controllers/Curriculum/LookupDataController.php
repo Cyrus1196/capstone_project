@@ -91,6 +91,16 @@ class LookupDataController extends Controller
         $q->update(['status' => 'inactive']);
     }
 
+    /** Only one academic year is active: the current school year. */
+    private function deactivateAllAcademicYearsExcept(?int $exceptAcademicYearId): void
+    {
+        $q = AcademicYear::query();
+        if ($exceptAcademicYearId !== null) {
+            $q->where('academic_year_id', '!=', $exceptAcademicYearId);
+        }
+        $q->update(['status' => 'inactive']);
+    }
+
     private function ensureLookupAccess(Request $request, string $slug, bool $write = false): ?JsonResponse
     {
         $user = $request->user();
@@ -177,6 +187,23 @@ class LookupDataController extends Controller
                 'status' => $status,
                 $meta['pk'] => $row->{$meta['pk']},
                 'auto_promotion' => $promotionStats,
+            ]);
+        }
+
+        if ($lookupResource === 'academic-years') {
+            DB::transaction(function () use ($row, $id, $status) {
+                if ($status === 'active') {
+                    $this->deactivateAllAcademicYearsExcept((int) $id);
+                }
+                $row->update(['status' => $status]);
+            });
+
+            return response()->json([
+                'message' => $status === 'active'
+                    ? trim(($row->academic_year_name ?? 'Academic year').' is now the current school year.')
+                    : 'Academic year deactivated.',
+                'status' => $status,
+                $meta['pk'] => $row->{$meta['pk']},
             ]);
         }
 
@@ -805,14 +832,20 @@ class LookupDataController extends Controller
         ]);
 
         $yearName = $validated['academic_year_name'] ?? $validated['name'] ?? null;
-        $status = strtolower(trim((string) ($validated['status'] ?? 'active')));
-        if ($status !== 'inactive') {
-            $status = 'active';
+        $status = strtolower(trim((string) ($validated['status'] ?? 'inactive')));
+        if ($status !== 'active') {
+            $status = 'inactive';
         }
-        $year = AcademicYear::create([
-            'academic_year_name' => $yearName,
-            'status' => $status,
-        ]);
+        $year = DB::transaction(function () use ($yearName, $status) {
+            if ($status === 'active') {
+                $this->deactivateAllAcademicYearsExcept(null);
+            }
+
+            return AcademicYear::create([
+                'academic_year_name' => $yearName,
+                'status' => $status,
+            ]);
+        });
 
         return response()->json([
             'academic_year_id' => $year->academic_year_id,

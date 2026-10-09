@@ -273,13 +273,14 @@ const LookupDataManagement = ({
     electiveSlots: [],
   });
 
-  /** Present school year: active year whose range contains today (latest start wins), same rule as the API. */
+  /** Present school year: the active Lookup year (same rule as the API). */
   const currentAcademicYear = useMemo(() => {
     const thisYear = new Date().getFullYear();
     const years = (lookupData.academicYears || []).filter((ay) => {
       const status = String(ay.status || '').trim().toLowerCase();
-      return status === '' || ['active', 'open', 'current'].includes(status);
+      return ['active', 'open', 'current'].includes(status);
     });
+    if (years.length === 1) return years[0];
     const startOf = (ay) => {
       const m = String(ay.academic_year_name || ay.name || '').match(/(\d{4})\s*[-–/]\s*(\d{4})/);
       return m ? [Number(m[1]), Number(m[2])] : null;
@@ -525,7 +526,9 @@ const LookupDataManagement = ({
       text:
         section === 'semesters' && nextStatus === 'active'
           ? 'This semester will become the only active term. Regular students who fully passed their current standing will be auto-evaluated and auto-promoted into this semester. Irregulars stay for manual evaluation.'
-          : nextStatus === 'active'
+          : section === 'academicYears' && nextStatus === 'active'
+            ? 'This becomes the current school year (used by Offered subjects and new grades). All other academic years will be set to inactive.'
+            : nextStatus === 'active'
             ? 'This record will be marked active and available for use.'
             : 'This record will be deactivated. Linked data stays — you just hide it from normal use.',
       confirmButtonText: actionLabel,
@@ -817,7 +820,12 @@ const LookupDataManagement = ({
         delete payload.total_units_required;
       }
       // New lookup rows (except semester) always start Active — change later via Activate/Deactivate.
-      if (!editingItem && activeTab !== 'semesters' && activeTab !== 'requisites') {
+      if (
+        !editingItem &&
+        activeTab !== 'semesters' &&
+        activeTab !== 'requisites' &&
+        activeTab !== 'academicYears'
+      ) {
         if (Object.prototype.hasOwnProperty.call(LOOKUP_STATUS_API_PATH, activeTab)) {
           payload.status = 'active';
         }
@@ -910,7 +918,7 @@ const LookupDataManagement = ({
       semesters: { semester_name: '', status: '' },
       roles: { role_name: '', description: '', access_level: '' },
       campus: { campus_name: '' },
-      academicYears: { name: '', status: 'active' },
+      academicYears: { name: '', status: 'inactive' },
       requisites: {
         requisite_type: '',
         subject_id: '',
@@ -1835,17 +1843,21 @@ const LookupDataManagement = ({
             <label htmlFor="ldm-ay-status">Status</label>
             <SearchableSelect
               id="ldm-ay-status"
-              value={editingItem ? (formData.status || 'active') : 'active'}
+              value={editingItem ? (formData.status || 'inactive') : 'inactive'}
               onChange={(v) => setFormData({ ...formData, status: v })}
               options={[
                 { value: 'active', label: 'Active' },
                 { value: 'inactive', label: 'Inactive' },
               ]}
-              emptyLabel="Active"
+              emptyLabel="Inactive"
               placeholder="Status"
-              aria-label="Academic year status (always Active on create)"
+              aria-label="Academic year status"
               disabled
             />
+            <small style={{ color: '#666', fontSize: '0.85rem', display: 'block', marginTop: '0.25rem' }}>
+              Only one academic year is active — the current school year. Use{' '}
+              <strong>Activate</strong> in the list to switch; the others become inactive.
+            </small>
           </div>
         </>
       ),

@@ -697,8 +697,14 @@ class StudentCurriculumEvaluationBuilder
         return $attrs->get($key);
     }
 
+    /** Default school year for new grades: the active (current) Lookup year. */
     private function latestAcademicYearId(): mixed
     {
+        $currentId = (int) ($this->activeAcademicYearSummary()['academic_year_id'] ?? 0);
+        if ($currentId > 0) {
+            return $currentId;
+        }
+
         return $this->rememberInRequest('eval.latest_ay_id', static fn () => DB::table('tbl_academic_year')
             ->orderBy('academic_year_id', 'desc')
             ->value('academic_year_id'));
