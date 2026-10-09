@@ -951,3 +951,508 @@ button.dean-vbar__fill:focus-visible {
 .dean-dual-pair__fill--bad {
   background: #ef4444;
 }
+
+/* ---------- Visual analytics dashboard ---------- */
+.dean-analytics--viz {
+  max-width: 1320px;
+}
+
+.dean-hero {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1.4rem 1.6rem;
+  margin-bottom: 1rem;
+  border-radius: 22px;
+  color: #fff;
+  background:
+    radial-gradient(circle at 85% -20%, rgba(255, 255, 255, 0.22), transparent 45%),
+    radial-gradient(circle at 10% 120%, rgba(52, 211, 153, 0.35), transparent 50%),
+    linear-gradient(120deg, #14532d 0%, #1f7a3a 45%, #0f766e 100%);
+  box-shadow: 0 18px 40px rgba(20, 83, 45, 0.25);
+}
+
+.dean-hero__eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  opacity: 0.85;
+}
+
+.dean-hero__title {
+  margin: 0.25rem 0 0;
+  font-size: 1.9rem;
+  font-weight: 900;
+  letter-spacing: -0.01em;
+}
+
+.dean-hero__title small {
+  font-size: 1rem;
+  font-weight: 600;
+  opacity: 0.85;
+}
+
+.dean-hero__lead {
+  margin: 0.3rem 0 0;
+  font-size: 0.88rem;
+  opacity: 0.85;
+}
+
+.dean-hero__controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+}
+
+.dean-hero__controls select,
+.dean-hero__controls button {
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  border-radius: 12px;
+  padding: 0.55rem 0.85rem;
+  font-size: 0.86rem;
+  font-weight: 700;
+  color: #fff;
+  background: rgba(255, 255, 255, 0.14);
+  backdrop-filter: blur(6px);
+}
+
+.dean-hero__controls select {
+  max-width: 22rem;
+}
+
+.dean-hero__controls select option {
+  color: #0f172a;
+}
+
+.dean-hero__controls select:disabled {
+  opacity: 0.8;
+  cursor: not-allowed;
+}
+
+.dean-hero__controls button {
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.dean-hero__controls button:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.26);
+}
+
+.dean-hero__controls button:disabled {
+  cursor: wait;
+  opacity: 0.7;
+}
+
+.dean-viz-tabs {
+  display: flex;
+  gap: 0.4rem;
+  padding: 0.35rem;
+  margin-bottom: 1.1rem;
+  border-radius: 16px;
+  background: #f1f5f9;
+  overflow-x: auto;
+}
+
+.dean-viz-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  flex: 1 0 auto;
+  justify-content: center;
+  padding: 0.6rem 0.9rem;
+  border: none;
+  border-radius: 12px;
+  background: transparent;
+  color: #475569;
+  font-weight: 700;
+  font-size: 0.84rem;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.18s, color 0.18s, box-shadow 0.18s;
+}
+
+.dean-viz-tab:hover {
+  color: #14532d;
+  background: rgba(255, 255, 255, 0.6);
+}
+
+.dean-viz-tab--active {
+  background: #fff;
+  color: #14532d;
+  box-shadow: 0 4px 14px rgba(15, 23, 42, 0.1);
+}
+
+.dean-analytics--viz .dean-analytics__body {
+  animation: dean-fade-up 0.35s ease;
+}
+
+@keyframes dean-fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.dean-kpis {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+  gap: 0.9rem;
+  margin-bottom: 1rem;
+}
+
+.dean-kpi {
+  --kpi: #22a35a;
+  --kpi-soft: #dcfce7;
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+  padding: 1rem 1.1rem;
+  border-radius: 18px;
+  background: #fff;
+  border: 1px solid #eef2f7;
+  box-shadow: 0 6px 22px rgba(15, 23, 42, 0.06);
+  overflow: hidden;
+}
+
+.dean-kpi::after {
+  content: '';
+  position: absolute;
+  inset: auto -30px -40px auto;
+  width: 110px;
+  height: 110px;
+  border-radius: 50%;
+  background: var(--kpi-soft);
+  opacity: 0.7;
+}
+
+.dean-kpi--amber {
+  --kpi: #f59e0b;
+  --kpi-soft: #fef3c7;
+}
+
+.dean-kpi--red {
+  --kpi: #ef4444;
+  --kpi-soft: #fee2e2;
+}
+
+.dean-kpi--violet {
+  --kpi: #8b5cf6;
+  --kpi-soft: #ede9fe;
+}
+
+.dean-kpi--blue {
+  --kpi: #3b82f6;
+  --kpi-soft: #dbeafe;
+}
+
+.dean-kpi__icon {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  width: 2.8rem;
+  height: 2.8rem;
+  border-radius: 14px;
+  color: #fff;
+  background: var(--kpi);
+  box-shadow: 0 8px 18px color-mix(in srgb, var(--kpi) 35%, transparent);
+  font-size: 1.1rem;
+}
+
+.dean-kpi__body {
+  position: relative;
+  z-index: 1;
+  min-width: 0;
+}
+
+.dean-kpi__label {
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: #64748b;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.dean-kpi__value {
+  font-size: 1.65rem;
+  font-weight: 900;
+  color: #0f172a;
+  line-height: 1.15;
+}
+
+.dean-kpi__sub {
+  font-size: 0.76rem;
+  color: #64748b;
+}
+
+.dean-insight {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  margin-bottom: 1.1rem;
+  padding: 0.9rem 1.1rem;
+  border-radius: 16px;
+  background: linear-gradient(90deg, #eff6ff, #f8fafc);
+  border: 1px solid #bfdbfe;
+  color: #1e3a8a;
+}
+
+.dean-insight i {
+  margin-top: 0.15rem;
+  font-size: 1.05rem;
+}
+
+.dean-insight p {
+  margin: 0;
+  font-size: 0.92rem;
+  font-weight: 600;
+  line-height: 1.5;
+}
+
+.dean-insight--alert {
+  background: linear-gradient(90deg, #fff7ed, #fffbeb);
+  border-color: #fdba74;
+  color: #9a3412;
+}
+
+.dean-viz-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+  margin-bottom: 1rem;
+}
+
+.dean-viz-grid--3 {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.dean-viz-grid--3 .dean-viz-card--wide {
+  grid-column: span 3;
+}
+
+@media (max-width: 1000px) {
+  .dean-viz-grid,
+  .dean-viz-grid--3 {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .dean-viz-grid--3 .dean-viz-card--wide {
+    grid-column: auto;
+  }
+}
+
+.dean-viz-card {
+  min-width: 0;
+  padding: 1.1rem 1.2rem 0.9rem;
+  border-radius: 20px;
+  background: #fff;
+  border: 1px solid #eef2f7;
+  box-shadow: 0 6px 22px rgba(15, 23, 42, 0.06);
+  transition: box-shadow 0.2s, transform 0.2s;
+}
+
+.dean-viz-card:hover {
+  box-shadow: 0 12px 32px rgba(15, 23, 42, 0.1);
+}
+
+.dean-viz-card--wide {
+  grid-column: 1 / -1;
+}
+
+.dean-viz-card__head h3 {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 800;
+  color: #0f172a;
+}
+
+.dean-viz-card__head p {
+  margin: 0.2rem 0 0;
+  font-size: 0.78rem;
+  color: #64748b;
+}
+
+.dean-viz-card__body {
+  margin-top: 0.75rem;
+}
+
+.dean-viz-empty {
+  display: grid;
+  place-items: center;
+  min-height: 180px;
+  border-radius: 14px;
+  border: 1px dashed #cbd5e1;
+  background: #f8fafc;
+  color: #64748b;
+  font-size: 0.88rem;
+}
+
+.dean-viz-donut__value {
+  font-size: 1.7rem;
+  font-weight: 900;
+  fill: #0f172a;
+}
+
+.dean-viz-donut__label {
+  font-size: 0.75rem;
+  font-weight: 600;
+  fill: #64748b;
+}
+
+.dean-viz-label {
+  font-size: 11px;
+  font-weight: 800;
+  fill: #334155;
+}
+
+.dean-viz-label--sm {
+  font-size: 10px;
+  font-weight: 700;
+  fill: #475569;
+}
+
+.dean-viz-tooltip {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  padding: 0.6rem 0.8rem;
+  border-radius: 12px;
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  box-shadow: 0 10px 30px rgba(15, 23, 42, 0.12);
+  font-size: 0.8rem;
+  color: #334155;
+}
+
+.dean-viz-tooltip strong {
+  color: #0f172a;
+}
+
+.dean-viz-sankey__label {
+  font-size: 12px;
+  font-weight: 700;
+  fill: #0f172a;
+}
+
+.dean-viz-sankey__n {
+  font-weight: 800;
+  fill: #64748b;
+}
+
+.dean-viz-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.6rem;
+  min-height: 260px;
+  border-radius: 20px;
+  background: #f8fafc;
+  color: #475569;
+  font-weight: 600;
+}
+
+.dean-heatmap {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  overflow-x: auto;
+}
+
+.dean-heatmap__row {
+  display: grid;
+  grid-template-columns: 5.5rem repeat(10, minmax(2rem, 1fr));
+  gap: 4px;
+  align-items: center;
+}
+
+.dean-heatmap__row--head span {
+  font-size: 0.68rem;
+  font-weight: 700;
+  color: #64748b;
+  text-align: center;
+}
+
+.dean-heatmap__label {
+  font-size: 0.8rem;
+  font-weight: 700;
+  color: #334155;
+}
+
+.dean-heatmap__cell {
+  display: grid;
+  place-items: center;
+  height: 2.6rem;
+  border-radius: 8px;
+  background: #f1f5f9;
+  font-size: 0.8rem;
+  font-weight: 800;
+  outline: 1px solid #eef2f7;
+  transition: transform 0.15s;
+}
+
+.dean-heatmap__cell:hover {
+  transform: scale(1.08);
+}
+
+.dean-heatmap__cell--expected {
+  outline: 2px solid #0f172a;
+  outline-offset: 1px;
+}
+
+.dean-heatmap__legend {
+  margin: 0.5rem 0 0;
+  font-size: 0.74rem;
+  color: #64748b;
+}
+
+.dean-report {
+  margin-top: 0.25rem;
+  border-radius: 16px;
+  border: 1px solid #e2e8f0;
+  background: #fff;
+}
+
+.dean-report summary {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.8rem 1.1rem;
+  font-weight: 700;
+  font-size: 0.88rem;
+  color: #334155;
+  cursor: pointer;
+  list-style: none;
+}
+
+.dean-report summary::-webkit-details-marker {
+  display: none;
+}
+
+.dean-report summary::after {
+  content: '\25BE';
+  margin-left: auto;
+  transition: transform 0.2s;
+}
+
+.dean-report[open] summary::after {
+  transform: rotate(180deg);
+}
+
+.dean-report__body {
+  padding: 0 1.1rem 1rem;
+  overflow-x: auto;
+}

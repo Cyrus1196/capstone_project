@@ -718,7 +718,7 @@ class EvaluationReportController extends Controller
             return response()->json($meta + ['student_count' => 0]);
         }
 
-        $cacheKey = 'dean_program_analytics:v1:'.$program->program_id;
+        $cacheKey = 'dean_program_analytics:v2:'.$program->program_id;
         if ($request->boolean('refresh')) {
             Cache::forget($cacheKey);
         }

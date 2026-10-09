@@ -28,6 +28,26 @@ class DeanProgramAnalytics
 
     private const LIST_LIMIT = 100;
 
+    /** Backlog-unit histogram buckets: [label, inclusive upper bound]. */
+    private const BACKLOG_BUCKETS = [
+        ['0', 0],
+        ['1–3', 3],
+        ['4–6', 6],
+        ['7–9', 9],
+        ['10–15', 15],
+        ['16–24', 24],
+        ['25+', PHP_INT_MAX],
+    ];
+
+    /** Load-plan gap buckets vs the year cap: [label, inclusive upper bound of (units - cap)]. */
+    private const LOAD_GAP_BUCKETS = [
+        ['10+ under', -10],
+        ['4–9 under', -4],
+        ['1–3 under', -1],
+        ['Full load', 0],
+        ['Over cap', PHP_INT_MAX],
+    ];
+
     private const TAKEN_OUTCOMES = ['passed', 'failed', 'inc', 'dropped'];
 
     /** Mirrors StudentCurriculumEvaluationBuilder: shared subjects whose requisites do not apply in a program. */
@@ -518,6 +538,7 @@ class DeanProgramAnalytics
                         'name' => $row['subject']['name'],
                         'units' => $row['subject']['units'],
                         'year' => $row['year'],
+                        'sem' => $row['sem'],
                         'sem_name' => $row['sem_name'],
                         'type' => $this->builder->isMajorEvaluationRow([
                             'subject_id' => $sid,
@@ -769,6 +790,10 @@ class DeanProgramAnalytics
         }
         $totals = ['on_track' => 0, 'slightly_behind' => 0, 'delayed' => 0];
         $behind = [];
+        $histogram = [];
+        foreach (self::BACKLOG_BUCKETS as [$label]) {
+            $histogram[$label] = 0;
+        }
 
         foreach ($records as $record) {
             if ($record['standing_order'] === null) {
@@ -796,6 +821,12 @@ class DeanProgramAnalytics
             $totals[$bucket]++;
             if (isset($byYear[$record['year']])) {
                 $byYear[$record['year']][$bucket]++;
+            }
+            foreach (self::BACKLOG_BUCKETS as [$label, $max]) {
+                if ($backlogUnits <= $max) {
+                    $histogram[$label]++;
+                    break;
+                }
             }
             if ($backlogUnits > 0) {
                 $behind[] = $record['student'] + [
@@ -830,6 +861,11 @@ class DeanProgramAnalytics
             'by_year' => array_values($byYear),
             'totals' => $totals + ['students' => $all],
             'slightly_behind_max_units' => self::SLIGHTLY_BEHIND_MAX_UNITS,
+            'backlog_histogram' => array_map(
+                static fn ($label, $count) => ['label' => $label, 'count' => $count],
+                array_keys($histogram),
+                array_values($histogram)
+            ),
             'most_behind' => array_slice($behind, 0, self::LIST_LIMIT),
             'insight' => $insight,
         ];
@@ -868,6 +904,9 @@ class DeanProgramAnalytics
             }
             $acc[$year]['n'] = ($acc[$year]['n'] ?? 0) + 1;
             $acc[$year]['actual'] = ($acc[$year]['actual'] ?? 0) + $earned / $total * 100;
+            $decile = min(9, (int) floor($earned / $total * 10));
+            $acc[$year]['deciles'] ??= array_fill(0, 10, 0);
+            $acc[$year]['deciles'][$decile]++;
             $acc[$year]['by_now'] = ($acc[$year]['by_now'] ?? 0) + $byNow / $total * 100;
             $acc[$year]['end'] = ($acc[$year]['end'] ?? 0) + $endOfYear / $total * 100;
         }
@@ -886,6 +925,7 @@ class DeanProgramAnalytics
                 'expected_end_of_year' => $n > 0 ? round($a['end'] / $n, 1) : null,
                 'actual_average' => $actual,
                 'gap' => $n > 0 ? round($actual - $byNow, 1) : null,
+                'completion_deciles' => $a['deciles'] ?? array_fill(0, 10, 0),
             ];
         }
 
@@ -931,6 +971,10 @@ class DeanProgramAnalytics
         $totals = ['no_plan' => 0, 'underload' => 0, 'full' => 0, 'overload' => 0];
         $dropped = [];
         $underloaded = [];
+        $gapHistogram = [];
+        foreach (self::LOAD_GAP_BUCKETS as [$label]) {
+            $gapHistogram[$label] = 0;
+        }
 
         foreach ($records as $record) {
             if ($record['standing_order'] === null) {
@@ -959,6 +1003,13 @@ class DeanProgramAnalytics
             $cap = self::YEAR_UNIT_CAPS[$record['year']] ?? null;
             $bucket = $cap === null || $units === $cap ? 'full' : ($units < $cap ? 'underload' : 'overload');
             $totals[$bucket]++;
+            $diff = $cap === null ? 0 : $units - $cap;
+            foreach (self::LOAD_GAP_BUCKETS as [$label, $max]) {
+                if ($diff <= $max) {
+                    $gapHistogram[$label]++;
+                    break;
+                }
+            }
             if (isset($byYear[$record['year']])) {
                 $byYear[$record['year']][$bucket]++;
                 $byYear[$record['year']]['units_sum'] += $units;
@@ -1019,6 +1070,11 @@ class DeanProgramAnalytics
         return [
             'by_year' => $series,
             'totals' => $totals + ['planned' => $planned],
+            'gap_histogram' => array_map(
+                static fn ($label, $count) => ['label' => $label, 'count' => $count],
+                array_keys($gapHistogram),
+                array_values($gapHistogram)
+            ),
             'most_dropped' => array_slice($droppedList, 0, 15),
             'underloaded' => $underloaded,
             'insight' => $insight,
