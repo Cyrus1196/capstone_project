@@ -922,7 +922,7 @@ const CreditEvaluationManagement = ({
             {approvalMode
               ? 'Credit evaluation (review)'
               : studentInformationMode
-                ? 'Student information'
+                ? 'Subject crediting'
                 : 'Credit Evaluation Management'}
           </h2>
           {studentInformationMode ? (

@@ -4,7 +4,7 @@ import './AcademicManagement.css';
 
 /**
  * Dean / Admin: external transfer intake (transcript / prior institution).
- * Shown under Student Management → Student information in the admin sidebar.
+ * Shown under Subject crediting in the admin sidebar.
  */
 const AcademicManagement = ({ remountKey = 0 }) => {
   useEffect(() => {

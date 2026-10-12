@@ -209,7 +209,7 @@ const DeanPanel = () => {
     if (showSystemTab) {
       adminItems.push({
         id: 'system-mgmt',
-        label: 'Student information',
+        label: 'Subject crediting',
         icon: 'fa-solid fa-school',
       });
     }

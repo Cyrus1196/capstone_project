@@ -81,7 +81,7 @@ export const CREDIT_EVALUATION_SIDEBAR_PERMISSIONS = [
   'credit_eval.approve',
 ];
 
-/** "Student information" (transfer credits) — only with User permissions → Credit Evaluation → Full access. */
+/** "Subject crediting" (transfer credits) — only with User permissions → Credit Evaluation → Full access. */
 export const ACADEMIC_MANAGEMENT_TAB_PERMISSIONS = CREDIT_EVALUATION_SIDEBAR_PERMISSIONS;
 
 export const EVALUATION_REPORTS_TAB_PERMISSIONS = [
@@ -165,7 +165,7 @@ export const ADMIN_PANEL_TABS = [
   },
   {
     id: 'system',
-    label: 'Student information',
+    label: 'Subject crediting',
     permissions: ACADEMIC_MANAGEMENT_TAB_PERMISSIONS,
     group: 'operations',
     icon: 'fa-solid fa-id-card',

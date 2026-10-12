@@ -7,7 +7,7 @@ import './SubjectEquivalenceQuickModal.css';
 /**
  * Map a prior-school (other school) course to a local catalog subject.
  * With rosterStudentId + fixedLocal → student-specific transfer credit.
- * From Student information Map → reusable equivalence tied to that transfer record.
+ * From Subject crediting Map → reusable equivalence tied to that transfer record.
  * Otherwise → catalog equivalence suggestion.
  *
  * Props: open, onClose, fixedLocal (optional), onSaved (optional),
@@ -240,7 +240,7 @@ function SubjectEquivalenceQuickModal({
         swalToast(
           'success',
           fromStudentInformation
-            ? 'Mapping saved — linked to Student information transfer courses.'
+            ? 'Mapping saved — linked to Subject crediting transfer courses.'
             : 'Subject equivalence suggestion saved.'
         );
       }
@@ -271,21 +271,21 @@ function SubjectEquivalenceQuickModal({
   const connectCopy = isStudentCreditMode
     ? (
       <>
-        Links a <strong>prior-school course</strong> from Student information to this student&apos;s
+        Links a <strong>prior-school course</strong> from Subject crediting to this student&apos;s
         local catalog subject so transfer credit appears on their evaluation.
       </>
     )
     : fromStudentInformation
       ? (
         <>
-          Connects a course from <strong>Student information → External transfer credits</strong> to
+          Connects a course from <strong>Subject crediting → External transfer credits</strong> to
           your local catalog. Use this after recording prior-school subjects.
         </>
       )
       : (
         <>
           Saves how an external course maps to a local subject. The same mapping powers{' '}
-          <strong>Student information</strong> transfer evaluation.
+          <strong>Subject crediting</strong> transfer evaluation.
         </>
       );
 
@@ -316,7 +316,7 @@ function SubjectEquivalenceQuickModal({
           <div>
             <p className="seq-equiv-dialog__eyebrow">
               {fromStudentInformation || isStudentCreditMode
-                ? 'Student information'
+                ? 'Subject crediting'
                 : 'Subject equivalence'}
             </p>
             <h2 id="seq-equiv-title" className="seq-equiv-dialog__title">
@@ -375,12 +375,12 @@ function SubjectEquivalenceQuickModal({
                 />
                 <p className="seq-equiv-dialog__hint">
                   {isStudentCreditMode
-                    ? 'Courses from Student information → External transfer credits (linked to this student or not yet linked to a roster ID).'
+                    ? 'Courses from Subject crediting → External transfer credits (linked to this student or not yet linked to a roster ID).'
                     : 'These courses come from the shared external-subject catalog.'}
                 </p>
                 {isStudentCreditMode && !loading && ossOptions.length === 0 ? (
                   <p className="seq-equiv-dialog__hint seq-equiv-dialog__hint--warn">
-                    No transfer courses on file for this student. Add them in Student information first.
+                    No transfer courses on file for this student. Add them in Subject crediting first.
                   </p>
                 ) : null}
               </div>
