@@ -30,7 +30,6 @@ import '../program_head/ProgramHeadPanel.css';
 
 /** Heavy tabs — load only when opened so portal shell paints quickly. */
 const StudentEvaluationView = lazy(() => import('./StudentEvaluationView'));
-const EvaluatorAnalytics = lazy(() => import('../faculty/EvaluatorAnalytics'));
 const DeanAnalytics = lazy(() => import('../dean/DeanAnalytics'));
 const LookupDataManagement = lazy(() => import('../admin/LookupDataManagement'));
 const UserManagement = lazy(() => import('../admin/UserManagement'));
@@ -474,11 +473,8 @@ const CurriculumStaffPortal = ({
               onActivePanelChange={setLookupSubPanel}
             />
           )}
-          {activeTab === 'analytics' && useDecisionAnalytics && (
-            <DeanAnalytics showEvalModules={useDecisionAnalytics} />
-          )}
-          {activeTab === 'analytics' && !useDecisionAnalytics && showEvalModules && (
-            <EvaluatorAnalytics showEvalModules={showEvalModules} onNavigate={setActiveTab} />
+          {activeTab === 'analytics' && (useDecisionAnalytics || showEvalModules) && (
+            <DeanAnalytics showEvalModules={useDecisionAnalytics || showEvalModules} />
           )}
           {activeTab === 'profile' && <ProgramHeadProfile />}
           </Suspense>

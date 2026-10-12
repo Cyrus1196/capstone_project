@@ -46,9 +46,11 @@ class DeanProgramAnalytics
      * @param  int  $ayId  school year (0 = current)
      * @param  int|null  $semId  semester (0 = whole school year, null = current semester when the year is current)
      * @param  int  $yearFilter  year level (0 = all)
+     * @param  list<int>|null  $allowedYears  user's evaluation year scope (null = all), same as the Student list
      */
-    public function build(Program $program, int $ayId, ?int $semId, int $yearFilter): array
+    public function build(Program $program, int $ayId, ?int $semId, int $yearFilter, ?array $allowedYears = null): array
     {
+        $inScope = static fn (int $y): bool => $allowedYears === null || in_array($y, $allowedYears, true);
         $programId = (int) $program->program_id;
         $this->templates = [];
 
@@ -101,7 +103,7 @@ class DeanProgramAnalytics
                 $y = $tAy === $activeAyId
                     ? $profileYear
                     : $this->yearInTerm($rows, $template, $profileYear, $activeStart - ($ayStart[$tAy] ?? $activeStart));
-                if ($y > 0 && (! $yearFilter || $y === $yearFilter)) {
+                if ($y > 0 && $inScope($y) && (! $yearFilter || $y === $yearFilter)) {
                     $trend[$tAy][$y] = ($trend[$tAy][$y] ?? 0) + 1;
                 }
             }
@@ -116,7 +118,7 @@ class DeanProgramAnalytics
             $year = $isCurrentTerm
                 ? $profileYear
                 : $this->yearInTerm($termAttempts, $template, $profileYear, $activeStart - ($ayStart[$ayId] ?? $activeStart));
-            if ($year <= 0 || ($yearFilter && $year !== $yearFilter)) {
+            if ($year <= 0 || ! $inScope($year) || ($yearFilter && $year !== $yearFilter)) {
                 continue;
             }
 

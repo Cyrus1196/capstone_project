@@ -691,6 +691,7 @@ class EvaluationReportController extends Controller
         // Always the user's own assigned program (no program picker on this page).
         $programs = $this->programsInDeanScope($request, $user);
         $programId = $this->staffAssignedProgramId($user)
+            ?? $this->adviserAssignedProgramId($user)
             ?? $this->deanAssignedProgramId($user, $programs);
         if (! $programId && $user->isAdmin() && $request->filled('program_id')) {
             $programId = (int) $request->query('program_id');
@@ -720,10 +721,13 @@ class EvaluationReportController extends Controller
         $semId = $request->filled('semester_id') ? (int) $request->query('semester_id') : null;
         $yearId = (int) $request->query('year_level_id', 0);
 
+        // Same year scope the Student evaluation list applies (User permissions → year levels).
+        $allowedYears = $user->hasRole('Dean') ? null : $user->effectiveEvaluationYearLevelIds();
+
         // Not cached: counts must match the Student evaluation list right after each evaluation.
         @set_time_limit(120);
         try {
-            $data = $analytics->build($program, $ayId, $semId, $yearId);
+            $data = $analytics->build($program, $ayId, $semId, $yearId, $allowedYears);
         } catch (\Throwable $e) {
             report($e);
 
@@ -878,6 +882,17 @@ class EvaluationReportController extends Controller
      * @return list<array{program_id:int,program_code:?string,program_name:?string}>
      */
     /** Dean's own program from their profile, when it is inside their scope. */
+    /** Adviser: program on their faculty profile (same as the Student evaluation list). */
+    private function adviserAssignedProgramId($user): ?int
+    {
+        if ($user->isAdmin() || ! $user->isEvaluatorLike()) {
+            return null;
+        }
+        $pid = (int) ($user->facultyProfile()->value('program_id') ?? 0);
+
+        return $pid > 0 ? $pid : null;
+    }
+
     private function deanAssignedProgramId($user, array $programs): ?int
     {
         if (! $user->hasRole('Dean') || $user->isAdmin()) {
@@ -896,6 +911,9 @@ class EvaluationReportController extends Controller
         $staffPid = $this->staffAssignedProgramId($user);
         if ($staffPid) {
             $q->where('program_id', $staffPid);
+        } elseif (! $user->isAdmin() && $user->isEvaluatorLike()) {
+            // Adviser with no program on their profile sees nothing (matches the Student list).
+            $q->where('program_id', $this->adviserAssignedProgramId($user) ?? 0);
         } elseif ($user->hasRole('Dean') && ! $user->isAdmin()) {
             $deanProfile = DeanProfile::where('user_id', $user->user_id)->first();
             if ($deanProfile && $deanProfile->department_id) {

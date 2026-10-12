@@ -12,7 +12,7 @@ import { userDisplayName } from '../../utils/userDisplayName';
 import './FacultyPanel.css';
 
 const StudentEvaluationView = lazy(() => import('../common/StudentEvaluationView'));
-const EvaluatorAnalytics = lazy(() => import('./EvaluatorAnalytics'));
+const DeanAnalytics = lazy(() => import('../dean/DeanAnalytics'));
 const AcademicManagement = lazy(() => import('../admin/AcademicManagement'));
 
 const TabFallback = () => (
@@ -214,7 +214,7 @@ const FacultyPanel = () => {
           {activeTab === 'evaluated-students' && showEvalModules && (
             <StudentEvaluationView listMode="already-evaluated" />
           )}
-          {activeTab === 'analytics' && <EvaluatorAnalytics showEvalModules={showEvalModules} />}
+          {activeTab === 'analytics' && <DeanAnalytics showEvalModules={showEvalModules} />}
           {activeTab === 'credit-evaluation' && showCreditEval && <AcademicManagement />}
           {activeTab === 'profile' && (
             <FacultyProfile facultyProfile={facultyProfile} onUpdate={fetchFacultyProfile} />
