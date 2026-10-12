@@ -8,7 +8,11 @@ import './RoleSettings.css';
 const VIEW_TIER_IDS_RESOLVER = {
   evaluation: (perms) =>
     perms
-      .filter((p) => ['evaluation.view', 'credit_eval.view'].includes(p.permission_name))
+      .filter((p) => p.permission_name === 'evaluation.view')
+      .map((p) => Number(p.permission_id)),
+  subject_crediting: (perms) =>
+    perms
+      .filter((p) => p.permission_name === 'credit_eval.view')
       .map((p) => Number(p.permission_id)),
   system: (perms) =>
     perms
@@ -26,12 +30,7 @@ const getViewTierPermissionIds = (moduleKey, perms) => {
 };
 
 /** Grade entry / approvals — everything else in Credit Evaluation stays in "Promote only". */
-const GRADE_EDIT_PERMISSION_NAMES = [
-  'evaluation.create',
-  'evaluation.edit',
-  'evaluation.approve',
-  'credit_eval.approve',
-];
+const GRADE_EDIT_PERMISSION_NAMES = ['evaluation.create', 'evaluation.edit', 'evaluation.approve'];
 
 const permissionIdsByName = (perms, names) =>
   perms.filter((p) => names.includes(p.permission_name)).map((p) => Number(p.permission_id));
@@ -60,7 +59,7 @@ const FRIENDLY_PERMISSION_MERGE_INTO = {
   'Elective Slots': 'electives',
   'User Management': 'users',
   'Student Management': 'students',
-  'Credit Evaluation': 'evaluation',
+  'Credit Evaluation': 'subject_crediting',
   'Student Evaluation': 'evaluation',
   /** Merge with system.settings / system.backup — one "Security Settings" block in the UI */
   'System Management': 'system',
@@ -74,7 +73,7 @@ const moduleKeyFromPermissionName = (name) => {
     return `lookup.${parts[1]}`;
   }
   if (parts[0] === 'credit_eval') {
-    return 'evaluation';
+    return 'subject_crediting';
   }
   const dot = name.indexOf('.');
   return dot > 0 ? name.slice(0, dot) : name;
@@ -83,7 +82,8 @@ const moduleKeyFromPermissionName = (name) => {
 /** Dot-prefix module keys → clearer titles (not the same as the user’s role name). */
 const MODULE_LABEL_OVERRIDES = {
   curriculum: 'Curriculum Management',
-  evaluation: 'Credit Evaluation',
+  evaluation: 'Student Evaluation',
+  subject_crediting: 'Subject Crediting',
   system: 'Security Settings',
   users: 'User Management',
   students: 'Student Management',
