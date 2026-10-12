@@ -1123,10 +1123,34 @@
   background: #f8fafc;
 }
 
-.permission-module-tier-portal {
+/* Granted module = green, not granted = gray */
+.permission-module.is-enabled {
   background: #f0fdf4;
-  border-color: #bbf7d0;
-  box-shadow: inset 0 0 0 1px rgba(34, 197, 94, 0.12);
+  border-color: #86efac;
+  box-shadow: inset 3px 0 0 #2e7d32;
+}
+
+.permission-module.is-enabled .permission-tier-parent-title,
+.permission-module.is-enabled .permission-module-title {
+  color: #14532d;
+}
+
+.permission-module.is-disabled {
+  background: #f1f5f9;
+  border-color: #e2e8f0;
+  box-shadow: none;
+}
+
+.permission-module.is-disabled .permission-tier-parent-title,
+.permission-module.is-disabled .permission-module-title {
+  color: #64748b;
+}
+
+.permission-module-single.is-enabled,
+.permission-module-single.is-disabled {
+  background: transparent;
+  border-color: transparent;
+  box-shadow: none;
 }
 
 .permission-tier-parent-row {

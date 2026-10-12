@@ -214,7 +214,6 @@ const RoleSettings = () => {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
-  const [portalPanelIds, setPortalPanelIds] = useState([]);
   const [permissionsReadOnly, setPermissionsReadOnly] = useState(false);
   const [useCustomPermissions, setUseCustomPermissions] = useState(false);
   const [yearLevels, setYearLevels] = useState([]);
@@ -231,7 +230,6 @@ const RoleSettings = () => {
     } else {
       setPermissions([]);
       setAssignedIds([]);
-      setPortalPanelIds([]);
       setPermissionsReadOnly(false);
       setUseCustomPermissions(false);
       setYearLevels([]);
@@ -291,7 +289,6 @@ const RoleSettings = () => {
       const data = await permissionService.getPermissionsForUser(userId);
       setPermissions(data.permissions || []);
       setAssignedIds(data.assigned_ids || []);
-      setPortalPanelIds(data.portal_panel_permission_ids || []);
       setPermissionsReadOnly(!!data.permissions_read_only);
       setUseCustomPermissions(!!data.use_custom_permissions);
       const yl = Array.isArray(data.year_levels) ? data.year_levels : [];
@@ -314,7 +311,6 @@ const RoleSettings = () => {
       setError('Failed to load permissions for user');
       setPermissions([]);
       setAssignedIds([]);
-      setPortalPanelIds([]);
       setPermissionsReadOnly(false);
       setUseCustomPermissions(false);
       setYearLevels([]);
@@ -491,13 +487,6 @@ const RoleSettings = () => {
     const k = moduleStorageKey(category, moduleKey);
     setExpandedModules((prev) => ({ ...prev, [k]: !prev[k] }));
   };
-
-  const portalPanelIdSet = useMemo(
-    () => new Set(portalPanelIds.map((id) => Number(id))),
-    [portalPanelIds]
-  );
-
-  const isPortalPermission = (permissionId) => portalPanelIdSet.has(Number(permissionId));
 
   const userLabel = (u) => userDisplayName(u) || u?.email || `User #${u?.user_id}`;
   const roleLabel = (u) => u?.role?.role_name || u?.role_name || '—';
@@ -807,11 +796,11 @@ const RoleSettings = () => {
                         const importOnlyIds = getImportOnlyPermissionIds(moduleKey, perms);
                         const isImportExportModule = moduleKey === 'data';
                         const useTierUi = multi && viewTierIds.length > 0;
-                        const modulePortal = perms.some((p) =>
-                          isPortalPermission(p.permission_id)
+                        const anyAssignedInModule = assignedIds.some((id) =>
+                          allIds.includes(Number(id))
                         );
-                        const tierUiClass = `permission-module permission-module-tier${
-                          modulePortal ? ' permission-module-tier-portal' : ''
+                        const tierUiClass = `permission-module permission-module-tier ${
+                          anyAssignedInModule ? 'is-enabled' : 'is-disabled'
                         }`;
                         const uid = selectedUser.user_id;
 
@@ -1018,9 +1007,9 @@ const RoleSettings = () => {
                         return (
                           <div
                             key={`${category}-${moduleKey}`}
-                            className={
+                            className={`${
                               multi ? 'permission-module' : 'permission-module permission-module-single'
-                            }
+                            } ${anyAssignedInModule ? 'is-enabled' : 'is-disabled'}`}
                           >
                             {multi && (
                               <button
@@ -1052,7 +1041,7 @@ const RoleSettings = () => {
                                   <li
                                     key={p.permission_id}
                                     className={
-                                      isPortalPermission(p.permission_id)
+                                      assignedIds.some((id) => Number(id) === Number(p.permission_id))
                                         ? 'permission-item permission-item-portal'
                                         : 'permission-item'
                                     }
