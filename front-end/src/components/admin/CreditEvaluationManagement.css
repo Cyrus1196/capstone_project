@@ -720,9 +720,14 @@
 
 /* Match Lookup Subjects Edit / Delete action style */
 .credit-evaluation-management--student-info .ce-action-btn--view {
-  background: #ecfdf5;
-  color: #166534;
-  border-color: #bbf7d0;
+  background: #f1f5f9;
+  color: #475569;
+  border-color: #cbd5e1;
+}
+
+.credit-evaluation-management--student-info .ce-action-btn--view:hover {
+  background: #e2e8f0;
+  color: #334155;
 }
 
 .credit-evaluation-management--student-info .ce-action-btn--edit {
@@ -732,13 +737,14 @@
 }
 
 .credit-evaluation-management--student-info .ce-action-btn--map {
-  background: var(--admin-danger-soft, #fef2f2);
-  color: #991b1b;
-  border: 1px solid #fecaca;
+  background: #2e7d32;
+  color: #fff;
+  border: 1px solid #2e7d32;
 }
 
 .credit-evaluation-management--student-info .ce-action-btn--map:hover {
-  background: #fee2e2;
+  background: #1b5e20;
+  border-color: #1b5e20;
 }
 
 .ce-student-info-toolbar {
@@ -816,13 +822,14 @@
 }
 
 .ce-action-btn--view {
-  background: #ecfdf5;
-  color: #166534;
-  border-color: #bbf7d0;
+  background: #f1f5f9;
+  color: #475569;
+  border-color: #cbd5e1;
 }
 
 .ce-action-btn--view:hover {
-  background: #dcfce7;
+  background: #e2e8f0;
+  color: #334155;
 }
 
 .ce-action-btn--edit {
@@ -837,13 +844,14 @@
 }
 
 .ce-action-btn--map {
-  background: #f0fdf4;
-  color: #15803d;
-  border-color: #86efac;
+  background: #2e7d32;
+  color: #fff;
+  border-color: #2e7d32;
 }
 
 .ce-action-btn--map:hover {
-  background: #dcfce7;
+  background: #1b5e20;
+  border-color: #1b5e20;
 }
 
 /* Override shared yellow Edit pill inside this action group */
