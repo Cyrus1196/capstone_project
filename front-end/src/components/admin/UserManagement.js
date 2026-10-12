@@ -1259,7 +1259,7 @@ const UserManagement = ({ userScope = 'staff' }) => {
                   <>
                     <th>Email</th>
                     <th>Role</th>
-                    <th>Program</th>
+                    <th>Department / Program</th>
                     <th>Status</th>
                     <th>Contact</th>
                     <th>Access</th>
@@ -1311,7 +1311,17 @@ const UserManagement = ({ userScope = 'staff' }) => {
                     if (user.studentProfile?.program) {
                       return user.studentProfile.program.program_name || 'N/A';
                     }
-                    return '-';
+                    const department =
+                      user.department ||
+                      user.secretary_profile?.department ||
+                      user.secretaryProfile?.department ||
+                      user.dean_profile?.department ||
+                      user.deanProfile?.department ||
+                      user.program_head_profile?.department ||
+                      user.programHeadProfile?.department ||
+                      user.faculty_profile?.department ||
+                      user.facultyProfile?.department;
+                    return department?.department_name || department?.department_code || '-';
                   };
                   
                   return (
