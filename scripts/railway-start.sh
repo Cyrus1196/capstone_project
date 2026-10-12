@@ -138,6 +138,8 @@ php artisan migrate --path=database/migrations/2026_10_09_120000_add_term_to_aca
 
 php artisan migrate --path=database/migrations/2026_10_12_120000_add_evaluation_promote_permission.php --force \
   || echo "WARN: evaluation.promote permission migration skipped or failed."
+php artisan migrate --path=database/migrations/2026_10_12_130000_subject_crediting_full_access_only.php --force \
+  || echo "WARN: subject crediting full-access migration skipped or failed."
 
 php artisan config:cache || true
 php artisan route:cache || true

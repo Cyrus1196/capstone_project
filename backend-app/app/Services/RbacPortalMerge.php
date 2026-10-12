@@ -25,10 +25,7 @@ class RbacPortalMerge
                 'students.edit',
                 'faculty.view',
                 'curriculum.view',
-                // Paper objective: subject crediting among academic advisers
-                'credit_eval.view',
-                'credit_eval.create',
-                'Credit Evaluation',
+                // Subject crediting (credit_eval.*) comes with User permissions → Credit Evaluation → Full access.
             ],
             'Student' => [
                 'students.view',
@@ -102,6 +99,10 @@ class RbacPortalMerge
                 'evaluation.promote',
                 'evaluation.export_pdf',
                 'Student Evaluation',
+                'credit_eval.view',
+                'credit_eval.create',
+                'credit_eval.approve',
+                'Credit Evaluation',
                 'Evaluation Reports',
                 'reports.view',
                 'reports.generate',
