@@ -1277,7 +1277,24 @@ const UserManagement = ({ userScope = 'staff' }) => {
                 </tr>
               ) : (
                 pagedUsers.map((user) => {
+                  const getDepartmentName = () => {
+                    const department =
+                      user.department ||
+                      user.secretary_profile?.department ||
+                      user.secretaryProfile?.department ||
+                      user.dean_profile?.department ||
+                      user.deanProfile?.department ||
+                      user.program_head_profile?.department ||
+                      user.programHeadProfile?.department ||
+                      user.faculty_profile?.department ||
+                      user.facultyProfile?.department;
+                    return department?.department_name || department?.department_code || '';
+                  };
                   const getProgramName = () => {
+                    const roleName = String(getRoleName(user.role_id) || '').toLowerCase();
+                    if (['dean', 'secretary', 'program head'].includes(roleName)) {
+                      return getDepartmentName() || '-';
+                    }
                     if (user.program) {
                       return user.program.program_name || 'N/A';
                     }
@@ -1311,17 +1328,7 @@ const UserManagement = ({ userScope = 'staff' }) => {
                     if (user.studentProfile?.program) {
                       return user.studentProfile.program.program_name || 'N/A';
                     }
-                    const department =
-                      user.department ||
-                      user.secretary_profile?.department ||
-                      user.secretaryProfile?.department ||
-                      user.dean_profile?.department ||
-                      user.deanProfile?.department ||
-                      user.program_head_profile?.department ||
-                      user.programHeadProfile?.department ||
-                      user.faculty_profile?.department ||
-                      user.facultyProfile?.department;
-                    return department?.department_name || department?.department_code || '-';
+                    return getDepartmentName() || '-';
                   };
                   
                   return (
