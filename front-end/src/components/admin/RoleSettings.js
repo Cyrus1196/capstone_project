@@ -25,14 +25,25 @@ const getViewTierPermissionIds = (moduleKey, perms) => {
     .map((p) => Number(p.permission_id));
 };
 
-/** Credit Evaluation "Promote only" tier = view tier + evaluation.promote (no grade edits). */
+/** Grade entry / approvals — everything else in Credit Evaluation stays in "Promote only". */
+const GRADE_EDIT_PERMISSION_NAMES = [
+  'evaluation.create',
+  'evaluation.edit',
+  'evaluation.approve',
+  'credit_eval.approve',
+];
+
+const permissionIdsByName = (perms, names) =>
+  perms.filter((p) => names.includes(p.permission_name)).map((p) => Number(p.permission_id));
+
+/** Credit Evaluation "Promote only" tier (Adviser default): all module ids except grade edits. */
 const getPromoteTierPermissionIds = (moduleKey, perms) => {
   if (moduleKey !== 'evaluation') return [];
-  const promoteIds = perms
-    .filter((p) => p.permission_name === 'evaluation.promote')
-    .map((p) => Number(p.permission_id));
-  if (promoteIds.length === 0) return [];
-  return [...getViewTierPermissionIds(moduleKey, perms), ...promoteIds];
+  if (permissionIdsByName(perms, ['evaluation.promote']).length === 0) return [];
+  const gradeEditIds = permissionIdsByName(perms, GRADE_EDIT_PERMISSION_NAMES);
+  return perms
+    .map((p) => Number(p.permission_id))
+    .filter((id) => !gradeEditIds.includes(id));
 };
 
 const sortNum = (a, b) => a - b;
@@ -823,11 +834,12 @@ const RoleSettings = () => {
                           if (moduleEnabled) {
                             if (sameIdSet(assignedInModule, allIds)) tier = 'full';
                             else if (sameIdSet(assignedInModule, viewTierIds)) tier = 'view';
-                            else if (
-                              promoteTierIds.length > 0 &&
-                              sameIdSet(assignedInModule, promoteTierIds)
-                            ) {
-                              tier = 'promote';
+                            else if (promoteTierIds.length > 0) {
+                              const gradeEditIds = permissionIdsByName(perms, GRADE_EDIT_PERMISSION_NAMES);
+                              const promoteIds = permissionIdsByName(perms, ['evaluation.promote']);
+                              const canPromote = assignedInModule.some((id) => promoteIds.includes(id));
+                              const canEditGrades = assignedInModule.some((id) => gradeEditIds.includes(id));
+                              tier = canPromote && !canEditGrades ? 'promote' : 'mixed';
                             } else tier = 'mixed';
                           }
                           const nestedKey = `${category}::tier_nested::${moduleKey}::${uid}`;
