@@ -17,10 +17,10 @@ class RbacPortalMerge
     public static function portalAlwaysVisiblePermissionNames(?string $roleName): array
     {
         return match ($roleName) {
+            // Default: promote students only — grade entry is granted per user (User permissions → Full access).
             'Adviser' => [
                 'evaluation.view',
-                'evaluation.create',
-                'evaluation.edit',
+                'evaluation.promote',
                 'evaluation.export_pdf',
                 'students.edit',
                 'faculty.view',
@@ -99,6 +99,7 @@ class RbacPortalMerge
                 'evaluation.create',
                 'evaluation.edit',
                 'evaluation.approve',
+                'evaluation.promote',
                 'evaluation.export_pdf',
                 'Student Evaluation',
                 'Evaluation Reports',

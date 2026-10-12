@@ -399,6 +399,26 @@ class TblUser extends Authenticatable implements JWTSubject
             ]);
     }
 
+    /** Enter / change grades and other evaluation writes (User permissions: Credit Evaluation → Full access). */
+    public function canEditStudentGrades(): bool
+    {
+        if ($this->isAdmin()) {
+            return true;
+        }
+
+        return $this->hasAnyPermission([
+            'evaluation.create',
+            'evaluation.edit',
+            'evaluation.approve',
+        ]);
+    }
+
+    /** Promote to next semester; `evaluation.promote` alone = promote only, no grade edits (Adviser default). */
+    public function canPromoteStudents(): bool
+    {
+        return $this->canEditStudentGrades() || $this->hasPermission('evaluation.promote');
+    }
+
     /** Approve or reject transfer / advanced standing credit evaluations. */
     public function canApproveTransferCredits(): bool
     {

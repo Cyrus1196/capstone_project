@@ -41,6 +41,23 @@ class EvaluationAccessMiddleware
             }
         }
 
+        if (in_array($method, ['POST', 'PUT', 'PATCH'], true) && ! $user->canEditStudentGrades()) {
+            $isPromote = $request->is('*evaluation/student/promote-next-semester');
+            // Elective 4 subject pick saved right after promotion (no grade / remark).
+            $isUngradedSubjectPick = $method === 'POST'
+                && $request->is('*evaluation')
+                && $request->input('grade') === null
+                && $request->input('evaluation_status') === null;
+
+            if (! (($isPromote || $isUngradedSubjectPick) && $user->canPromoteStudents())) {
+                return response()->json([
+                    'message' => $user->canPromoteStudents()
+                        ? 'Forbidden — your access is Promote only. You cannot add or change grades.'
+                        : 'Forbidden — your access is View only.',
+                ], 403);
+            }
+        }
+
         // Evaluator / adviser writes are allowed when canWorkOnStudentEvaluations() is true.
         // A tbl_faculty_profile row is optional (used by My Profile / faculty roster), not required to save grades.
 

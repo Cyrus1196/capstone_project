@@ -25,6 +25,16 @@ const getViewTierPermissionIds = (moduleKey, perms) => {
     .map((p) => Number(p.permission_id));
 };
 
+/** Credit Evaluation "Promote only" tier = view tier + evaluation.promote (no grade edits). */
+const getPromoteTierPermissionIds = (moduleKey, perms) => {
+  if (moduleKey !== 'evaluation') return [];
+  const promoteIds = perms
+    .filter((p) => p.permission_name === 'evaluation.promote')
+    .map((p) => Number(p.permission_id));
+  if (promoteIds.length === 0) return [];
+  return [...getViewTierPermissionIds(moduleKey, perms), ...promoteIds];
+};
+
 const sortNum = (a, b) => a - b;
 
 const sameIdSet = (assignedSubset, targetIds) => {
@@ -311,14 +321,16 @@ const RoleSettings = () => {
     );
   };
 
-  const applyModuleAccessTier = (allModuleIds, viewTierIds, tier) => {
+  const applyModuleAccessTier = (allModuleIds, viewTierIds, tier, promoteTierIds = []) => {
     if (permissionsReadOnly) return;
     const allNum = [...new Set(allModuleIds.map(Number))];
     const viewNum = [...new Set(viewTierIds.map(Number))];
+    const promoteNum = [...new Set(promoteTierIds.map(Number))];
     setAssignedIds((prev) => {
       const without = prev.filter((id) => !allNum.includes(Number(id)));
       if (tier === 'none') return without;
       if (tier === 'view') return [...without, ...viewNum];
+      if (tier === 'promote') return [...without, ...promoteNum];
       if (tier === 'full') return [...without, ...allNum];
       return without;
     });
@@ -766,6 +778,7 @@ const RoleSettings = () => {
                         const open = isModuleExpanded(category, moduleKey, perms.length);
                         const allIds = perms.map((p) => Number(p.permission_id));
                         const viewTierIds = getViewTierPermissionIds(moduleKey, perms);
+                        const promoteTierIds = getPromoteTierPermissionIds(moduleKey, perms);
                         const useTierUi = multi && viewTierIds.length > 0;
                         const modulePortal = perms.some((p) =>
                           isPortalPermission(p.permission_id)
@@ -810,7 +823,12 @@ const RoleSettings = () => {
                           if (moduleEnabled) {
                             if (sameIdSet(assignedInModule, allIds)) tier = 'full';
                             else if (sameIdSet(assignedInModule, viewTierIds)) tier = 'view';
-                            else tier = 'mixed';
+                            else if (
+                              promoteTierIds.length > 0 &&
+                              sameIdSet(assignedInModule, promoteTierIds)
+                            ) {
+                              tier = 'promote';
+                            } else tier = 'mixed';
                           }
                           const nestedKey = `${category}::tier_nested::${moduleKey}::${uid}`;
                           const nestedOpen =
@@ -878,6 +896,28 @@ const RoleSettings = () => {
                                     />
                                     <span>VIEW ONLY</span>
                                   </label>
+                                  {promoteTierIds.length > 0 && (
+                                    <label
+                                      className="permission-tier-radio-label"
+                                      title="Can promote students to the next semester but cannot add or edit grades"
+                                    >
+                                      <input
+                                        type="radio"
+                                        name={radioName}
+                                        checked={tier === 'promote'}
+                                        disabled={permissionsReadOnly}
+                                        onChange={() =>
+                                          applyModuleAccessTier(
+                                            allIds,
+                                            viewTierIds,
+                                            'promote',
+                                            promoteTierIds
+                                          )
+                                        }
+                                      />
+                                      <span>PROMOTE ONLY (no grade editing)</span>
+                                    </label>
+                                  )}
                                   <label className="permission-tier-radio-label">
                                     <input
                                       type="radio"

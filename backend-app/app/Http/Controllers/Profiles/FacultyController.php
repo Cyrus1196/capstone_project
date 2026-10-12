@@ -202,7 +202,7 @@ class FacultyController extends Controller
             }
 
             // Grade edits belong to evaluation staff — not every logged-in account.
-            if (! $user->canWorkOnStudentEvaluations()) {
+            if (! $user->canWorkOnStudentEvaluations() || ! $user->canEditStudentGrades()) {
                 return response()->json(['message' => 'Forbidden'], 403);
             }
 

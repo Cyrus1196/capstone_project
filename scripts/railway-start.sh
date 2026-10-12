@@ -136,6 +136,9 @@ php artisan electives:sync-it-prerequisite-chain || echo "WARN: IT elective prer
 php artisan migrate --path=database/migrations/2026_10_09_120000_add_term_to_academic_record_evaluation_complete.php --force \
   || echo "WARN: evaluation-complete term migration skipped or failed."
 
+php artisan migrate --path=database/migrations/2026_10_12_120000_add_evaluation_promote_permission.php --force \
+  || echo "WARN: evaluation.promote permission migration skipped or failed."
+
 php artisan config:cache || true
 php artisan route:cache || true
 

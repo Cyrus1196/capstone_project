@@ -183,6 +183,11 @@ class RBACSeeder extends Seeder
                 'description' => 'Approve student evaluations',
             ],
             [
+                'permission_name' => 'evaluation.promote',
+                'category' => 'Student Evaluation',
+                'description' => 'Promote students to the next semester (no grade editing)',
+            ],
+            [
                 'permission_name' => 'evaluation.export_pdf',
                 'category' => 'Student Evaluation',
                 'description' => 'Download academic evaluation PDF (graded terms)',
@@ -417,6 +422,7 @@ class RBACSeeder extends Seeder
                 'students.view',
                 'evaluation.view',
                 'evaluation.approve',
+                'evaluation.promote',
                 'evaluation.export_pdf',
                 'credit_eval.view',
                 'credit_eval.create',
@@ -428,13 +434,12 @@ class RBACSeeder extends Seeder
                 'reports.view',
                 'reports.generate',
             ],
-            // Adviser: curriculum evaluation, student guidance, and grade entry in the UI.
+            // Adviser: view curriculum evaluation and promote students; no grade entry by default.
             // (Evaluator role was merged into Adviser and voided.)
             'Adviser' => [
                 'Student Evaluation',
                 'evaluation.view',
-                'evaluation.create',
-                'evaluation.edit',
+                'evaluation.promote',
                 'evaluation.export_pdf',
                 'students.edit',
                 'faculty.view',
@@ -463,6 +468,7 @@ class RBACSeeder extends Seeder
                 'evaluation.create',
                 'evaluation.edit',
                 'evaluation.approve',
+                'evaluation.promote',
                 'evaluation.export_pdf',
                 'subjects.view',
                 'subjects.create',
@@ -501,6 +507,7 @@ class RBACSeeder extends Seeder
                 'evaluation.create',
                 'evaluation.edit',
                 'evaluation.approve',
+                'evaluation.promote',
                 'evaluation.export_pdf',
                 'faculty.view',
             ], LookupResourcePermissions::allGranularPermissionNames()),

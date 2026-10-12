@@ -1128,6 +1128,11 @@ const EVALUATION_WORK_PERMS = [
   'evaluation.approve',
 ];
 
+/** Enter / change grades (User permissions: Credit Evaluation → Full access). */
+const GRADE_EDIT_PERMS = ['evaluation.create', 'evaluation.edit', 'evaluation.approve'];
+/** Promote only (Adviser default) can still promote without grade edits. */
+const PROMOTE_PERMS = [...GRADE_EDIT_PERMS, 'evaluation.promote'];
+
 /** Subject equivalence create/edit (evaluation quick modal + catalog maintenance). */
 const SUBJECT_EQUIV_MUTATE_PERMS = [
   'System Management',
@@ -1268,8 +1273,10 @@ const StudentEvaluationView = ({
   }, [user?.display_name, user?.first_name, user?.fname, user?.last_name, user?.lname, user?.email]);
   const { open: systemGuideOpen } = useSystemGuide();
   const canEdit = !!(isAdmin || isFaculty || isProgramHead || hasAnyPermission(EVALUATION_WORK_PERMS));
-  /** Former Evaluator role is now Adviser (Evaluator voided). */
-  const isEvaluatorOnly = false;
+  const canEditGrades = !!(isAdmin || hasAnyPermission(GRADE_EDIT_PERMS));
+  const canPromoteStudents = !!(isAdmin || hasAnyPermission(PROMOTE_PERMS));
+  /** View only / Promote only: evaluation rows are read-only. */
+  const isEvaluatorOnly = canEdit && !canEditGrades;
   const canEditEvaluationRows = canEdit && !isEvaluatorOnly;
   const canEditNumericGrades = canEditEvaluationRows;
   const canManageSubjectEquivalences = isAdmin || hasAnyPermission(SUBJECT_EQUIV_MUTATE_PERMS);
@@ -6690,7 +6697,7 @@ const StudentEvaluationView = ({
       return [term.year_level_name, term.semester_name].filter(Boolean).join(' · ');
     })();
     // Always show the button when editing; Regulars see it disabled (manual promote is irregular-only).
-    const showPromoteAction = canEdit && selectedStudent && !isEvaluatedModule;
+    const showPromoteAction = canEdit && canPromoteStudents && selectedStudent && !isEvaluatedModule;
     const promoteDisabledForRegular = isRegularStudent && !systemGuideOpen;
 
     return (
