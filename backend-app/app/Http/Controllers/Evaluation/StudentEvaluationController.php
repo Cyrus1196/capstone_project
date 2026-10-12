@@ -68,7 +68,7 @@ class StudentEvaluationController extends Controller
                     return $denied;
                 }
 
-                $yearAllowed = $user->mayEvaluateStudentYearLevel(
+                $yearAllowed = ($profile->is_simulation ?? false) || $user->mayEvaluateStudentYearLevel(
                     $this->effectiveEvaluationYearLevelId($profile)
                 );
                 $completedByThisUser = AcademicRecordEvaluationComplete::query()
@@ -128,7 +128,7 @@ class StudentEvaluationController extends Controller
                 return $denied;
             }
 
-            $yearAllowed = $user->mayEvaluateStudentYearLevel(
+            $yearAllowed = ($profile->is_simulation ?? false) || $user->mayEvaluateStudentYearLevel(
                 $this->effectiveEvaluationYearLevelId($profile)
             );
             $completedByThisUser = AcademicRecordEvaluationComplete::query()
@@ -185,30 +185,41 @@ class StudentEvaluationController extends Controller
                 'yearLevel:year_level_id,year_level',
             ]);
 
+            /** Role scope (department / assigned program / year levels) — practice students bypass it. */
+            $scopeFilters = [];
+            $noScopedStudents = false;
+
             // If user is a dean, filter by assigned department; old program assignment is a fallback.
             if ($user->hasRole('Dean')) {
                 $deanProfile = DeanProfile::where('user_id', $user->user_id)->first();
                 if ($deanProfile && $deanProfile->department_id) {
-                    $query->whereHas('program', function ($p) use ($deanProfile) {
-                        $p->where('department_id', $deanProfile->department_id);
-                    });
+                    $scopeFilters[] = function ($q) use ($deanProfile) {
+                        $q->whereHas('program', function ($p) use ($deanProfile) {
+                            $p->where('department_id', $deanProfile->department_id);
+                        });
+                    };
                 } elseif ($deanProfile && $deanProfile->program_id) {
-                    $query->where(function ($q) use ($deanProfile) {
-                        $q->where('Current_Program', $deanProfile->program_id)
-                            ->orWhere('current_program', $deanProfile->program_id);
-                    });
+                    $scopeFilters[] = function ($q) use ($deanProfile) {
+                        $q->where(function ($inner) use ($deanProfile) {
+                            $inner->where('Current_Program', $deanProfile->program_id)
+                                ->orWhere('current_program', $deanProfile->program_id);
+                        });
+                    };
                 }
             }
 
             if ($this->requiresAssignedProgramScope($user)) {
                 $assignedProgramId = $this->assignedEvaluationProgramId($user);
                 if (! $assignedProgramId) {
-                    return response()->json(['students' => []]);
+                    $noScopedStudents = true;
+                } else {
+                    $scopeFilters[] = function ($q) use ($assignedProgramId) {
+                        $q->where(function ($inner) use ($assignedProgramId) {
+                            $inner->where('Current_Program', $assignedProgramId)
+                                ->orWhere('current_program', $assignedProgramId);
+                        });
+                    };
                 }
-                $query->where(function ($q) use ($assignedProgramId) {
-                    $q->where('Current_Program', $assignedProgramId)
-                        ->orWhere('current_program', $assignedProgramId);
-                });
             }
 
             // Apply search filter if provided
@@ -249,18 +260,46 @@ class StudentEvaluationController extends Controller
             $allowedYears = $user->hasRole('Dean') ? null : $user->effectiveEvaluationYearLevelIds();
             if ($allowedYears !== null) {
                 if ($allowedYears === []) {
+                    $noScopedStudents = true;
+                } elseif ($academicRecord === 'completed') {
+                    $scopeFilters[] = function ($q) use ($allowedYears, $user) {
+                        $q->where(function ($inner) use ($allowedYears, $user) {
+                            $inner->whereIn(DB::raw('COALESCE(promotion_target_year_level_id, year_level_id)'), $allowedYears)
+                                ->orWhereIn('student_id', AcademicRecordEvaluationComplete::query()
+                                    ->select('student_id')
+                                    ->where('completed_by', $user->user_id));
+                        });
+                    };
+                } else {
+                    $scopeFilters[] = function ($q) use ($allowedYears) {
+                        $q->whereIn(DB::raw('COALESCE(promotion_target_year_level_id, year_level_id)'), $allowedYears);
+                    };
+                }
+            }
+
+            $applyScope = function ($q) use ($scopeFilters, $noScopedStudents) {
+                if ($noScopedStudents) {
+                    $q->whereRaw('1 = 0');
+
+                    return;
+                }
+                foreach ($scopeFilters as $filter) {
+                    $filter($q);
+                }
+            };
+            $hasSimulationColumn = CachedSchema::hasColumn('tbl_student_profile', 'is_simulation');
+            if ($hasSimulationColumn && $academicRecord !== 'completed') {
+                $query->where(function ($q) use ($applyScope) {
+                    $q->where('is_simulation', true)
+                        ->orWhere(function ($scoped) use ($applyScope) {
+                            $applyScope($scoped);
+                        });
+                });
+            } else {
+                if ($noScopedStudents) {
                     return response()->json(['students' => []]);
                 }
-                if ($academicRecord === 'completed') {
-                    $query->where(function ($q) use ($allowedYears, $user) {
-                        $q->whereIn(DB::raw('COALESCE(promotion_target_year_level_id, year_level_id)'), $allowedYears)
-                            ->orWhereIn('student_id', AcademicRecordEvaluationComplete::query()
-                                ->select('student_id')
-                                ->where('completed_by', $user->user_id));
-                    });
-                } else {
-                    $query->whereIn(DB::raw('COALESCE(promotion_target_year_level_id, year_level_id)'), $allowedYears);
-                }
+                $applyScope($query);
             }
 
             $total = (clone $query)->count();
@@ -396,6 +435,11 @@ class StudentEvaluationController extends Controller
 
         if (! $isStaff) {
             return response()->json(['message' => 'Forbidden'], 403);
+        }
+
+        // Practice ([SIM]) students back the Guide walkthrough for every evaluating role.
+        if ($profile->is_simulation ?? false) {
+            return null;
         }
 
         if ($user->hasRole('Dean')) {

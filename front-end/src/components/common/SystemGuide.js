@@ -70,7 +70,7 @@ function evaluationWalkthroughSteps({ portalName = 'portal' } = {}) {
   return [
     {
       title: 'How evaluation works',
-      body: `Welcome to the ${portalName}. Regular students who passed their term subjects are auto-evaluated and auto-promoted — you normally do not need to open them. This guide walks you through evaluating irregular students (failed, incomplete, or off-track loads).`,
+      body: `Welcome to the ${portalName}. Dean, Program Head, Secretary, and Adviser all evaluate the same way. Regular students who passed their term subjects are auto-evaluated and auto-promoted — you normally do not need to open them. This guide walks you through evaluating irregular students (failed, incomplete, or off-track loads).`,
       target: null,
     },
     {
@@ -107,13 +107,13 @@ function evaluationWalkthroughSteps({ portalName = 'portal' } = {}) {
     },
     {
       title: '3. Record grades',
-      body: 'In the curriculum table, enter or correct grades. Green check = passed, red X = failed, reset when needed. Failed or incomplete subjects keep a student irregular and block auto-promotion.',
+      body: 'In the curriculum table, enter or correct grades. Green check = passed, red X = failed, reset when needed. Failed or incomplete subjects keep a student irregular and block auto-promotion. With Promote only access (Adviser default), grades are read-only — just review them.',
       openTab: 'academic-record',
       target: '[data-tour="evaluation-grades"], [data-tour="page-academic-record"]',
     },
     {
       title: '4. Save grade changes',
-      body: 'If you edited grades, click Save All Changes when the floating bar appears. If the practice student still has blank grades, skip this — Guide mode lets you open Promote as a preview anyway.',
+      body: 'If you edited grades, click Save All Changes when the floating bar appears. If you did not edit grades (or have Promote only access), skip this — Guide mode lets you open Promote as a preview anyway.',
       openTab: 'academic-record',
       target:
         '[data-tour="evaluation-save"], [data-tour="evaluation-grades"], [data-tour="page-academic-record"]',
