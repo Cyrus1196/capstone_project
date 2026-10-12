@@ -24,6 +24,10 @@ export default function ProfilePhotoCard() {
   const [dragging, setDragging] = useState(false);
   const [saving, setSaving] = useState(false);
   const [sourceReady, setSourceReady] = useState(false);
+  /** Image size that just covers the circle at zoom 1 (not the photo's natural pixel size). */
+  const [baseSize, setBaseSize] = useState(null);
+  /** Zoom that fits the whole photo inside the circle (≤ 1). */
+  const [minZoom, setMinZoom] = useState(1);
   const [error, setError] = useState('');
   const imgRef = useRef(null);
   const dragStart = useRef({ x: 0, y: 0, ox: 0, oy: 0 });
@@ -38,6 +42,8 @@ export default function ProfilePhotoCard() {
     setError('');
     setZoom(1);
     setOffset({ x: 0, y: 0 });
+    setBaseSize(null);
+    setMinZoom(1);
     if (sourceUrl && sourceUrl.startsWith('blob:')) {
       URL.revokeObjectURL(sourceUrl);
     }
@@ -67,6 +73,8 @@ export default function ProfilePhotoCard() {
     const url = URL.createObjectURL(file);
     setSourceUrl(url);
     setSourceReady(false);
+    setBaseSize(null);
+    setMinZoom(1);
     setZoom(1);
     setOffset({ x: 0, y: 0 });
     setModalOpen(true);
@@ -75,9 +83,18 @@ export default function ProfilePhotoCard() {
 
   const onSourceLoaded = () => {
     const img = imgRef.current;
-    if (img && img.naturalWidth > 0 && img.naturalHeight > 0) {
-      setSourceReady(true);
-    }
+    const viewport = img?.closest('.profile-photo-modal__viewport');
+    if (!img || !viewport || img.naturalWidth < 1 || img.naturalHeight < 1) return;
+    const vp = viewport.getBoundingClientRect();
+    const nw = img.naturalWidth;
+    const nh = img.naturalHeight;
+    const cover = Math.max(vp.width / nw, vp.height / nh);
+    const contain = Math.min(vp.width / nw, vp.height / nh);
+    setBaseSize({ w: nw * cover, h: nh * cover });
+    setMinZoom(Math.min(1, contain / cover));
+    setZoom(1);
+    setOffset({ x: 0, y: 0 });
+    setSourceReady(true);
   };
 
   const onPointerDown = (e) => {
@@ -132,6 +149,9 @@ export default function ProfilePhotoCard() {
       // Match exactly what the editor shows (CSS cover + pan + zoom). Save a full
       // square crop — circular masks on profile UI apply at display time. Do not bake
       // a circle with white corners or object-fit:cover will misalign the face.
+      // Zoomed out below "cover" leaves empty corners — paint white, not JPEG black.
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, 0, OUTPUT_SIZE, OUTPUT_SIZE);
       const scale = OUTPUT_SIZE / vp.width;
       const drawX = (ir.left - vp.left) * scale;
       const drawY = (ir.top - vp.top) * scale;
@@ -312,6 +332,9 @@ export default function ProfilePhotoCard() {
                     className="profile-photo-modal__source"
                     onLoad={onSourceLoaded}
                     style={{
+                      width: baseSize ? `${baseSize.w}px` : undefined,
+                      height: baseSize ? `${baseSize.h}px` : undefined,
+                      visibility: baseSize ? 'visible' : 'hidden',
                       transform: `translate(-50%, -50%) translate(${offset.x}px, ${offset.y}px) scale(${previewScale})`,
                     }}
                     draggable={false}
@@ -325,7 +348,7 @@ export default function ProfilePhotoCard() {
               <span aria-hidden>−</span>
               <input
                 type="range"
-                min="1"
+                min={minZoom}
                 max="3"
                 step="0.01"
                 value={zoom}
