@@ -3,6 +3,7 @@ import api from '../../api/axios';
 import { useAuth } from '../../context/AuthContext';
 import { swalError, swalSuccess } from '../../utils/swal';
 import CsvImport from './CsvImport';
+import { DATA_EXPORT_PERMISSIONS, DATA_IMPORT_PERMISSIONS } from '../../config/adminPanelTabs';
 import './DataImportExport.css';
 
 async function downloadExport(path, fallbackName) {
@@ -42,20 +43,13 @@ async function downloadExport(path, fallbackName) {
  * Dedicated module for SIS import and directory CSV export.
  */
 const DataImportExport = () => {
-  const { canAccessModule, hasPermission, isAdmin } = useAuth();
-  const [section, setSection] = useState('import');
+  const { canAccessModule, isAdmin } = useAuth();
+  const canImport = isAdmin || canAccessModule(DATA_IMPORT_PERMISSIONS);
+  const canExport = isAdmin || canAccessModule(DATA_EXPORT_PERMISSIONS);
+  const canExportStudents = canExport;
+  const canExportStaff = canExport;
+  const [section, setSection] = useState(() => (canImport || !canExport ? 'import' : 'export'));
   const [exporting, setExporting] = useState('');
-
-  const canImport =
-    isAdmin ||
-    canAccessModule(['Import / Export', 'data.import', 'Student Management', 'students.create', 'students.enroll']);
-  const canExportStudents =
-    isAdmin ||
-    canAccessModule(['Import / Export', 'data.export', 'Student Management', 'students.view']);
-  const canExportStaff =
-    isAdmin ||
-    canAccessModule(['Import / Export', 'data.export', 'User Management', 'users.view']) ||
-    hasPermission('users.view');
 
   const runExport = useCallback(async (key, path, filename) => {
     setExporting(key);
@@ -83,24 +77,28 @@ const DataImportExport = () => {
       </div>
 
       <div className="data-import-export__tabs" role="tablist">
-        <button
-          type="button"
-          role="tab"
-          aria-selected={section === 'import'}
-          className={`data-import-export__tab ${section === 'import' ? 'active' : ''}`}
-          onClick={() => setSection('import')}
-        >
-          Import
-        </button>
-        <button
-          type="button"
-          role="tab"
-          aria-selected={section === 'export'}
-          className={`data-import-export__tab ${section === 'export' ? 'active' : ''}`}
-          onClick={() => setSection('export')}
-        >
-          Export
-        </button>
+        {canImport && (
+          <button
+            type="button"
+            role="tab"
+            aria-selected={section === 'import'}
+            className={`data-import-export__tab ${section === 'import' ? 'active' : ''}`}
+            onClick={() => setSection('import')}
+          >
+            Import
+          </button>
+        )}
+        {canExport && (
+          <button
+            type="button"
+            role="tab"
+            aria-selected={section === 'export'}
+            className={`data-import-export__tab ${section === 'export' ? 'active' : ''}`}
+            onClick={() => setSection('export')}
+          >
+            Export
+          </button>
+        )}
       </div>
 
       <div className="data-import-export__panel" role="tabpanel">

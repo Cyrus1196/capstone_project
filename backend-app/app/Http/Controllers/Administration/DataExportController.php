@@ -21,7 +21,7 @@ class DataExportController extends Controller
     public function students(Request $request): StreamedResponse|\Illuminate\Http\JsonResponse
     {
         $actor = $request->user();
-        if (! $actor?->canExportDirectoryData() && ! $actor?->canAccessUserDirectory()) {
+        if (! $actor?->canExportDirectoryData()) {
             return response()->json(['message' => 'Unauthorized'], 403);
         }
 
@@ -95,7 +95,7 @@ class DataExportController extends Controller
     public function staffUsers(Request $request): StreamedResponse|\Illuminate\Http\JsonResponse
     {
         $actor = $request->user();
-        if (! $actor?->canManageUsers() && ! $actor?->canExportDirectoryData()) {
+        if (! $actor?->canExportDirectoryData()) {
             return response()->json(['message' => 'Unauthorized'], 403);
         }
 

@@ -420,6 +420,7 @@ class RBACSeeder extends Seeder
                 'subjects.view',
                 'prerequisites.view',
                 'students.view',
+                'data.export',
                 'evaluation.view',
                 'evaluation.approve',
                 'evaluation.promote',

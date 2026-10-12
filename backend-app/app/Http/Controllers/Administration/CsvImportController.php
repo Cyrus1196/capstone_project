@@ -1031,6 +1031,10 @@ class CsvImportController extends Controller
                 'semester_id' => 'nullable|integer|exists:tbl_semester,semester_id',
             ]);
 
+            if ($validated['import_type'] === 'sis_grade_deliberation' && ! $request->user()?->canImportSisData()) {
+                return response()->json(['message' => 'You do not have Import access (User permissions → Import / Export).'], 403);
+            }
+
             $ayOverride = $validated['academic_year_id'] ?? null;
             $semOverride = $validated['semester_id'] ?? null;
             if (($ayOverride === null) !== ($semOverride === null)) {
@@ -1194,6 +1198,10 @@ class CsvImportController extends Controller
                 'semester_id' => 'nullable|integer|exists:tbl_semester,semester_id',
                 'row_fixes' => 'nullable|string|max:200000',
             ]);
+
+            if ($validated['import_type'] === 'sis_grade_deliberation' && ! $request->user()?->canImportSisData()) {
+                return response()->json(['message' => 'You do not have Import access (User permissions → Import / Export).'], 403);
+            }
 
             $ayOverride = $validated['academic_year_id'] ?? null;
             $semOverride = $validated['semester_id'] ?? null;

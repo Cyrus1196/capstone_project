@@ -35,16 +35,10 @@ export const STUDENT_MANAGEMENT_TAB_PERMISSIONS = [
   'students.enroll',
 ];
 
-/** SIS import + directory CSV export. */
-export const IMPORT_EXPORT_TAB_PERMISSIONS = [
-  'Import / Export',
-  'data.import',
-  'data.export',
-  'Student Management',
-  'students.create',
-  'students.enroll',
-  'students.view',
-];
+/** SIS import + CSV export. Granted only through User permissions → Import / Export. */
+export const IMPORT_EXPORT_TAB_PERMISSIONS = ['Import / Export', 'data.import', 'data.export'];
+export const DATA_IMPORT_PERMISSIONS = ['Import / Export', 'data.import'];
+export const DATA_EXPORT_PERMISSIONS = ['Import / Export', 'data.export'];
 
 export const ROLE_SETTINGS_TAB_PERMISSIONS = [
   'Role Settings',
@@ -70,7 +64,7 @@ export const CURRICULUM_TAB_PERMISSIONS = [
   'curriculum.approve',
 ];
 
-/** Curriculum header records (lookup.curriculum_headers.*); also under Curriculum in the admin sidebar. */
+/** Curriculum header records (lookup.curriculum_headers.*) — granted with Curriculum Management → Full access. */
 export const CURRICULUM_HEADERS_TAB_PERMISSIONS = [
   'lookup.view',
   'lookup.manage',

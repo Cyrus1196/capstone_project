@@ -651,12 +651,12 @@ class TblUser extends Authenticatable implements JWTSubject
     /** CSV import API (Import / Export module + legacy student create grants). */
     public function canUseCsvImport(): bool
     {
-        if ($this->isEvaluatorLike()) {
-            return false;
+        if ($this->canImportSisData()) {
+            return true;
         }
 
-        if ($this->isAdmin()) {
-            return true;
+        if ($this->isEvaluatorLike()) {
+            return false;
         }
 
         if ($this->hasAnyPermission([
@@ -685,25 +685,24 @@ class TblUser extends Authenticatable implements JWTSubject
         return false;
     }
 
-    /** Directory CSV export (Import / Export module). */
-    public function canExportDirectoryData(): bool
+    /** SIS grade deliberation import (User permissions → Import / Export → Import only / Full access). */
+    public function canImportSisData(): bool
     {
-        if ($this->isEvaluatorLike()) {
-            return false;
-        }
-
         if ($this->isAdmin()) {
             return true;
         }
 
-        return $this->hasAnyPermission([
-            'Import / Export',
-            'data.export',
-            'Student Management',
-            'students.view',
-            'User Management',
-            'users.view',
-        ]);
+        return $this->hasAnyPermission(['Import / Export', 'data.import']);
+    }
+
+    /** CSV exports on the Import / Export page (User permissions → Import / Export → Export only / Full access). */
+    public function canExportDirectoryData(): bool
+    {
+        if ($this->isAdmin()) {
+            return true;
+        }
+
+        return $this->hasAnyPermission(['Import / Export', 'data.export']);
     }
 
     /**

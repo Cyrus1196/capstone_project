@@ -14,6 +14,18 @@ const VIEW_TIER_IDS_RESOLVER = {
     perms
       .filter((p) => p.permission_name === 'system.settings')
       .map((p) => Number(p.permission_id)),
+  data: (perms) =>
+    perms
+      .filter((p) => p.permission_name === 'data.export')
+      .map((p) => Number(p.permission_id)),
+};
+
+/** Import / Export "Import only" tier. The legacy "Import / Export" grant implies both, so it is Full access only. */
+const getImportOnlyPermissionIds = (moduleKey, perms) => {
+  if (moduleKey !== 'data') return [];
+  return perms
+    .filter((p) => p.permission_name === 'data.import')
+    .map((p) => Number(p.permission_id));
 };
 
 const getViewTierPermissionIds = (moduleKey, perms) => {
@@ -57,11 +69,19 @@ const FRIENDLY_PERMISSION_MERGE_INTO = {
   'Student Evaluation': 'evaluation',
   /** Merge with system.settings / system.backup — one "Security Settings" block in the UI */
   'System Management': 'system',
+  /** Legacy module grant + data.import / data.export — one "Import / Export" block */
+  'Import / Export': 'data',
 };
+
+/** Curriculum headers are granted with Curriculum Management → Full access (not a separate Lookup Data item). */
+const CURRICULUM_HEADER_PERMISSION_PREFIX = 'lookup.curriculum_headers.';
 
 const moduleKeyFromPermissionName = (name) => {
   const mergeTarget = FRIENDLY_PERMISSION_MERGE_INTO[name];
   if (mergeTarget) return mergeTarget;
+  if (name.startsWith(CURRICULUM_HEADER_PERMISSION_PREFIX)) {
+    return 'curriculum';
+  }
   const parts = name.split('.');
   if (parts[0] === 'lookup' && parts.length >= 3) {
     return `lookup.${parts[1]}`;
@@ -76,6 +96,7 @@ const moduleKeyFromPermissionName = (name) => {
 /** Dot-prefix module keys → clearer titles (not the same as the user’s role name). */
 const MODULE_LABEL_OVERRIDES = {
   curriculum: 'Curriculum Management',
+  data: 'Import / Export',
   evaluation: 'Credit Evaluation',
   system: 'Security Settings',
   users: 'User Management',
@@ -783,6 +804,8 @@ const RoleSettings = () => {
                         const allIds = perms.map((p) => Number(p.permission_id));
                         const viewTierIds = getViewTierPermissionIds(moduleKey, perms);
                         const promoteTierIds = getPromoteTierPermissionIds(moduleKey, perms);
+                        const importOnlyIds = getImportOnlyPermissionIds(moduleKey, perms);
+                        const isImportExportModule = moduleKey === 'data';
                         const useTierUi = multi && viewTierIds.length > 0;
                         const modulePortal = perms.some((p) =>
                           isPortalPermission(p.permission_id)
@@ -827,7 +850,9 @@ const RoleSettings = () => {
                           if (moduleEnabled) {
                             if (sameIdSet(assignedInModule, allIds)) tier = 'full';
                             else if (sameIdSet(assignedInModule, viewTierIds)) tier = 'view';
-                            else if (promoteTierIds.length > 0) {
+                            else if (importOnlyIds.length > 0 && sameIdSet(assignedInModule, importOnlyIds)) {
+                              tier = 'import';
+                            } else if (promoteTierIds.length > 0) {
                               const assignedNames = perms
                                 .filter((p) => assignedInModule.includes(Number(p.permission_id)))
                                 .map((p) => p.permission_name);
@@ -900,8 +925,22 @@ const RoleSettings = () => {
                                         applyModuleAccessTier(allIds, viewTierIds, 'view')
                                       }
                                     />
-                                    <span>VIEW ONLY</span>
+                                    <span>{isImportExportModule ? 'EXPORT ONLY' : 'VIEW ONLY'}</span>
                                   </label>
+                                  {importOnlyIds.length > 0 && (
+                                    <label className="permission-tier-radio-label">
+                                      <input
+                                        type="radio"
+                                        name={radioName}
+                                        checked={tier === 'import'}
+                                        disabled={permissionsReadOnly}
+                                        onChange={() =>
+                                          applyModuleAccessTier(allIds, importOnlyIds, 'view')
+                                        }
+                                      />
+                                      <span>IMPORT ONLY</span>
+                                    </label>
+                                  )}
                                   {promoteTierIds.length > 0 && (
                                     <label
                                       className="permission-tier-radio-label"
@@ -934,7 +973,13 @@ const RoleSettings = () => {
                                         applyModuleAccessTier(allIds, viewTierIds, 'full')
                                       }
                                     />
-                                    <span>FULL ACCESS</span>
+                                    <span>
+                                      {isImportExportModule
+                                        ? 'FULL ACCESS (import + export)'
+                                        : moduleKey === 'curriculum'
+                                          ? 'FULL ACCESS (includes Curriculum headers)'
+                                          : 'FULL ACCESS'}
+                                    </span>
                                   </label>
                                   {moduleKey === 'evaluation' && yearLevels.length > 0 && (
                                     <div className="permission-eval-year-nested">

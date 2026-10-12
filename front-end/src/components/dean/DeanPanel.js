@@ -140,20 +140,25 @@ const DeanPanel = () => {
   const showLookupTab = canAccessModule(LOOKUP_TAB_PERMISSIONS);
   const showEvaluationReportsTab = canAccessModule(EVALUATION_REPORTS_TAB_PERMISSIONS);
 
+  const showCurriculumHeadersTab = canAccessModule(CURRICULUM_HEADERS_TAB_PERMISSIONS);
+
   const visibleLookupPanels = useMemo(
     () =>
-      LOOKUP_DATA_SIDEBAR_PANELS.filter(
-        (p) =>
+      LOOKUP_DATA_SIDEBAR_PANELS.filter((p) => {
+        // Curriculum headers has its own Administration nav item — keep Lookup Data clean.
+        if (p.panelKey === 'curriculumHeaders' && showCurriculumHeadersTab) {
+          return false;
+        }
+        return (
           isAdmin ||
           hasPermission('lookup.view') ||
           hasPermission('lookup.manage') ||
           hasPermission(`lookup.${p.permissionSlug}.view`) ||
           hasPermission(`lookup.${p.permissionSlug}.manage`)
-      ),
-    [isAdmin, hasPermission]
+        );
+      }),
+    [isAdmin, hasPermission, showCurriculumHeadersTab]
   );
-
-  const showCurriculumHeadersTab = canAccessModule(CURRICULUM_HEADERS_TAB_PERMISSIONS);
   const showAdminCurriculumTab = canAccessModule(CURRICULUM_TAB_PERMISSIONS);
   const showSecurityTab = canAccessModule(SECURITY_TAB_PERMISSIONS);
 

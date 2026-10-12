@@ -140,6 +140,8 @@ php artisan migrate --path=database/migrations/2026_10_12_120000_add_evaluation_
   || echo "WARN: evaluation.promote permission migration skipped or failed."
 php artisan migrate --path=database/migrations/2026_10_12_130000_subject_crediting_full_access_only.php --force \
   || echo "WARN: subject crediting full-access migration skipped or failed."
+php artisan migrate --path=database/migrations/2026_10_12_140000_import_export_and_curriculum_header_permissions.php --force \
+  || echo "WARN: import/export + curriculum header permission migration skipped or failed."
 
 php artisan config:cache || true
 php artisan route:cache || true
