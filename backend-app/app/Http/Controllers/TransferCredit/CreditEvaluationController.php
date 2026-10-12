@@ -29,9 +29,7 @@ class CreditEvaluationController extends Controller
             'credit_eval.view',
             'credit_eval.create',
             'credit_eval.approve',
-        ])
-            || $user->isEvaluatorLike()
-            || $user->hasRole('Secretary');
+        ]);
     }
 
     protected function canCreateCreditEvaluations($user): bool

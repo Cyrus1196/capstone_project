@@ -81,17 +81,8 @@ export const CREDIT_EVALUATION_SIDEBAR_PERMISSIONS = [
   'credit_eval.approve',
 ];
 
-export const ACADEMIC_MANAGEMENT_TAB_PERMISSIONS = [
-  'System Management',
-  'system.settings',
-  'system.backup',
-  'Credit Evaluation',
-  'credit_eval.view',
-  'credit_eval.create',
-  'credit_eval.approve',
-  'prerequisites.view',
-  'prerequisites.manage',
-];
+/** "Student information" (transfer credits) — only with User permissions → Credit Evaluation → Full access. */
+export const ACADEMIC_MANAGEMENT_TAB_PERMISSIONS = CREDIT_EVALUATION_SIDEBAR_PERMISSIONS;
 
 export const EVALUATION_REPORTS_TAB_PERMISSIONS = [
   'Evaluation Reports',
