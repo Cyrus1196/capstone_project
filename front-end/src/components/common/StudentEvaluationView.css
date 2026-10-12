@@ -3001,9 +3001,10 @@ button.eval-code-pill--elective-trigger {
 }
 
 .student-eval-section--cdoc .eval-year-term-grid .eval-code-cell-inner {
-  flex-wrap: nowrap;
+  flex-wrap: wrap;
   align-items: center;
   gap: 0.3rem;
+  min-width: 0;
 }
 
 .student-eval-section--cdoc .eval-year-term-grid .eval-row-equiv-btn {
@@ -3108,6 +3109,20 @@ button.eval-code-pill--elective-trigger {
   display: none;
 }
 
+/* Two semester tables side by side are too narrow below this width (tablets, phones in "Desktop site"). */
+@media (max-width: 1100px) {
+  .student-eval-section--cdoc .eval-year-term-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .student-eval-section--cdoc .eval-term-block--first-sem,
+  .student-eval-section--cdoc .eval-term-block--second-sem,
+  .student-eval-section--cdoc .eval-term-block--summer,
+  .student-eval-section--cdoc .eval-term-block--other-sem {
+    grid-column: 1;
+  }
+}
+
 @media (max-width: 1100px) {
   .student-eval-section--cdoc .eval-student-selector-grid {
     grid-template-columns: minmax(8rem, 1fr) minmax(10rem, 1fr);
@@ -3128,7 +3143,7 @@ button.eval-code-pill--elective-trigger {
   }
 }
 
-@media (max-width: 640px) {
+@media (max-width: 760px) {
   .student-eval-section--cdoc {
     padding: 0.65rem 0.45rem 5.5rem;
     border-radius: 12px;
