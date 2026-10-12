@@ -1,7 +1,7 @@
+/* No box / stacking context: each fixed child (shade, hole, card, nav) uses its own z-index,
+   so the instruction card can sit above open modals (e.g. load plan) instead of behind them. */
 .spotlight-tour {
-  position: fixed;
-  inset: 0;
-  z-index: 10060;
+  display: contents;
   pointer-events: none;
 }
 
