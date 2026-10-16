@@ -64,7 +64,14 @@ function groupGradedRowsBySemester(gradedRows) {
     const ay = Number(a.year_level_id ?? 0);
     const by = Number(b.year_level_id ?? 0);
     if (ay !== by) return ay - by;
-    return Number(a.semester_id ?? 0) - Number(b.semester_id ?? 0);
+    // 1st sem → 2nd sem → summer (id 3), never random order
+    const as = Number(a.semester_id ?? 0);
+    const bs = Number(b.semester_id ?? 0);
+    const aSum = as === 3 || String(a.semester_name || '').toLowerCase().includes('summer');
+    const bSum = bs === 3 || String(b.semester_name || '').toLowerCase().includes('summer');
+    const aOrd = aSum ? 3 : Number.isFinite(as) ? as : 99;
+    const bOrd = bSum ? 3 : Number.isFinite(bs) ? bs : 99;
+    return aOrd - bOrd;
   });
 }
 
@@ -124,16 +131,6 @@ export function getGradedSemesterOptionsFromPayload(data) {
       rowCount: g.rows.length,
     };
   });
-}
-
-function semesterSectionTitle(g) {
-  const yRaw =
-    (g.year_level_name || '').toString().trim() ||
-    (g.year_level_id != null && g.year_level_id !== '' ? `Year ${g.year_level_id}` : 'Year');
-  const sRaw =
-    (g.semester_name || '').toString().trim() ||
-    (g.semester_id != null && g.semester_id !== '' ? `Semester ${g.semester_id}` : 'Semester');
-  return esc(`${yRaw.toUpperCase()} — ${sRaw.toUpperCase()}`);
 }
 
 /**
@@ -199,17 +196,33 @@ function fillReportElement(el, data, renderOpts = {}) {
     semesterGroups = semesterGroups.filter((g) => set.has(semesterGroupKey(g)));
   }
 
+  const yearBuckets = [];
+  for (const g of semesterGroups) {
+    const yearKey = String(g.year_level_id ?? g.year_level_name ?? '');
+    const last = yearBuckets[yearBuckets.length - 1];
+    if (!last || last.yearKey !== yearKey) {
+      const yRaw =
+        (g.year_level_name || '').toString().trim() ||
+        (g.year_level_id != null && g.year_level_id !== '' ? `Year ${g.year_level_id}` : 'Year');
+      yearBuckets.push({ yearKey, yearTitle: yRaw.toUpperCase(), groups: [g] });
+    } else {
+      last.groups.push(g);
+    }
+  }
+
   const semesterBlocksHtml =
-    semesterGroups.length === 0
-      ? `<div style="padding:12px;background:#fff;border:1px solid #000;font-size:${fs};color:#333;">
+    yearBuckets.length === 0
+      ? `<div class="eval-pdf-year" style="padding:12px;background:#fff;border:1px solid #000;font-size:${fs};color:#333;">
           No graded courses for the selected term(s). Choose different semesters or ensure grades are saved.
         </div>`
-      : semesterGroups
-          .map((g) => {
-            const body = g.rows
-              .map(
-                (r) =>
-                  `<tr style="background:#fff;">
+      : yearBuckets
+          .map((year) => {
+            const semHtml = year.groups
+              .map((g) => {
+                const body = g.rows
+                  .map(
+                    (r) =>
+                      `<tr style="background:#fff;">
             <td style="padding:${pad};border:1px solid #000;font-weight:600;color:#000;font-size:${fs};">${esc(r.subject_code || '—')}</td>
             <td style="padding:${pad};border:1px solid #000;font-size:${fs};">${esc(r.subject_name || '—')}</td>
             <td style="padding:${pad};border:1px solid #000;text-align:center;font-size:${fs};">${esc(r.units ?? '—')}</td>
@@ -239,12 +252,17 @@ function fillReportElement(el, data, renderOpts = {}) {
               })()
             )}</td>
           </tr>`
-              )
-              .join('');
-            return `
-        <div style="margin-bottom:${mbBlock};border:1px solid #000;overflow:hidden;">
+                  )
+                  .join('');
+                const sRaw =
+                  (g.semester_name || '').toString().trim() ||
+                  (g.semester_id != null && g.semester_id !== ''
+                    ? `Semester ${g.semester_id}`
+                    : 'Semester');
+                return `
+        <div class="eval-pdf-page-chunk term-block" style="margin-bottom:${mbBlock};border:1px solid #000;overflow:hidden;">
           <div style="background:#e8e8e8;color:#000;padding:${padHead};font-weight:700;font-size:${compact ? '10px' : '12px'};border-bottom:1px solid #000;">
-            ${semesterSectionTitle(g)}
+            ${esc(sRaw.toUpperCase())}
           </div>
           <table style="width:100%;border-collapse:collapse;font-size:${fs};">
             <thead>
@@ -259,30 +277,39 @@ function fillReportElement(el, data, renderOpts = {}) {
             <tbody>${body}</tbody>
           </table>
         </div>`;
+              })
+              .join('');
+            return `
+        <div class="eval-pdf-page-chunk" style="background:#000;color:#fff;padding:${padHead};font-weight:800;font-size:${compact ? '11px' : '13px'};text-transform:uppercase;margin-bottom:8px;">
+          ${esc(year.yearTitle)}
+        </div>
+        ${semHtml}`;
           })
           .join('');
 
   el.innerHTML = `
     <div style="font-family:Arial,Helvetica,sans-serif;font-size:${fs};color:#000;background:#fff;padding:${compact ? '8px' : '12px'};max-width:${maxW};">
-      <h1 style="font-size:${fsH};margin:0 0 8px;color:#000;">Academic evaluation report</h1>
-      <div style="margin-bottom:8px;line-height:1.4;font-size:${fs};">
-        <div><strong>Student:</strong> ${esc(name)}</div>
-        <div><strong>ID:</strong> ${esc(student?.student_id_number || student?.student_number || '—')}</div>
-        <div><strong>Program:</strong> ${esc(student?.program?.program_name || '—')}</div>
-        <div><strong>Record academic status:</strong> ${esc(student?.academic_status || '—')}</div>
-        ${computedHtml}
+      <div class="eval-pdf-page-header">
+        <h1 style="font-size:${fsH};margin:0 0 8px;color:#000;">Academic evaluation report</h1>
+        <div style="margin-bottom:8px;line-height:1.4;font-size:${fs};">
+          <div><strong>Student:</strong> ${esc(name)}</div>
+          <div><strong>ID:</strong> ${esc(student?.student_id_number || student?.student_number || '—')}</div>
+          <div><strong>Program:</strong> ${esc(student?.program?.program_name || '—')}</div>
+          <div><strong>Record academic status:</strong> ${esc(student?.academic_status || '—')}</div>
+          ${computedHtml}
+        </div>
+        ${reasonHtml}
+        <div style="display:flex;flex-wrap:wrap;gap:8px 16px;margin-bottom:8px;font-size:${fsSmall};">
+          <span>Curriculum units: <strong>${esc(summary.total_units_in_curriculum ?? '—')}</strong></span>
+          <span>Earned units: <strong>${esc(summary.total_units_earned ?? '—')}</strong></span>
+          <span>Remaining (units): <strong>${esc(summary.lacking_units ?? '—')}</strong></span>
+        </div>
+        <p style="margin:0 0 8px;font-size:${fsSmall};color:#333;">
+          <strong>Selected graded term(s) only.</strong> Ongoing or unevaluated subjects are omitted.
+        </p>
       </div>
-      ${reasonHtml}
-      <div style="display:flex;flex-wrap:wrap;gap:8px 16px;margin-bottom:8px;font-size:${fsSmall};">
-        <span>Curriculum units: <strong>${esc(summary.total_units_in_curriculum ?? '—')}</strong></span>
-        <span>Earned units: <strong>${esc(summary.total_units_earned ?? '—')}</strong></span>
-        <span>Remaining (units): <strong>${esc(summary.lacking_units ?? '—')}</strong></span>
-      </div>
-      <p style="margin:0 0 8px;font-size:${fsSmall};color:#333;">
-        <strong>Selected graded term(s) only.</strong> Ongoing or unevaluated subjects are omitted.
-      </p>
       ${semesterBlocksHtml}
-      <p style="margin-top:10px;font-size:${fsSmall};color:#333;">Generated from the student information system.</p>
+      <p class="eval-pdf__footer" style="margin-top:10px;font-size:${fsSmall};color:#333;">Generated from the student information system.</p>
     </div>
   `;
 }
