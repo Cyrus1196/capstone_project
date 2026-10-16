@@ -69,11 +69,12 @@
 .eval-download-modal-overlay {
   position: fixed;
   inset: 0;
-  z-index: 1200;
+  /* Above Subject placement FAB (1200) so the preview is not cut off on the right */
+  z-index: 10040;
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 1rem;
+  padding: 0.75rem;
   background: rgba(15, 23, 42, 0.55);
 }
 
@@ -89,31 +90,49 @@
 }
 
 .eval-download-modal--preview {
-  width: min(860px, 100%);
-  max-height: min(920px, calc(100vh - 2rem));
+  width: min(920px, calc(100vw - 1.5rem));
+  max-height: min(94vh, calc(100vh - 1.5rem));
 }
 
 .eval-download-modal__body--preview {
   background: #f1f5f9;
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }
 
 .eval-download-preview {
+  flex: 1 1 auto;
+  min-width: 0;
+  min-height: 0;
   overflow: auto;
-  max-height: min(620px, calc(100vh - 16rem));
   border: 1px solid #cbd5e1;
   border-radius: 12px;
   background: #e2e8f0;
   padding: 0.75rem;
-  display: flex;
-  justify-content: center;
+  width: 100%;
 }
 
 .eval-download-preview .eval-pdf {
-  width: min(794px, 100%) !important;
-  max-width: 100%;
-  padding: 1rem !important;
-  transform-origin: top center;
+  width: 100% !important;
+  max-width: 100% !important;
+  margin: 0 auto;
+  padding: 0.85rem !important;
+  box-sizing: border-box !important;
   box-shadow: 0 4px 24px rgba(15, 23, 42, 0.18);
+}
+
+.eval-download-preview .eval-pdf-year-row,
+.eval-download-preview .eval-pdf-sem-grid,
+.eval-download-preview .term-block {
+  max-width: 100%;
+  min-width: 0;
+}
+
+.eval-download-preview .eval-pdf-sem-grid {
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
 }
 
 .eval-download-modal__header,
