@@ -4082,6 +4082,26 @@ button.eval-code-pill--elective-trigger {
   transition: transform 0.15s ease, background 0.15s ease;
 }
 
+/* Small Facebook-style red badge for open major/minor subjects */
+.eval-standing-fab__badge {
+  position: absolute;
+  top: -0.2rem;
+  right: -0.15rem;
+  min-width: 1.05rem;
+  height: 1.05rem;
+  padding: 0 0.28rem;
+  border-radius: 999px;
+  background: #e11d48;
+  color: #fff;
+  font-size: 0.62rem;
+  font-weight: 800;
+  line-height: 1.05rem;
+  text-align: center;
+  box-shadow: 0 0 0 2px #fff;
+  pointer-events: none;
+}
+}
+
 /* Keep FAB in the corner even when the save bar is visible */
 .eval-standing-fab--raised {
   bottom: max(1.25rem, env(safe-area-inset-bottom, 0px));

@@ -1077,6 +1077,28 @@ function isMajorEvalRow(row) {
   return false;
 }
 
+/** Minor / GE / PED / NSTP / SSP — open offerings notify any program that still needs them. */
+function isMinorEvalRow(row) {
+  if (row?.subject_id == null || row?.subject_id === '') return false;
+  if (isMajorEvalRow(row)) return false;
+  const type = String(row?.subject_type || '')
+    .trim()
+    .toLowerCase();
+  if (
+    type === 'minor' ||
+    type === 'ge' ||
+    type === 'general education' ||
+    type === 'elective' ||
+    type === 'elective subject'
+  ) {
+    return true;
+  }
+  const code = String(row?.subject_code || '')
+    .trim()
+    .toUpperCase();
+  return /^(GEN|PED|NST|SSP|MAT|ART|HIS|ETH|UTS|STS|RZL|CWTS|ROTC)\b/.test(code);
+}
+
 function yearOrdinalFromEvalRow(row, parseYearNumber) {
   if (typeof parseYearNumber === 'function') {
     const n = parseYearNumber(row?.year_level_name, row?.year_level_id);
@@ -3542,6 +3564,34 @@ const StudentEvaluationView = ({
     },
     [offeredSubjectIdsForStanding]
   );
+
+  /**
+   * Facebook-style badge on Subject placement: count open (offered) subjects the student
+   * still needs. Majors are program-scoped via this curriculum; minors (PE, GEN, …) notify
+   * whenever they are offered and still lacking.
+   */
+  const subjectPlacementNotifyCount = useMemo(() => {
+    if (!data?.rows?.length || offeredSubjectIdsForStanding.size === 0) return 0;
+    const seen = new Set();
+    let count = 0;
+    for (const raw of data.rows) {
+      const row = mergedRowsByKey.get(getEvaluationRowKey(raw)) || raw;
+      if (row?.previous_program_only === true || row?.from_previous_program === true) continue;
+      if (isTransferCreditRowForTermGate(row)) continue;
+      if (isEvalRowAlreadyTaken(row)) continue;
+      const sid = row?.subject_id;
+      if (sid == null || sid === '') continue;
+      if (!offeredSubjectIdsForStanding.has(String(sid))) continue;
+      // Major → this program only (already on their curriculum).
+      // Minor / GE → any program that still lacks it is notified when it opens.
+      // Unclassified curriculum rows still count when open.
+      const dedupe = String(sid);
+      if (seen.has(dedupe)) continue;
+      seen.add(dedupe);
+      count += 1;
+    }
+    return count;
+  }, [data?.rows, mergedRowsByKey, offeredSubjectIdsForStanding]);
 
   const priorStandingTakeGate = useCallback(
     (row) =>
@@ -9395,10 +9445,24 @@ const StudentEvaluationView = ({
                 onClick={() => setCurrentStandingPanelOpen((open) => !open)}
                 aria-expanded={currentStandingPanelOpen}
                 aria-controls="eval-standing-fab-title"
-                title="Subject placement — subjects to take this term"
+                title={
+                  subjectPlacementNotifyCount > 0
+                    ? `Subject placement — ${subjectPlacementNotifyCount} open subject${
+                        subjectPlacementNotifyCount === 1 ? '' : 's'
+                      } available`
+                    : 'Subject placement — subjects to take this term'
+                }
               >
                 <i className="fa-solid fa-book-open" aria-hidden />
                 <span>Subject placement</span>
+                {subjectPlacementNotifyCount > 0 ? (
+                  <span
+                    className="eval-standing-fab__badge"
+                    aria-label={`${subjectPlacementNotifyCount} open subjects`}
+                  >
+                    {subjectPlacementNotifyCount > 9 ? '9+' : subjectPlacementNotifyCount}
+                  </span>
+                ) : null}
               </button>
             </>,
             document.body
