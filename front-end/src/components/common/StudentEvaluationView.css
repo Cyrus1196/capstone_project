@@ -4058,14 +4058,14 @@ button.eval-code-pill--elective-trigger {
   line-height: 1.2;
 }
 
-/* Current standing / subject placement FAB — viewport bottom-right corner */
+/* Current standing / subject placement FAB — above standing modal so red badge stays visible */
 .eval-standing-fab {
   position: fixed !important;
   right: max(1.25rem, env(safe-area-inset-right, 0px));
   bottom: max(1.25rem, env(safe-area-inset-bottom, 0px));
   left: auto;
   top: auto;
-  z-index: 1200;
+  z-index: 1250;
   display: inline-flex;
   align-items: center;
   gap: 0.55rem;
@@ -4087,6 +4087,7 @@ button.eval-code-pill--elective-trigger {
   position: absolute;
   top: -0.2rem;
   right: -0.15rem;
+  z-index: 1;
   min-width: 1.05rem;
   height: 1.05rem;
   padding: 0 0.28rem;
@@ -4099,7 +4100,6 @@ button.eval-code-pill--elective-trigger {
   text-align: center;
   box-shadow: 0 0 0 2px #fff;
   pointer-events: none;
-}
 }
 
 /* Keep FAB in the corner even when the save bar is visible */
@@ -4676,7 +4676,8 @@ button.eval-code-pill--elective-trigger {
 }
 
 @media (max-width: 640px) {
-  .eval-standing-fab span {
+  /* Hide label text only — keep the red notif badge visible */
+  .eval-standing-fab > span:not(.eval-standing-fab__badge) {
     display: none;
   }
 

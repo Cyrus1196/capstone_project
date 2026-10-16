@@ -3544,32 +3544,24 @@ const StudentEvaluationView = ({
   );
 
   /**
-   * Facebook-style badge on Subject placement: count open (offered) subjects the student
-   * still needs. Majors are program-scoped via this curriculum; minors (PE, GEN, …) notify
-   * whenever they are offered and still lacking.
+   * Facebook-style badge on Subject placement: count rows that show the OFFERED tag
+   * in the standing panel (same source as the green tags).
    */
   const subjectPlacementNotifyCount = useMemo(() => {
-    if (!data?.rows?.length || offeredSubjectIdsForStanding.size === 0) return 0;
+    if (!currentStandingSubjects.length || offeredSubjectIdsForStanding.size === 0) return 0;
     const seen = new Set();
     let count = 0;
-    for (const raw of data.rows) {
-      const row = mergedRowsByKey.get(getEvaluationRowKey(raw)) || raw;
-      if (row?.previous_program_only === true || row?.from_previous_program === true) continue;
-      if (isTransferCreditRowForTermGate(row)) continue;
-      if (isEvalRowAlreadyTaken(row)) continue;
+    for (const row of currentStandingSubjects) {
+      if (!isSubjectOfferedForStanding(row)) continue;
       const sid = row?.subject_id;
       if (sid == null || sid === '') continue;
-      if (!offeredSubjectIdsForStanding.has(String(sid))) continue;
-      // Major → this program only (already on their curriculum).
-      // Minor / GE → any program that still lacks it is notified when it opens.
-      // Unclassified curriculum rows still count when open.
       const dedupe = String(sid);
       if (seen.has(dedupe)) continue;
       seen.add(dedupe);
       count += 1;
     }
     return count;
-  }, [data?.rows, mergedRowsByKey, offeredSubjectIdsForStanding]);
+  }, [currentStandingSubjects, offeredSubjectIdsForStanding, isSubjectOfferedForStanding]);
 
   const priorStandingTakeGate = useCallback(
     (row) =>
