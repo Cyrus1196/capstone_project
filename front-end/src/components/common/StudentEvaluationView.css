@@ -4058,14 +4058,14 @@ button.eval-code-pill--elective-trigger {
   line-height: 1.2;
 }
 
-/* Current standing / subject placement FAB — above standing modal so red badge stays visible */
+/* Subject placement FAB — below standing modal (modal should cover it when open) */
 .eval-standing-fab {
   position: fixed !important;
   right: max(1.25rem, env(safe-area-inset-right, 0px));
   bottom: max(1.25rem, env(safe-area-inset-bottom, 0px));
   left: auto;
   top: auto;
-  z-index: 1250;
+  z-index: 1050;
   display: inline-flex;
   align-items: center;
   gap: 0.55rem;
