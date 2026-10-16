@@ -1077,28 +1077,6 @@ function isMajorEvalRow(row) {
   return false;
 }
 
-/** Minor / GE / PED / NSTP / SSP — open offerings notify any program that still needs them. */
-function isMinorEvalRow(row) {
-  if (row?.subject_id == null || row?.subject_id === '') return false;
-  if (isMajorEvalRow(row)) return false;
-  const type = String(row?.subject_type || '')
-    .trim()
-    .toLowerCase();
-  if (
-    type === 'minor' ||
-    type === 'ge' ||
-    type === 'general education' ||
-    type === 'elective' ||
-    type === 'elective subject'
-  ) {
-    return true;
-  }
-  const code = String(row?.subject_code || '')
-    .trim()
-    .toUpperCase();
-  return /^(GEN|PED|NST|SSP|MAT|ART|HIS|ETH|UTS|STS|RZL|CWTS|ROTC)\b/.test(code);
-}
-
 function yearOrdinalFromEvalRow(row, parseYearNumber) {
   if (typeof parseYearNumber === 'function') {
     const n = parseYearNumber(row?.year_level_name, row?.year_level_id);
