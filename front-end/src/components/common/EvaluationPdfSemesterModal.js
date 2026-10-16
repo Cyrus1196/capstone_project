@@ -53,8 +53,8 @@ const EvaluationPdfSemesterModal = ({ open, onClose, options, loading, onConfirm
       <div ref={dialogRef} className="eval-pdf-modal" tabIndex="-1">
         <h3 id="eval-pdf-modal-title">Choose semesters for the PDF</h3>
         <p className="eval-pdf-modal-hint">
-          Only terms with graded courses are listed. For one or two semesters, the PDF uses a compact
-          layout and tries to fit on one sheet when possible.
+          Only terms with graded courses are listed. The PDF is black and white to keep the file small.
+          For one or two semesters, it uses a compact layout when possible.
         </p>
         {!options?.length ? (
           <p className="eval-pdf-modal-empty">

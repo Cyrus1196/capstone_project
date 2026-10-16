@@ -1,10 +1,9 @@
 import React, { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import { createPortal } from 'react-dom';
-import html2canvas from 'html2canvas';
-import { jsPDF } from 'jspdf';
 import api from '../../api/axios';
 import { useAuth } from '../../context/AuthContext';
 import { swalToast, swalError, swalConfirm, swalInfo } from '../../utils/swal';
+import { downloadBwHtmlAsPdf } from '../../utils/evaluationBwPdf';
 import { useSystemGuide } from './SystemGuide';
 import PromoteSemesterModal from './PromoteSemesterModal';
 import SearchableSelect from './SearchableSelect';
@@ -150,6 +149,187 @@ function htmlEscape(value) {
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#039;');
+}
+
+/** Black-and-white staff evaluation report HTML (preview + PDF). */
+function buildStaffEvaluationReportHtml({
+  studentName,
+  studentNumber,
+  programLabel,
+  trackLabel,
+  academicStatus,
+  studentEntryType,
+  selectedLabel,
+  summary,
+  termBlocks,
+  generatedBy,
+  generatedAt,
+}) {
+  return `
+      <style>
+        .eval-pdf {
+          box-sizing: border-box;
+          width: 980px;
+          padding: 28px;
+          background: #fff;
+          color: #000;
+          font-family: Arial, Helvetica, sans-serif;
+          font-size: 12px;
+        }
+        .eval-pdf * { box-sizing: border-box; }
+        .eval-pdf__header {
+          display: flex;
+          justify-content: space-between;
+          gap: 18px;
+          border-bottom: 2px solid #000;
+          padding-bottom: 14px;
+          margin-bottom: 16px;
+        }
+        .eval-pdf__school {
+          font-size: 19px;
+          font-weight: 800;
+          color: #000;
+          margin: 0;
+        }
+        .eval-pdf__sub {
+          margin-top: 3px;
+          color: #333;
+          font-size: 11px;
+          text-transform: uppercase;
+          letter-spacing: 0.06em;
+        }
+        .eval-pdf__title {
+          text-align: right;
+          font-size: 22px;
+          font-weight: 800;
+          color: #000;
+        }
+        .eval-pdf__meta {
+          display: grid;
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+          gap: 8px 18px;
+          padding: 12px;
+          border: 1px solid #000;
+          background: #fff;
+          margin-bottom: 14px;
+        }
+        .eval-pdf__meta div span {
+          display: block;
+          color: #444;
+          font-size: 10px;
+          text-transform: uppercase;
+          letter-spacing: 0.05em;
+        }
+        .eval-pdf__meta div strong {
+          display: block;
+          color: #000;
+          margin-top: 2px;
+        }
+        .eval-pdf__summary {
+          display: grid;
+          grid-template-columns: repeat(3, minmax(0, 1fr));
+          gap: 8px;
+          margin-bottom: 14px;
+        }
+        .eval-pdf__summary div {
+          border: 1px solid #000;
+          padding: 8px 10px;
+          text-align: center;
+          background: #fff;
+        }
+        .eval-pdf__summary span {
+          display: block;
+          color: #444;
+          font-size: 10px;
+          margin-bottom: 3px;
+        }
+        .eval-pdf__summary strong {
+          font-size: 14px;
+          color: #000;
+        }
+        .term-block {
+          margin: 0 0 14px;
+          page-break-inside: avoid;
+        }
+        .term-block h2 {
+          margin: 0;
+          padding: 8px 10px;
+          background: #e8e8e8;
+          border: 1px solid #000;
+          border-bottom: 0;
+          color: #000;
+          font-size: 13px;
+          text-transform: uppercase;
+        }
+        table {
+          width: 100%;
+          border-collapse: collapse;
+          table-layout: fixed;
+        }
+        th, td {
+          border: 1px solid #000;
+          padding: 7px 8px;
+          vertical-align: top;
+          word-break: break-word;
+          color: #000;
+          background: #fff;
+        }
+        th {
+          background: #f0f0f0;
+          text-align: left;
+          font-size: 11px;
+          text-transform: uppercase;
+        }
+        th:nth-child(1), td:nth-child(1) { width: 14%; }
+        th:nth-child(3), td:nth-child(3) { width: 9%; }
+        th:nth-child(4), td:nth-child(4) { width: 10%; }
+        th:nth-child(5), td:nth-child(5) { width: 13%; }
+        tfoot td {
+          background: #f5f5f5;
+          text-align: right;
+        }
+        .code {
+          color: #000;
+          font-weight: 700;
+        }
+        .center {
+          text-align: center;
+        }
+        .eval-pdf__footer {
+          margin-top: 16px;
+          color: #333;
+          font-size: 10px;
+          text-align: right;
+        }
+      </style>
+      <div class="eval-pdf">
+        <header class="eval-pdf__header">
+          <div>
+            <p class="eval-pdf__school">Cagayan de Oro College</p>
+            <div class="eval-pdf__sub">PHINMA Education</div>
+          </div>
+          <div class="eval-pdf__title">Student Evaluation</div>
+        </header>
+        <section class="eval-pdf__meta">
+          <div><span>Student Name</span><strong>${htmlEscape(studentName)}</strong></div>
+          <div><span>Student ID Number</span><strong>${htmlEscape(studentNumber)}</strong></div>
+          <div><span>Program</span><strong>${htmlEscape(programLabel)}</strong></div>
+          <div><span>Track</span><strong>${htmlEscape(trackLabel)}</strong></div>
+          <div><span>Academic Status</span><strong>${htmlEscape(academicStatus)}</strong></div>
+          ${studentEntryType ? `<div><span>Student Type</span><strong>${htmlEscape(studentEntryType)}</strong></div>` : ''}
+          <div><span>Downloaded Terms</span><strong>${htmlEscape(selectedLabel)}</strong></div>
+        </section>
+        <section class="eval-pdf__summary">
+          <div><span>Curriculum Units</span><strong>${htmlEscape(summary?.total_units_in_curriculum ?? 0)}</strong></div>
+          <div><span>Earned</span><strong>${htmlEscape(summary?.total_units_earned ?? 0)}</strong></div>
+          <div><span>Remaining</span><strong>${htmlEscape(summary?.lacking_units ?? 0)}</strong></div>
+        </section>
+        ${termBlocks}
+        <div class="eval-pdf__footer">
+          Generated by ${htmlEscape(generatedBy || 'N/A')} on ${htmlEscape(generatedAt)}
+        </div>
+      </div>
+    `;
 }
 
 function evaluationTermKeyFromParts(yearLevelId, semesterId) {
@@ -1337,6 +1517,9 @@ const StudentEvaluationView = ({
   const [electiveSubjectPopoverKey, setElectiveSubjectPopoverKey] = useState(null);
   const [electiveTrackDrafts, setElectiveTrackDrafts] = useState({});
   const [downloadModalOpen, setDownloadModalOpen] = useState(false);
+  /** options = term picker (same format as before); preview = B&W report before download */
+  const [downloadModalStep, setDownloadModalStep] = useState('options');
+  const [downloadPreviewHtml, setDownloadPreviewHtml] = useState('');
   const [downloadScope, setDownloadScope] = useState('all');
   const [downloadSelectedTermKeys, setDownloadSelectedTermKeys] = useState([]);
   const [downloadingPdf, setDownloadingPdf] = useState(false);
@@ -6085,13 +6268,14 @@ const StudentEvaluationView = ({
     }
     setDownloadScope('all');
     setDownloadSelectedTermKeys(downloadTermOptions.map((option) => option.key));
+    setDownloadModalStep('options');
+    setDownloadPreviewHtml('');
     setDownloadModalOpen(true);
   }, [data?.rows, data?.student, downloadTermOptions]);
 
-  const handleDownloadEvaluationPdf = useCallback(async () => {
+  const buildDownloadReportPayload = useCallback(() => {
     if (!data?.student || !Array.isArray(data.rows) || data.rows.length === 0) {
-      swalToast('info', 'Select a student with curriculum rows first.');
-      return;
+      return { error: 'Select a student with curriculum rows first.' };
     }
 
     const student = data.student;
@@ -6141,8 +6325,7 @@ const StudentEvaluationView = ({
       });
 
     if (rows.length === 0) {
-      swalToast('info', 'No curriculum rows found for the selected download option.');
-      return;
+      return { error: 'No curriculum rows found for the selected download option.' };
     }
 
     const grouped = rows.reduce((acc, row) => {
@@ -6204,226 +6387,29 @@ const StudentEvaluationView = ({
       })
       .join('');
 
-    const el = document.createElement('div');
-    el.setAttribute('aria-hidden', 'true');
-    Object.assign(el.style, {
-      position: 'fixed',
-      left: '-12000px',
-      top: '0',
-      width: '980px',
-      background: '#ffffff',
+    const html = buildStaffEvaluationReportHtml({
+      studentName,
+      studentNumber,
+      programLabel,
+      trackLabel,
+      academicStatus: data.computed_academic_status || student.academic_status || 'N/A',
+      studentEntryType: student.student_entry_type || '',
+      selectedLabel,
+      summary: data.summary,
+      termBlocks,
+      generatedBy: user?.email || 'N/A',
+      generatedAt,
     });
-    el.innerHTML = `
-      <style>
-        .eval-pdf {
-          box-sizing: border-box;
-          width: 980px;
-          padding: 28px;
-          background: #fff;
-          color: #111827;
-          font-family: Arial, Helvetica, sans-serif;
-          font-size: 12px;
-        }
-        .eval-pdf * { box-sizing: border-box; }
-        .eval-pdf__header {
-          display: flex;
-          justify-content: space-between;
-          gap: 18px;
-          border-bottom: 3px solid #245f93;
-          padding-bottom: 14px;
-          margin-bottom: 16px;
-        }
-        .eval-pdf__school {
-          font-size: 19px;
-          font-weight: 800;
-          color: #0f172a;
-          margin: 0;
-        }
-        .eval-pdf__sub {
-          margin-top: 3px;
-          color: #475569;
-          font-size: 11px;
-          text-transform: uppercase;
-          letter-spacing: 0.06em;
-        }
-        .eval-pdf__title {
-          text-align: right;
-          font-size: 22px;
-          font-weight: 800;
-          color: #245f93;
-        }
-        .eval-pdf__meta {
-          display: grid;
-          grid-template-columns: repeat(2, minmax(0, 1fr));
-          gap: 8px 18px;
-          padding: 12px;
-          border: 1px solid #dbe7f3;
-          background: #f8fbff;
-          border-radius: 10px;
-          margin-bottom: 14px;
-        }
-        .eval-pdf__meta div span {
-          display: block;
-          color: #64748b;
-          font-size: 10px;
-          text-transform: uppercase;
-          letter-spacing: 0.05em;
-        }
-        .eval-pdf__meta div strong {
-          display: block;
-          color: #111827;
-          margin-top: 2px;
-        }
-        .eval-pdf__summary {
-          display: grid;
-          grid-template-columns: repeat(3, minmax(0, 1fr));
-          gap: 8px;
-          margin-bottom: 14px;
-        }
-        .eval-pdf__summary div {
-          border: 1px solid #dbe7f3;
-          border-radius: 9px;
-          padding: 8px 10px;
-          text-align: center;
-          background: #ffffff;
-        }
-        .eval-pdf__summary span {
-          display: block;
-          color: #64748b;
-          font-size: 10px;
-          margin-bottom: 3px;
-        }
-        .eval-pdf__summary strong {
-          font-size: 14px;
-          color: #245f93;
-        }
-        .term-block {
-          margin: 0 0 14px;
-          page-break-inside: avoid;
-        }
-        .term-block h2 {
-          margin: 0;
-          padding: 8px 10px;
-          background: #eaf4ff;
-          border: 1px solid #bfdbfe;
-          border-bottom: 0;
-          border-radius: 8px 8px 0 0;
-          color: #254a6e;
-          font-size: 13px;
-          text-transform: uppercase;
-        }
-        table {
-          width: 100%;
-          border-collapse: collapse;
-          table-layout: fixed;
-        }
-        th, td {
-          border: 1px solid #d7e3ef;
-          padding: 7px 8px;
-          vertical-align: top;
-          word-break: break-word;
-        }
-        th {
-          background: #f1f7fd;
-          color: #334155;
-          text-align: left;
-          font-size: 11px;
-          text-transform: uppercase;
-        }
-        th:nth-child(1), td:nth-child(1) { width: 14%; }
-        th:nth-child(3), td:nth-child(3) { width: 9%; }
-        th:nth-child(4), td:nth-child(4) { width: 10%; }
-        th:nth-child(5), td:nth-child(5) { width: 13%; }
-        tfoot td {
-          background: #f8fafc;
-          text-align: right;
-        }
-        .code {
-          color: #1d4ed8;
-          font-weight: 700;
-        }
-        .center {
-          text-align: center;
-        }
-        .eval-pdf__footer {
-          margin-top: 16px;
-          color: #64748b;
-          font-size: 10px;
-          text-align: right;
-        }
-      </style>
-      <div class="eval-pdf">
-        <header class="eval-pdf__header">
-          <div>
-            <p class="eval-pdf__school">Cagayan de Oro College</p>
-            <div class="eval-pdf__sub">PHINMA Education</div>
-          </div>
-          <div class="eval-pdf__title">Student Evaluation</div>
-        </header>
-        <section class="eval-pdf__meta">
-          <div><span>Student Name</span><strong>${htmlEscape(studentName)}</strong></div>
-          <div><span>Student ID Number</span><strong>${htmlEscape(studentNumber)}</strong></div>
-          <div><span>Program</span><strong>${htmlEscape(programLabel)}</strong></div>
-          <div><span>Track</span><strong>${htmlEscape(trackLabel)}</strong></div>
-          <div><span>Academic Status</span><strong>${htmlEscape(data.computed_academic_status || student.academic_status || 'N/A')}</strong></div>
-          ${student.student_entry_type ? `<div><span>Student Type</span><strong>${htmlEscape(student.student_entry_type)}</strong></div>` : ''}
-          <div><span>Downloaded Terms</span><strong>${htmlEscape(selectedLabel)}</strong></div>
-        </section>
-        <section class="eval-pdf__summary">
-          <div><span>Curriculum Units</span><strong>${htmlEscape(data.summary?.total_units_in_curriculum ?? 0)}</strong></div>
-          <div><span>Earned</span><strong>${htmlEscape(data.summary?.total_units_earned ?? 0)}</strong></div>
-          <div><span>Remaining</span><strong>${htmlEscape(data.summary?.lacking_units ?? 0)}</strong></div>
-        </section>
-        ${termBlocks}
-        <div class="eval-pdf__footer">
-          Generated by ${htmlEscape(user?.email || 'N/A')} on ${htmlEscape(generatedAt)}
-        </div>
-      </div>
-    `;
 
-    document.body.appendChild(el);
-    setDownloadingPdf(true);
-    try {
-      const canvas = await html2canvas(el, {
-        scale: 2,
-        useCORS: true,
-        logging: false,
-      });
-      const imgData = canvas.toDataURL('image/png');
-      const pdf = new jsPDF({ unit: 'mm', format: 'a4', orientation: 'landscape' });
-      const pdfWidth = pdf.internal.pageSize.getWidth();
-      const pdfHeight = pdf.internal.pageSize.getHeight();
-      const imgWidth = pdfWidth;
-      const imgHeight = (canvas.height * imgWidth) / canvas.width;
-      let heightLeft = imgHeight;
-      let position = 0;
+    const scopeSuffix =
+      downloadScope === 'all'
+        ? 'all'
+        : downloadScope === 'current'
+          ? 'current-term'
+          : 'selected-terms';
+    const filename = `${safeDownloadName(`${studentNumber}-${studentName}`)}-evaluation-${scopeSuffix}.pdf`;
 
-      pdf.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight);
-      heightLeft -= pdfHeight;
-
-      while (heightLeft > 0) {
-        position = heightLeft - imgHeight;
-        pdf.addPage(undefined, 'landscape');
-        pdf.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight);
-        heightLeft -= pdfHeight;
-      }
-
-      const scopeSuffix =
-        downloadScope === 'all'
-          ? 'all'
-          : downloadScope === 'current'
-            ? 'current-term'
-            : 'selected-terms';
-      const filename = `${safeDownloadName(`${studentNumber}-${studentName}`)}-evaluation-${scopeSuffix}.pdf`;
-      pdf.save(filename);
-      setDownloadModalOpen(false);
-      swalToast('success', 'Student evaluation PDF downloaded.');
-    } catch (err) {
-      await swalError('Could not create PDF', err?.message || 'Unknown error');
-    } finally {
-      setDownloadingPdf(false);
-      document.body.removeChild(el);
-    }
+    return { html, filename, studentName, studentNumber };
   }, [
     currentDownloadTermKey,
     data,
@@ -6434,6 +6420,43 @@ const StudentEvaluationView = ({
     selectedStudent,
     user?.email,
   ]);
+
+  const handlePreviewEvaluationDownload = useCallback(() => {
+    const payload = buildDownloadReportPayload();
+    if (payload.error) {
+      swalToast('info', payload.error);
+      return;
+    }
+    setDownloadPreviewHtml(payload.html);
+    setDownloadModalStep('preview');
+  }, [buildDownloadReportPayload]);
+
+  const handleDownloadEvaluationPdf = useCallback(async () => {
+    const payload = buildDownloadReportPayload();
+    if (payload.error) {
+      swalToast('info', payload.error);
+      return;
+    }
+
+    setDownloadingPdf(true);
+    try {
+      await downloadBwHtmlAsPdf(payload.html, {
+        filename: payload.filename,
+        widthPx: 980,
+        scale: 1.35,
+        orientation: 'landscape',
+        jpegQuality: 0.7,
+      });
+      setDownloadModalOpen(false);
+      setDownloadModalStep('options');
+      setDownloadPreviewHtml('');
+      swalToast('success', 'Student evaluation PDF downloaded (black & white).');
+    } catch (err) {
+      await swalError('Could not create PDF', err?.message || 'Unknown error');
+    } finally {
+      setDownloadingPdf(false);
+    }
+  }, [buildDownloadReportPayload]);
 
   /** ST-403: spreadsheet export (CSV opens in Excel). */
   const handleDownloadEvaluationCsv = useCallback(() => {
@@ -9264,16 +9287,29 @@ const StudentEvaluationView = ({
 
       {downloadModalOpen && (
         <div className="eval-download-modal-overlay" role="presentation">
-          <div className="eval-download-modal" role="dialog" aria-modal="true" aria-labelledby="eval-download-title">
+          <div
+            className={`eval-download-modal${downloadModalStep === 'preview' ? ' eval-download-modal--preview' : ''}`}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="eval-download-title"
+          >
             <div className="eval-download-modal__header">
               <div>
-                <p className="eval-download-modal__eyebrow">PDF / Excel / CSV export</p>
-                <h3 id="eval-download-title">Download Evaluation</h3>
+                <p className="eval-download-modal__eyebrow">
+                  {downloadModalStep === 'preview' ? 'BLACK & WHITE PREVIEW' : 'PDF / EXCEL / CSV EXPORT'}
+                </p>
+                <h3 id="eval-download-title">
+                  {downloadModalStep === 'preview' ? 'Preview evaluation' : 'Download Evaluation'}
+                </h3>
               </div>
               <button
                 type="button"
                 className="eval-download-modal__close"
-                onClick={() => setDownloadModalOpen(false)}
+                onClick={() => {
+                  setDownloadModalOpen(false);
+                  setDownloadModalStep('options');
+                  setDownloadPreviewHtml('');
+                }}
                 disabled={downloadingPdf || downloadingCsv}
                 aria-label="Close download dialog"
               >
@@ -9281,119 +9317,160 @@ const StudentEvaluationView = ({
               </button>
             </div>
 
-            <div className="eval-download-modal__body">
-              <p className="eval-download-modal__hint">
-                Choose which terms to include, then download as PDF or Export to Excel/CSV.
-              </p>
+            {downloadModalStep === 'options' ? (
+              <>
+                <div className="eval-download-modal__body">
+                  <p className="eval-download-modal__hint">
+                    Choose which terms to include, then preview before downloading. PDF exports are black and white to keep the file small.
+                  </p>
 
-              <label className="eval-download-option">
-                <input
-                  type="radio"
-                  name="downloadScope"
-                  value="all"
-                  checked={downloadScope === 'all'}
-                  onChange={() => setDownloadScope('all')}
-                  disabled={downloadingPdf || downloadingCsv}
-                />
-                <span>
-                  <strong>All terms</strong>
-                  <small>Download the full curriculum evaluation.</small>
-                </span>
-              </label>
+                  <label className="eval-download-option">
+                    <input
+                      type="radio"
+                      name="downloadScope"
+                      value="all"
+                      checked={downloadScope === 'all'}
+                      onChange={() => setDownloadScope('all')}
+                      disabled={downloadingPdf || downloadingCsv}
+                    />
+                    <span>
+                      <strong>All terms</strong>
+                      <small>Download the full curriculum evaluation.</small>
+                    </span>
+                  </label>
 
-              <label className={`eval-download-option${!currentDownloadTermLabel ? ' is-disabled' : ''}`}>
-                <input
-                  type="radio"
-                  name="downloadScope"
-                  value="current"
-                  checked={downloadScope === 'current'}
-                  onChange={() => setDownloadScope('current')}
-                  disabled={downloadingPdf || downloadingCsv || !currentDownloadTermLabel}
-                />
-                <span>
-                  <strong>Current selected term</strong>
-                  <small>{currentDownloadTermLabel || 'Select a year and semester first.'}</small>
-                </span>
-              </label>
+                  <label className={`eval-download-option${!currentDownloadTermLabel ? ' is-disabled' : ''}`}>
+                    <input
+                      type="radio"
+                      name="downloadScope"
+                      value="current"
+                      checked={downloadScope === 'current'}
+                      onChange={() => setDownloadScope('current')}
+                      disabled={downloadingPdf || downloadingCsv || !currentDownloadTermLabel}
+                    />
+                    <span>
+                      <strong>Current selected term</strong>
+                      <small>{currentDownloadTermLabel || 'Select a year and semester first.'}</small>
+                    </span>
+                  </label>
 
-              <label className="eval-download-option">
-                <input
-                  type="radio"
-                  name="downloadScope"
-                  value="specific"
-                  checked={downloadScope === 'specific'}
-                  onChange={() => setDownloadScope('specific')}
-                  disabled={downloadingPdf || downloadingCsv}
-                />
-                <span>
-                  <strong>Specific terms</strong>
-                  <small>Pick one or more year/semester sections.</small>
-                </span>
-              </label>
+                  <label className="eval-download-option">
+                    <input
+                      type="radio"
+                      name="downloadScope"
+                      value="specific"
+                      checked={downloadScope === 'specific'}
+                      onChange={() => setDownloadScope('specific')}
+                      disabled={downloadingPdf || downloadingCsv}
+                    />
+                    <span>
+                      <strong>Specific terms</strong>
+                      <small>Pick one or more year/semester sections.</small>
+                    </span>
+                  </label>
 
-              {downloadScope === 'specific' && (
-                <div className="eval-download-term-list">
-                  <div className="eval-download-term-list__actions">
+                  {downloadScope === 'specific' && (
+                    <div className="eval-download-term-list">
+                      <div className="eval-download-term-list__actions">
+                        <button
+                          type="button"
+                          onClick={() => setDownloadSelectedTermKeys(downloadTermOptions.map((option) => option.key))}
+                          disabled={downloadingPdf || downloadingCsv}
+                        >
+                          Select all
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setDownloadSelectedTermKeys([])}
+                          disabled={downloadingPdf || downloadingCsv}
+                        >
+                          Clear term selection
+                        </button>
+                      </div>
+                      {downloadTermOptions.map((option) => (
+                        <label key={option.key} className="eval-download-term-check">
+                          <input
+                            type="checkbox"
+                            checked={downloadSelectedTermKeys.includes(option.key)}
+                            onChange={() => toggleDownloadTermKey(option.key)}
+                            disabled={downloadingPdf || downloadingCsv}
+                          />
+                          <span>{option.label}</span>
+                          <small>{option.rowCount} subject(s)</small>
+                        </label>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                <div className="eval-download-modal__footer">
+                  <span>{selectedDownloadCount} term(s) selected</span>
+                  <div className="eval-download-modal__footer-actions">
                     <button
                       type="button"
-                      onClick={() => setDownloadSelectedTermKeys(downloadTermOptions.map((option) => option.key))}
+                      className="eval-download-modal__cancel"
+                      onClick={() => setDownloadModalOpen(false)}
                       disabled={downloadingPdf || downloadingCsv}
                     >
-                      Select all
+                      Cancel
                     </button>
                     <button
                       type="button"
-                      onClick={() => setDownloadSelectedTermKeys([])}
-                      disabled={downloadingPdf || downloadingCsv}
+                      className="eval-download-modal__download"
+                      onClick={handlePreviewEvaluationDownload}
+                      disabled={downloadingPdf || downloadingCsv || selectedDownloadCount < 1}
                     >
-                      Clear term selection
+                      Preview
                     </button>
                   </div>
-                  {downloadTermOptions.map((option) => (
-                    <label key={option.key} className="eval-download-term-check">
-                      <input
-                        type="checkbox"
-                        checked={downloadSelectedTermKeys.includes(option.key)}
-                        onChange={() => toggleDownloadTermKey(option.key)}
-                        disabled={downloadingPdf || downloadingCsv}
-                      />
-                      <span>{option.label}</span>
-                      <small>{option.rowCount} subject(s)</small>
-                    </label>
-                  ))}
                 </div>
-              )}
-            </div>
+              </>
+            ) : (
+              <>
+                <div className="eval-download-modal__body eval-download-modal__body--preview">
+                  <p className="eval-download-modal__hint">
+                    Review the black-and-white report below. Download PDF or Export to Excel/CSV when ready.
+                  </p>
+                  <div
+                    className="eval-download-preview"
+                    dangerouslySetInnerHTML={{ __html: downloadPreviewHtml }}
+                  />
+                </div>
 
-            <div className="eval-download-modal__footer">
-              <span>{selectedDownloadCount} term(s) selected</span>
-              <div className="eval-download-modal__footer-actions">
-                <button
-                  type="button"
-                  className="eval-download-modal__cancel"
-                  onClick={() => setDownloadModalOpen(false)}
-                  disabled={downloadingPdf || downloadingCsv}
-                >
-                  Cancel
-                </button>
-                <button
-                  type="button"
-                  className="eval-download-modal__download eval-download-modal__download--csv"
-                  onClick={handleDownloadEvaluationCsv}
-                  disabled={downloadingPdf || downloadingCsv || selectedDownloadCount < 1}
-                >
-                  {downloadingCsv ? 'Creating CSV...' : 'Export to Excel/CSV'}
-                </button>
-                <button
-                  type="button"
-                  className="eval-download-modal__download"
-                  onClick={handleDownloadEvaluationPdf}
-                  disabled={downloadingPdf || downloadingCsv || selectedDownloadCount < 1}
-                >
-                  {downloadingPdf ? 'Creating PDF...' : 'Download PDF'}
-                </button>
-              </div>
-            </div>
+                <div className="eval-download-modal__footer">
+                  <span>Black &amp; white PDF · smaller file size</span>
+                  <div className="eval-download-modal__footer-actions">
+                    <button
+                      type="button"
+                      className="eval-download-modal__cancel"
+                      onClick={() => {
+                        setDownloadModalStep('options');
+                        setDownloadPreviewHtml('');
+                      }}
+                      disabled={downloadingPdf || downloadingCsv}
+                    >
+                      Back
+                    </button>
+                    <button
+                      type="button"
+                      className="eval-download-modal__download eval-download-modal__download--csv"
+                      onClick={handleDownloadEvaluationCsv}
+                      disabled={downloadingPdf || downloadingCsv}
+                    >
+                      {downloadingCsv ? 'Creating CSV...' : 'Export to Excel/CSV'}
+                    </button>
+                    <button
+                      type="button"
+                      className="eval-download-modal__download"
+                      onClick={handleDownloadEvaluationPdf}
+                      disabled={downloadingPdf || downloadingCsv}
+                    >
+                      {downloadingPdf ? 'Creating PDF...' : 'Download PDF'}
+                    </button>
+                  </div>
+                </div>
+              </>
+            )}
           </div>
         </div>
       )}

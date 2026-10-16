@@ -88,6 +88,31 @@
   box-shadow: 0 24px 70px rgba(15, 23, 42, 0.35);
 }
 
+.eval-download-modal--preview {
+  width: min(980px, 100%);
+  max-height: min(920px, calc(100vh - 2rem));
+}
+
+.eval-download-modal__body--preview {
+  background: #f1f5f9;
+}
+
+.eval-download-preview {
+  overflow: auto;
+  max-height: min(620px, calc(100vh - 16rem));
+  border: 1px solid #cbd5e1;
+  border-radius: 12px;
+  background: #fff;
+  padding: 0.5rem;
+}
+
+.eval-download-preview .eval-pdf {
+  width: 100% !important;
+  max-width: 100%;
+  padding: 1rem !important;
+  transform-origin: top left;
+}
+
 .eval-download-modal__header,
 .eval-download-modal__footer {
   display: flex;

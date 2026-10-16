@@ -1,6 +1,5 @@
-import html2canvas from 'html2canvas';
-import { jsPDF } from 'jspdf';
 import { getStudentCurriculumOutcomeDisplay } from './gradePercentageConversion';
+import { downloadBwHtmlAsPdf } from './evaluationBwPdf';
 
 function esc(s) {
   return String(s ?? '')
@@ -184,7 +183,7 @@ function fillReportElement(el, data, renderOpts = {}) {
 
   const reasonHtml =
     statusReasons.length > 0
-      ? `<p style="margin:6px 0;font-size:${fsSmall};color:#444;"><strong>Note:</strong> ${esc(statusReasons.join(' '))}</p>`
+      ? `<p style="margin:6px 0;font-size:${fsSmall};color:#333;"><strong>Note:</strong> ${esc(statusReasons.join(' '))}</p>`
       : '';
 
   const computedHtml =
@@ -202,7 +201,7 @@ function fillReportElement(el, data, renderOpts = {}) {
 
   const semesterBlocksHtml =
     semesterGroups.length === 0
-      ? `<div style="padding:12px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:8px;font-size:${fs};color:#475569;">
+      ? `<div style="padding:12px;background:#fff;border:1px solid #000;font-size:${fs};color:#333;">
           No graded courses for the selected term(s). Choose different semesters or ensure grades are saved.
         </div>`
       : semesterGroups
@@ -210,11 +209,11 @@ function fillReportElement(el, data, renderOpts = {}) {
             const body = g.rows
               .map(
                 (r) =>
-                  `<tr style="background:#f8fff9;">
-            <td style="padding:${pad};border:1px solid #cfe8d8;font-weight:600;color:#1e40af;font-size:${fs};">${esc(r.subject_code || '—')}</td>
-            <td style="padding:${pad};border:1px solid #cfe8d8;font-size:${fs};">${esc(r.subject_name || '—')}</td>
-            <td style="padding:${pad};border:1px solid #cfe8d8;text-align:center;font-size:${fs};">${esc(r.units ?? '—')}</td>
-            <td style="padding:${pad};border:1px solid #cfe8d8;text-align:center;font-size:${fs};">${
+                  `<tr style="background:#fff;">
+            <td style="padding:${pad};border:1px solid #000;font-weight:600;color:#000;font-size:${fs};">${esc(r.subject_code || '—')}</td>
+            <td style="padding:${pad};border:1px solid #000;font-size:${fs};">${esc(r.subject_name || '—')}</td>
+            <td style="padding:${pad};border:1px solid #000;text-align:center;font-size:${fs};">${esc(r.units ?? '—')}</td>
+            <td style="padding:${pad};border:1px solid #000;text-align:center;font-size:${fs};">${
               (() => {
                 const outcome = getStudentCurriculumOutcomeDisplay(
                   r,
@@ -227,7 +226,7 @@ function fillReportElement(el, data, renderOpts = {}) {
                 );
               })()
             }</td>
-            <td style="padding:${pad};border:1px solid #cfe8d8;font-size:${fs};">${esc(
+            <td style="padding:${pad};border:1px solid #000;font-size:${fs};">${esc(
               (() => {
                 if (r.passed_via_transfer_credit) return 'Credit (transfer)';
                 const outcome = getStudentCurriculumOutcomeDisplay(
@@ -243,18 +242,18 @@ function fillReportElement(el, data, renderOpts = {}) {
               )
               .join('');
             return `
-        <div style="margin-bottom:${mbBlock};border:1px solid #86c5a8;border-radius:8px;overflow:hidden;">
-          <div style="background:linear-gradient(90deg,#d1e7dd,#e8f5ee);color:#0f5132;padding:${padHead};font-weight:700;font-size:${compact ? '10px' : '12px'};border-bottom:1px solid #a3cfbb;">
+        <div style="margin-bottom:${mbBlock};border:1px solid #000;overflow:hidden;">
+          <div style="background:#e8e8e8;color:#000;padding:${padHead};font-weight:700;font-size:${compact ? '10px' : '12px'};border-bottom:1px solid #000;">
             ${semesterSectionTitle(g)}
           </div>
           <table style="width:100%;border-collapse:collapse;font-size:${fs};">
             <thead>
-              <tr style="background:#eef6f1;">
-                <th style="padding:${pad};border:1px solid #cfe8d8;text-align:left;">Code</th>
-                <th style="padding:${pad};border:1px solid #cfe8d8;text-align:left;">Subject</th>
-                <th style="padding:${pad};border:1px solid #cfe8d8;text-align:center;">Units</th>
-                <th style="padding:${pad};border:1px solid #cfe8d8;text-align:center;">Grade</th>
-                <th style="padding:${pad};border:1px solid #cfe8d8;text-align:left;">Status</th>
+              <tr style="background:#f0f0f0;">
+                <th style="padding:${pad};border:1px solid #000;text-align:left;">Code</th>
+                <th style="padding:${pad};border:1px solid #000;text-align:left;">Subject</th>
+                <th style="padding:${pad};border:1px solid #000;text-align:center;">Units</th>
+                <th style="padding:${pad};border:1px solid #000;text-align:center;">Grade</th>
+                <th style="padding:${pad};border:1px solid #000;text-align:left;">Status</th>
               </tr>
             </thead>
             <tbody>${body}</tbody>
@@ -264,8 +263,8 @@ function fillReportElement(el, data, renderOpts = {}) {
           .join('');
 
   el.innerHTML = `
-    <div style="font-family:system-ui,-apple-system,Segoe UI,Roboto,sans-serif;font-size:${fs};color:#111;background:#fff;padding:${compact ? '8px' : '12px'};max-width:${maxW};">
-      <h1 style="font-size:${fsH};margin:0 0 8px;">Academic evaluation report</h1>
+    <div style="font-family:Arial,Helvetica,sans-serif;font-size:${fs};color:#000;background:#fff;padding:${compact ? '8px' : '12px'};max-width:${maxW};">
+      <h1 style="font-size:${fsH};margin:0 0 8px;color:#000;">Academic evaluation report</h1>
       <div style="margin-bottom:8px;line-height:1.4;font-size:${fs};">
         <div><strong>Student:</strong> ${esc(name)}</div>
         <div><strong>ID:</strong> ${esc(student?.student_id_number || student?.student_number || '—')}</div>
@@ -279,11 +278,11 @@ function fillReportElement(el, data, renderOpts = {}) {
         <span>Earned units: <strong>${esc(summary.total_units_earned ?? '—')}</strong></span>
         <span>Remaining (units): <strong>${esc(summary.lacking_units ?? '—')}</strong></span>
       </div>
-      <p style="margin:0 0 8px;font-size:${fsSmall};color:#64748b;">
+      <p style="margin:0 0 8px;font-size:${fsSmall};color:#333;">
         <strong>Selected graded term(s) only.</strong> Ongoing or unevaluated subjects are omitted.
       </p>
       ${semesterBlocksHtml}
-      <p style="margin-top:10px;font-size:${fsSmall};color:#666;">Generated from the student information system.</p>
+      <p style="margin-top:10px;font-size:${fsSmall};color:#333;">Generated from the student information system.</p>
     </div>
   `;
 }
@@ -313,58 +312,17 @@ export async function downloadStudentAcademicEvaluationPdf(apiClient, options = 
     options.fitSinglePage !== undefined ? options.fitSinglePage : activeCount <= 2;
 
   const el = document.createElement('div');
-  el.setAttribute('aria-hidden', 'true');
-  Object.assign(el.style, {
-    position: 'fixed',
-    left: '-12000px',
-    top: '0',
-    width: compact ? '1080px' : '820px',
-    background: '#fff',
-  });
   fillReportElement(el, data, { semesterKeys, compact });
-  document.body.appendChild(el);
+  const useLandscape = compact || fitSinglePage;
+  const st = data?.student;
+  const rawId = st?.student_id_number || st?.student_number || 'student';
+  const safeId = String(rawId).replace(/[^a-zA-Z0-9-_]/g, '_');
 
-  try {
-    const canvas = await html2canvas(el, {
-      scale: compact ? 2 : 2,
-      useCORS: true,
-      logging: false,
-    });
-    const imgData = canvas.toDataURL('image/png');
-    const useLandscape = compact || fitSinglePage;
-    const pdf = new jsPDF({
-      unit: 'mm',
-      format: 'a4',
-      orientation: useLandscape ? 'landscape' : 'portrait',
-    });
-    const pdfWidth = pdf.internal.pageSize.getWidth();
-    const pdfHeight = pdf.internal.pageSize.getHeight();
-    let imgWidth = pdfWidth;
-    let imgHeight = (canvas.height * imgWidth) / canvas.width;
-
-    if (fitSinglePage && imgHeight > pdfHeight) {
-      imgHeight = pdfHeight;
-      imgWidth = (canvas.width * imgHeight) / canvas.height;
-      const x = (pdfWidth - imgWidth) / 2;
-      pdf.addImage(imgData, 'PNG', x, 0, imgWidth, imgHeight);
-    } else {
-      let heightLeft = imgHeight;
-      let position = 0;
-      pdf.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight);
-      heightLeft -= pdfHeight;
-      while (heightLeft > 0) {
-        position = heightLeft - imgHeight;
-        pdf.addPage(undefined, useLandscape ? 'landscape' : 'portrait');
-        pdf.addImage(imgData, 'PNG', 0, position, imgWidth, imgHeight);
-        heightLeft -= pdfHeight;
-      }
-    }
-
-    const st = data?.student;
-    const rawId = st?.student_id_number || st?.student_number || 'student';
-    const safeId = String(rawId).replace(/[^a-zA-Z0-9-_]/g, '_');
-    pdf.save(`academic-evaluation-report-${safeId}.pdf`);
-  } finally {
-    document.body.removeChild(el);
-  }
+  await downloadBwHtmlAsPdf(el.innerHTML, {
+    filename: `academic-evaluation-report-${safeId}.pdf`,
+    widthPx: compact ? 1080 : 820,
+    scale: 1.35,
+    orientation: useLandscape ? 'landscape' : 'portrait',
+    jpegQuality: 0.7,
+  });
 }
