@@ -152,6 +152,57 @@ function htmlEscape(value) {
 }
 
 /** Black-and-white staff evaluation report HTML (preview + PDF). */
+/** Compact semester table HTML for portrait side-by-side layout. */
+function buildEvalPdfSemesterTableHtml(group, { compact = true } = {}) {
+  if (!group) {
+    return `
+      <div class="term-block term-block--empty">
+        <h2>—</h2>
+        <p class="term-block__empty">No subjects for this term.</p>
+      </div>`;
+  }
+  const body = group.rows
+    .map((row) => {
+      const transferCredit = isTransferCreditRowForTermGate(row);
+      const grade = transferCredit ? '-' : formatEvalGradeReadonly(row.grade, row) || '-';
+      const status = transferCredit ? 'Credited' : normalizeStatusForUi(row.status ?? '') || '-';
+      return `
+        <tr>
+          <td class="code">${htmlEscape(row.subject_code || '-')}</td>
+          <td>${htmlEscape(row.subject_name || '-')}</td>
+          <td class="center">${htmlEscape(row.units ?? 0)}</td>
+          <td class="center">${htmlEscape(grade)}</td>
+          <td>${htmlEscape(status)}</td>
+        </tr>`;
+    })
+    .join('');
+  const totalUnits = group.rows.reduce((sum, row) => sum + (Number(row.units) || 0), 0);
+  const semOnly = String(group.semester_name || `Semester ${group.semester_id || ''}`)
+    .trim()
+    .toUpperCase();
+  return `
+    <div class="term-block${compact ? ' term-block--compact' : ''}">
+      <h2>${htmlEscape(semOnly)}</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>Code</th>
+            <th>Subject</th>
+            <th>U</th>
+            <th>Grade</th>
+            <th>Remarks</th>
+          </tr>
+        </thead>
+        <tbody>${body}</tbody>
+        <tfoot>
+          <tr>
+            <td colspan="5">Total units: <strong>${htmlEscape(totalUnits)}</strong></td>
+          </tr>
+        </tfoot>
+      </table>
+    </div>`;
+}
+
 function buildStaffEvaluationReportHtml({
   studentName,
   studentNumber,
@@ -169,111 +220,137 @@ function buildStaffEvaluationReportHtml({
       <style>
         .eval-pdf {
           box-sizing: border-box;
-          width: 980px;
-          padding: 28px;
+          width: 794px;
+          padding: 18px 16px;
           background: #fff;
           color: #000;
           font-family: Arial, Helvetica, sans-serif;
-          font-size: 12px;
+          font-size: 10px;
         }
         .eval-pdf * { box-sizing: border-box; }
         .eval-pdf__header {
           display: flex;
           justify-content: space-between;
-          gap: 18px;
+          gap: 12px;
           border-bottom: 2px solid #000;
-          padding-bottom: 14px;
-          margin-bottom: 16px;
+          padding-bottom: 10px;
+          margin-bottom: 12px;
         }
         .eval-pdf__school {
-          font-size: 19px;
+          font-size: 15px;
           font-weight: 800;
           color: #000;
           margin: 0;
         }
         .eval-pdf__sub {
-          margin-top: 3px;
+          margin-top: 2px;
           color: #333;
-          font-size: 11px;
+          font-size: 9px;
           text-transform: uppercase;
           letter-spacing: 0.06em;
         }
         .eval-pdf__title {
           text-align: right;
-          font-size: 22px;
+          font-size: 16px;
           font-weight: 800;
           color: #000;
         }
         .eval-pdf__meta {
           display: grid;
           grid-template-columns: repeat(2, minmax(0, 1fr));
-          gap: 8px 18px;
-          padding: 12px;
+          gap: 6px 14px;
+          padding: 8px 10px;
           border: 1px solid #000;
           background: #fff;
-          margin-bottom: 14px;
+          margin-bottom: 10px;
         }
         .eval-pdf__meta div span {
           display: block;
           color: #444;
-          font-size: 10px;
+          font-size: 8px;
           text-transform: uppercase;
           letter-spacing: 0.05em;
         }
         .eval-pdf__meta div strong {
           display: block;
           color: #000;
-          margin-top: 2px;
+          margin-top: 1px;
+          font-size: 10px;
         }
         .eval-pdf__summary {
           display: grid;
           grid-template-columns: repeat(3, minmax(0, 1fr));
-          gap: 8px;
-          margin-bottom: 14px;
+          gap: 6px;
+          margin-bottom: 12px;
         }
         .eval-pdf__summary div {
           border: 1px solid #000;
-          padding: 8px 10px;
+          padding: 6px 8px;
           text-align: center;
           background: #fff;
         }
         .eval-pdf__summary span {
           display: block;
           color: #444;
-          font-size: 10px;
-          margin-bottom: 3px;
+          font-size: 8px;
+          margin-bottom: 2px;
         }
         .eval-pdf__summary strong {
-          font-size: 14px;
+          font-size: 12px;
           color: #000;
         }
         .eval-pdf-page-chunk {
-          margin: 0 0 10px;
+          margin: 0 0 12px;
           page-break-inside: avoid;
+        }
+        .eval-pdf-year-row {
+          border: 1px solid #000;
+          padding: 8px;
+          background: #fff;
         }
         .eval-pdf-year__title {
           margin: 0 0 8px;
-          padding: 8px 10px;
+          padding: 6px 8px;
           background: #000;
           color: #fff;
-          font-size: 14px;
+          font-size: 11px;
           font-weight: 800;
           text-transform: uppercase;
           letter-spacing: 0.04em;
         }
+        .eval-pdf-sem-grid {
+          display: grid;
+          grid-template-columns: 1fr 1fr;
+          gap: 8px;
+          align-items: start;
+        }
+        .eval-pdf-summer {
+          margin-top: 8px;
+        }
         .term-block {
-          margin: 0 0 10px;
+          margin: 0;
           page-break-inside: avoid;
+          min-width: 0;
         }
         .term-block h2 {
           margin: 0;
-          padding: 8px 10px;
+          padding: 5px 6px;
           background: #e8e8e8;
           border: 1px solid #000;
           border-bottom: 0;
           color: #000;
-          font-size: 13px;
+          font-size: 10px;
           text-transform: uppercase;
+        }
+        .term-block--empty h2 { opacity: 0.55; }
+        .term-block__empty {
+          margin: 0;
+          padding: 10px 6px;
+          border: 1px solid #000;
+          border-top: 0;
+          color: #666;
+          font-size: 9px;
+          text-align: center;
         }
         table {
           width: 100%;
@@ -282,25 +359,28 @@ function buildStaffEvaluationReportHtml({
         }
         th, td {
           border: 1px solid #000;
-          padding: 7px 8px;
+          padding: 3px 4px;
           vertical-align: top;
           word-break: break-word;
           color: #000;
           background: #fff;
+          font-size: 8px;
+          line-height: 1.25;
         }
         th {
           background: #f0f0f0;
           text-align: left;
-          font-size: 11px;
+          font-size: 7.5px;
           text-transform: uppercase;
         }
-        th:nth-child(1), td:nth-child(1) { width: 14%; }
-        th:nth-child(3), td:nth-child(3) { width: 9%; }
-        th:nth-child(4), td:nth-child(4) { width: 10%; }
-        th:nth-child(5), td:nth-child(5) { width: 13%; }
+        th:nth-child(1), td:nth-child(1) { width: 16%; }
+        th:nth-child(3), td:nth-child(3) { width: 8%; }
+        th:nth-child(4), td:nth-child(4) { width: 12%; }
+        th:nth-child(5), td:nth-child(5) { width: 16%; }
         tfoot td {
           background: #f5f5f5;
           text-align: right;
+          font-size: 8px;
         }
         .code {
           color: #000;
@@ -310,9 +390,9 @@ function buildStaffEvaluationReportHtml({
           text-align: center;
         }
         .eval-pdf__footer {
-          margin-top: 16px;
+          margin-top: 12px;
           color: #333;
-          font-size: 10px;
+          font-size: 8px;
           text-align: right;
         }
       </style>
@@ -6382,59 +6462,47 @@ const StudentEvaluationView = ({
       }
     }
 
+    // Portrait: each year row = 1st sem | 2nd sem side by side; summer optional below.
     const termBlocks = yearBuckets
       .map((year) => {
-        const semesterSections = year.groups
-          .map((group) => {
-            const body = group.rows
-              .map((row) => {
-                const transferCredit = isTransferCreditRow(row);
-                const grade = transferCredit ? '-' : formatEvalGradeReadonly(row.grade, row) || '-';
-                const status =
-                  transferCredit ? 'Credited' : normalizeStatusForUi(row.status ?? '') || '-';
-                return `
-              <tr>
-                <td class="code">${htmlEscape(row.subject_code || '-')}</td>
-                <td>${htmlEscape(row.subject_name || '-')}</td>
-                <td class="center">${htmlEscape(row.units ?? 0)}</td>
-                <td class="center">${htmlEscape(grade)}</td>
-                <td>${htmlEscape(status)}</td>
-              </tr>
-            `;
-              })
-              .join('');
-            const totalUnits = group.rows.reduce((sum, row) => sum + (Number(row.units) || 0), 0);
-            const semOnly = String(group.semester_name || `Semester ${group.semester_id || ''}`)
-              .trim()
-              .toUpperCase();
-            return `
-          <section class="eval-pdf-page-chunk term-block">
-            <h2>${htmlEscape(semOnly)}</h2>
-            <table>
-              <thead>
-                <tr>
-                  <th>Pen Code</th>
-                  <th>Descriptive Title</th>
-                  <th>Units</th>
-                  <th>Grade</th>
-                  <th>Remarks</th>
-                </tr>
-              </thead>
-              <tbody>${body}</tbody>
-              <tfoot>
-                <tr>
-                  <td colspan="5">Total units: <strong>${htmlEscape(totalUnits)}</strong></td>
-                </tr>
-              </tfoot>
-            </table>
-          </section>
-        `;
-          })
+        const first = year.groups.find(
+          (g) => getEvalSemesterKind(g.semester_id, g.semester_name) === 'first'
+        );
+        const second = year.groups.find(
+          (g) => getEvalSemesterKind(g.semester_id, g.semester_name) === 'second'
+        );
+        const summer = year.groups.find(
+          (g) => getEvalSemesterKind(g.semester_id, g.semester_name) === 'summer'
+        );
+        const other = year.groups.filter((g) => {
+          const kind = getEvalSemesterKind(g.semester_id, g.semester_name);
+          return kind !== 'first' && kind !== 'second' && kind !== 'summer';
+        });
+
+        const hasRegularSems = Boolean(first || second);
+        const semGridHtml = hasRegularSems
+          ? `<div class="eval-pdf-sem-grid">
+              ${buildEvalPdfSemesterTableHtml(first)}
+              ${buildEvalPdfSemesterTableHtml(second)}
+            </div>`
+          : '';
+        const summerHtml = summer
+          ? `<div class="eval-pdf-summer">${buildEvalPdfSemesterTableHtml(summer, { compact: false })}</div>`
+          : '';
+        const otherHtml = other
+          .map(
+            (g) =>
+              `<div class="eval-pdf-summer">${buildEvalPdfSemesterTableHtml(g, { compact: false })}</div>`
+          )
           .join('');
 
         return `
-          <section class="eval-pdf-page-chunk eval-pdf-year__title">${htmlEscape(year.yearTitle)}</section>
-          ${semesterSections}
+          <section class="eval-pdf-page-chunk eval-pdf-year-row">
+            <div class="eval-pdf-year__title">${htmlEscape(year.yearTitle)}</div>
+            ${semGridHtml}
+            ${summerHtml}
+            ${otherHtml}
+          </section>
         `;
       })
       .join('');
@@ -6494,15 +6562,16 @@ const StudentEvaluationView = ({
     try {
       await downloadBwHtmlAsPdf(payload.html, {
         filename: payload.filename,
-        widthPx: 980,
-        scale: 1.35,
-        orientation: 'landscape',
+        widthPx: 794,
+        scale: 1.4,
+        orientation: 'portrait',
         jpegQuality: 0.7,
+        sectionSelector: '.eval-pdf-page-chunk',
       });
       setDownloadModalOpen(false);
       setDownloadModalStep('options');
       setDownloadPreviewHtml('');
-      swalToast('success', 'Student evaluation PDF downloaded (black & white).');
+      swalToast('success', 'Student evaluation PDF downloaded (portrait, black & white).');
     } catch (err) {
       await swalError('Could not create PDF', err?.message || 'Unknown error');
     } finally {

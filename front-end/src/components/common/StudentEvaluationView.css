@@ -89,7 +89,7 @@
 }
 
 .eval-download-modal--preview {
-  width: min(980px, 100%);
+  width: min(860px, 100%);
   max-height: min(920px, calc(100vh - 2rem));
 }
 
@@ -102,15 +102,18 @@
   max-height: min(620px, calc(100vh - 16rem));
   border: 1px solid #cbd5e1;
   border-radius: 12px;
-  background: #fff;
-  padding: 0.5rem;
+  background: #e2e8f0;
+  padding: 0.75rem;
+  display: flex;
+  justify-content: center;
 }
 
 .eval-download-preview .eval-pdf {
-  width: 100% !important;
+  width: min(794px, 100%) !important;
   max-width: 100%;
   padding: 1rem !important;
-  transform-origin: top left;
+  transform-origin: top center;
+  box-shadow: 0 4px 24px rgba(15, 23, 42, 0.18);
 }
 
 .eval-download-modal__header,

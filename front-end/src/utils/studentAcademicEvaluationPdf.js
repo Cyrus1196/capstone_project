@@ -175,7 +175,6 @@ function fillReportElement(el, data, renderOpts = {}) {
   const fsH = compact ? '13px' : '16px';
   const pad = compact ? '4px 6px' : '7px 8px';
   const padHead = compact ? '6px 8px' : '10px 12px';
-  const maxW = compact ? '1050px' : '800px';
   const mbBlock = compact ? '10px' : '18px';
 
   const reasonHtml =
@@ -210,85 +209,100 @@ function fillReportElement(el, data, renderOpts = {}) {
     }
   }
 
+  const semKind = (g) => {
+    const name = String(g.semester_name || '').toLowerCase();
+    if (/summer|mid\s*-?\s*year|midyear/.test(name) || Number(g.semester_id) === 3) return 'summer';
+    if (/2nd|second/.test(name) || Number(g.semester_id) === 2) return 'second';
+    if (/1st|first/.test(name) || Number(g.semester_id) === 1) return 'first';
+    return 'other';
+  };
+
+  const renderSemTable = (g) => {
+    if (!g) {
+      return `<div style="border:1px solid #000;min-width:0;"><div style="background:#e8e8e8;padding:${padHead};border-bottom:1px solid #000;font-weight:700;opacity:0.55;">—</div><p style="margin:0;padding:10px;text-align:center;color:#666;">No subjects</p></div>`;
+    }
+    const body = g.rows
+      .map((r) => {
+        const outcome = getStudentCurriculumOutcomeDisplay(
+          r,
+          { evaluation_status: r.status, status: r.status, grade: r.grade },
+          Number(r.units_earned) > 0
+        );
+        const gradeCell =
+          outcome?.label === 'Complete'
+            ? '—'
+            : r.grade != null && String(r.grade).trim() !== ''
+              ? r.grade
+              : '—';
+        const statusCell = r.passed_via_transfer_credit
+          ? 'Credit (transfer)'
+          : outcome
+            ? outcome.label
+            : r.status || (Number(r.units_earned) > 0 ? 'Passed' : '—');
+        return `<tr>
+          <td style="padding:${pad};border:1px solid #000;font-weight:600;">${esc(r.subject_code || '—')}</td>
+          <td style="padding:${pad};border:1px solid #000;">${esc(r.subject_name || '—')}</td>
+          <td style="padding:${pad};border:1px solid #000;text-align:center;">${esc(r.units ?? '—')}</td>
+          <td style="padding:${pad};border:1px solid #000;text-align:center;">${esc(gradeCell)}</td>
+          <td style="padding:${pad};border:1px solid #000;">${esc(statusCell)}</td>
+        </tr>`;
+      })
+      .join('');
+    const sRaw =
+      (g.semester_name || '').toString().trim() ||
+      (g.semester_id != null && g.semester_id !== '' ? `Semester ${g.semester_id}` : 'Semester');
+    return `<div style="border:1px solid #000;min-width:0;overflow:hidden;">
+      <div style="background:#e8e8e8;padding:${padHead};font-weight:700;border-bottom:1px solid #000;">${esc(sRaw.toUpperCase())}</div>
+      <table style="width:100%;border-collapse:collapse;table-layout:fixed;font-size:${fs};">
+        <thead><tr style="background:#f0f0f0;">
+          <th style="padding:${pad};border:1px solid #000;text-align:left;width:16%;">Code</th>
+          <th style="padding:${pad};border:1px solid #000;text-align:left;">Subject</th>
+          <th style="padding:${pad};border:1px solid #000;text-align:center;width:8%;">U</th>
+          <th style="padding:${pad};border:1px solid #000;text-align:center;width:12%;">Grade</th>
+          <th style="padding:${pad};border:1px solid #000;text-align:left;width:16%;">Status</th>
+        </tr></thead>
+        <tbody>${body}</tbody>
+      </table>
+    </div>`;
+  };
+
   const semesterBlocksHtml =
     yearBuckets.length === 0
-      ? `<div class="eval-pdf-year" style="padding:12px;background:#fff;border:1px solid #000;font-size:${fs};color:#333;">
+      ? `<div class="eval-pdf-page-chunk" style="padding:12px;border:1px solid #000;font-size:${fs};color:#333;">
           No graded courses for the selected term(s). Choose different semesters or ensure grades are saved.
         </div>`
       : yearBuckets
           .map((year) => {
-            const semHtml = year.groups
-              .map((g) => {
-                const body = g.rows
-                  .map(
-                    (r) =>
-                      `<tr style="background:#fff;">
-            <td style="padding:${pad};border:1px solid #000;font-weight:600;color:#000;font-size:${fs};">${esc(r.subject_code || '—')}</td>
-            <td style="padding:${pad};border:1px solid #000;font-size:${fs};">${esc(r.subject_name || '—')}</td>
-            <td style="padding:${pad};border:1px solid #000;text-align:center;font-size:${fs};">${esc(r.units ?? '—')}</td>
-            <td style="padding:${pad};border:1px solid #000;text-align:center;font-size:${fs};">${
-              (() => {
-                const outcome = getStudentCurriculumOutcomeDisplay(
-                  r,
-                  { evaluation_status: r.status, status: r.status, grade: r.grade },
-                  Number(r.units_earned) > 0
-                );
-                if (outcome?.label === 'Complete') return esc('—');
-                return esc(
-                  r.grade != null && String(r.grade).trim() !== '' ? r.grade : '—'
-                );
-              })()
-            }</td>
-            <td style="padding:${pad};border:1px solid #000;font-size:${fs};">${esc(
-              (() => {
-                if (r.passed_via_transfer_credit) return 'Credit (transfer)';
-                const outcome = getStudentCurriculumOutcomeDisplay(
-                  r,
-                  { evaluation_status: r.status, status: r.status, grade: r.grade },
-                  Number(r.units_earned) > 0
-                );
-                if (outcome) return outcome.label;
-                return r.status || (Number(r.units_earned) > 0 ? 'Passed' : '—');
-              })()
-            )}</td>
-          </tr>`
-                  )
-                  .join('');
-                const sRaw =
-                  (g.semester_name || '').toString().trim() ||
-                  (g.semester_id != null && g.semester_id !== ''
-                    ? `Semester ${g.semester_id}`
-                    : 'Semester');
-                return `
-        <div class="eval-pdf-page-chunk term-block" style="margin-bottom:${mbBlock};border:1px solid #000;overflow:hidden;">
-          <div style="background:#e8e8e8;color:#000;padding:${padHead};font-weight:700;font-size:${compact ? '10px' : '12px'};border-bottom:1px solid #000;">
-            ${esc(sRaw.toUpperCase())}
-          </div>
-          <table style="width:100%;border-collapse:collapse;font-size:${fs};">
-            <thead>
-              <tr style="background:#f0f0f0;">
-                <th style="padding:${pad};border:1px solid #000;text-align:left;">Code</th>
-                <th style="padding:${pad};border:1px solid #000;text-align:left;">Subject</th>
-                <th style="padding:${pad};border:1px solid #000;text-align:center;">Units</th>
-                <th style="padding:${pad};border:1px solid #000;text-align:center;">Grade</th>
-                <th style="padding:${pad};border:1px solid #000;text-align:left;">Status</th>
-              </tr>
-            </thead>
-            <tbody>${body}</tbody>
-          </table>
-        </div>`;
-              })
+            const first = year.groups.find((g) => semKind(g) === 'first');
+            const second = year.groups.find((g) => semKind(g) === 'second');
+            const summer = year.groups.find((g) => semKind(g) === 'summer');
+            const others = year.groups.filter((g) => semKind(g) === 'other');
+            const hasRegular = Boolean(first || second);
+            const grid = hasRegular
+              ? `<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;align-items:start;">
+                  ${renderSemTable(first)}
+                  ${renderSemTable(second)}
+                </div>`
+              : '';
+            const summerBlock = summer
+              ? `<div style="margin-top:8px;">${renderSemTable(summer)}</div>`
+              : '';
+            const otherBlocks = others
+              .map((g) => `<div style="margin-top:8px;">${renderSemTable(g)}</div>`)
               .join('');
-            return `
-        <div class="eval-pdf-page-chunk" style="background:#000;color:#fff;padding:${padHead};font-weight:800;font-size:${compact ? '11px' : '13px'};text-transform:uppercase;margin-bottom:8px;">
-          ${esc(year.yearTitle)}
-        </div>
-        ${semHtml}`;
+            return `<div class="eval-pdf-page-chunk" style="margin-bottom:${mbBlock};border:1px solid #000;padding:8px;">
+              <div style="background:#000;color:#fff;padding:${padHead};font-weight:800;text-transform:uppercase;margin-bottom:8px;">
+                ${esc(year.yearTitle)}
+              </div>
+              ${grid}
+              ${summerBlock}
+              ${otherBlocks}
+            </div>`;
           })
           .join('');
 
   el.innerHTML = `
-    <div style="font-family:Arial,Helvetica,sans-serif;font-size:${fs};color:#000;background:#fff;padding:${compact ? '8px' : '12px'};max-width:${maxW};">
+    <div style="font-family:Arial,Helvetica,sans-serif;font-size:${fs};color:#000;background:#fff;padding:12px;max-width:794px;width:794px;">
       <div class="eval-pdf-page-header">
         <h1 style="font-size:${fsH};margin:0 0 8px;color:#000;">Academic evaluation report</h1>
         <div style="margin-bottom:8px;line-height:1.4;font-size:${fs};">
@@ -335,21 +349,19 @@ export async function downloadStudentAcademicEvaluationPdf(apiClient, options = 
     activeCount = gradedGroups.filter((g) => set.has(semesterGroupKey(g))).length;
   }
   const compact = activeCount <= 2;
-  const fitSinglePage =
-    options.fitSinglePage !== undefined ? options.fitSinglePage : activeCount <= 2;
 
   const el = document.createElement('div');
   fillReportElement(el, data, { semesterKeys, compact });
-  const useLandscape = compact || fitSinglePage;
   const st = data?.student;
   const rawId = st?.student_id_number || st?.student_number || 'student';
   const safeId = String(rawId).replace(/[^a-zA-Z0-9-_]/g, '_');
 
   await downloadBwHtmlAsPdf(el.innerHTML, {
     filename: `academic-evaluation-report-${safeId}.pdf`,
-    widthPx: compact ? 1080 : 820,
-    scale: 1.35,
-    orientation: useLandscape ? 'landscape' : 'portrait',
+    widthPx: 794,
+    scale: 1.4,
+    orientation: 'portrait',
     jpegQuality: 0.7,
+    sectionSelector: '.eval-pdf-page-chunk',
   });
 }
