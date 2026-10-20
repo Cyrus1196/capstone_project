@@ -51,6 +51,17 @@ class DatabaseBackupService
     {
         $settings ??= $this->settings();
         $raw = trim((string) ($settings->storage_path ?? ''));
+
+        // Ignore OS-foreign absolute paths (e.g. Windows C:\… saved from local into Railway).
+        if ($raw !== '' && $this->isUnusableStoragePath($raw)) {
+            if ($settings->exists && $settings->storage_path !== null) {
+                $settings->storage_path = null;
+                $settings->updated_at = now();
+                $settings->save();
+            }
+            $raw = '';
+        }
+
         if ($raw === '') {
             $dir = $this->defaultStoragePath();
         } elseif (preg_match('/^[A-Za-z]:[\\\\\\/]/', $raw) || str_starts_with($raw, '/') || str_starts_with($raw, '\\\\')) {
@@ -64,6 +75,45 @@ class DatabaseBackupService
         }
 
         return rtrim(str_replace('\\', '/', $dir), '/');
+    }
+
+    /** True when the configured path cannot work on this host OS. */
+    public function isUnusableStoragePath(string $path): bool
+    {
+        $normalized = str_replace('\\', '/', trim($path));
+        $isWindowsDrive = (bool) preg_match('/^[A-Za-z]:\//', $normalized);
+        if (PHP_OS_FAMILY === 'Windows') {
+            // Absolute Unix paths are not usable on native Windows hosts.
+            return str_starts_with($normalized, '/') && ! $isWindowsDrive;
+        }
+
+        return $isWindowsDrive || str_starts_with($normalized, '//');
+    }
+
+    /**
+     * Mark interrupted backup/restore rows as failed so Download stays accurate
+     * and a stuck "running" job cannot block the next scheduled backup forever.
+     */
+    public function failStaleRunningJobs(int $olderThanMinutes = 20): int
+    {
+        if (! Schema::hasTable('tbl_backup_history')) {
+            return 0;
+        }
+
+        return BackupHistory::query()
+            ->where('status', 'running')
+            ->where(function ($q) use ($olderThanMinutes) {
+                $q->where('started_at', '<', now()->subMinutes($olderThanMinutes))
+                    ->orWhere(function ($q2) use ($olderThanMinutes) {
+                        $q2->whereNull('started_at')
+                            ->where('created_at', '<', now()->subMinutes($olderThanMinutes));
+                    });
+            })
+            ->update([
+                'status' => 'failed',
+                'details' => 'Marked failed: job did not finish (timed out or server restarted).',
+                'finished_at' => now(),
+            ]);
     }
 
     public function nextRunAt(BackupSetting $settings): ?\Carbon\Carbon
@@ -191,6 +241,8 @@ class DatabaseBackupService
             return null;
         }
 
+        $this->failStaleRunningJobs();
+
         $settings = $this->settings();
         if (! $settings->enabled) {
             return null;
@@ -242,7 +294,7 @@ class DatabaseBackupService
 
         $tempPath = null;
         try {
-            if ($this->isMaterializedTempPath($history, $path)) {
+            if ($this->isTempMaterializedPath($history, $path)) {
                 $tempPath = $path;
             }
             $this->importSqlFile($path);
@@ -299,11 +351,17 @@ class DatabaseBackupService
             return null;
         }
         $sql = file_get_contents($path);
-        if ($this->isMaterializedTempPath($history, $path) && is_file($path)) {
+        if ($this->isTempMaterializedPath($history, $path) && is_file($path)) {
             @unlink($path);
         }
 
         return $sql === false ? null : $sql;
+    }
+
+    /** Whether resolveBackupSqlPath created a disposable temp file for this history row. */
+    public function isTempMaterializedPath(BackupHistory $history, string $path): bool
+    {
+        return $this->isMaterializedTempPath($history, $path);
     }
 
     public function historyHasStoredPayload(int $historyId): bool

@@ -9,6 +9,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Schema;
 use Symfony\Component\HttpFoundation\BinaryFileResponse;
+use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class DatabaseBackupController extends Controller
 {
@@ -37,6 +38,8 @@ class DatabaseBackupController extends Controller
         }
 
         try {
+            $this->backups->failStaleRunningJobs();
+
             return response()->json($this->backups->summary());
         } catch (\Throwable $e) {
             return response()->json([
@@ -62,6 +65,8 @@ class DatabaseBackupController extends Controller
                 'to' => null,
             ]);
         }
+
+        $this->backups->failStaleRunningJobs();
 
         $perPage = max(5, min(50, (int) $request->get('per_page', 10)));
 
@@ -153,7 +158,7 @@ class DatabaseBackupController extends Controller
         }
     }
 
-    public function download(Request $request, $id): BinaryFileResponse|JsonResponse
+    public function download(Request $request, $id): BinaryFileResponse|StreamedResponse|JsonResponse
     {
         if ($resp = $this->denyUnlessBackup($request)) {
             return $resp;
@@ -163,17 +168,18 @@ class DatabaseBackupController extends Controller
         if ($row->action !== 'backup' || $row->status !== 'success') {
             return response()->json(['message' => 'Only successful backups can be downloaded'], 422);
         }
-        $sql = $this->backups->readBackupSqlContents($row);
-        if ($sql === null) {
+
+        $path = $this->backups->resolveBackupSqlPath($row);
+        if ($path === null || ! is_file($path)) {
             return response()->json(['message' => 'Backup file is missing on the server'], 404);
         }
 
         $name = $row->file_name ?: 'backup_'.$row->id.'.sql';
+        $deleteAfter = $this->backups->isTempMaterializedPath($row, $path);
 
-        return response($sql, 200, [
+        return response()->download($path, $name, [
             'Content-Type' => 'application/sql; charset=utf-8',
-            'Content-Disposition' => 'attachment; filename="'.$name.'"',
-        ]);
+        ])->deleteFileAfterSend($deleteAfter);
     }
 
     public function restore(Request $request, $id)

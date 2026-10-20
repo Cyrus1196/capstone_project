@@ -177,12 +177,18 @@ const BackupManagement = () => {
       const res = await api.get(`/system/backup/download/${row.id}`, {
         responseType: 'blob',
         timeout: 0,
+        headers: {
+          Accept: 'application/sql, application/octet-stream, */*',
+        },
       });
       const contentType = String(res.headers['content-type'] || '');
       if (contentType.includes('application/json')) {
         const text = await res.data.text();
         const parsed = JSON.parse(text);
         throw new Error(parsed?.message || 'Download failed');
+      }
+      if (!(res.data instanceof Blob) || res.data.size === 0) {
+        throw new Error('Download returned an empty file');
       }
       const blob = new Blob([res.data], { type: 'application/sql;charset=utf-8' });
       const url = window.URL.createObjectURL(blob);
@@ -199,10 +205,12 @@ const BackupManagement = () => {
       if (err.response?.data instanceof Blob) {
         try {
           const parsed = JSON.parse(await err.response.data.text());
-          msg = parsed.message || msg;
+          msg = parsed.message || parsed.error || msg;
         } catch {
           // keep
         }
+      } else if (err.response?.data?.message) {
+        msg = err.response.data.message;
       }
       await swalError('Download failed', msg);
     } finally {
