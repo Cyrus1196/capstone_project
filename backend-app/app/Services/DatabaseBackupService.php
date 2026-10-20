@@ -179,6 +179,9 @@ class DatabaseBackupService
      */
     public function createBackup(string $trigger = 'manual', ?int $userId = null): BackupHistory
     {
+        // Clear hung rows so a crashed prior run cannot leave the UI stuck on "running".
+        $this->failStaleRunningJobs(5);
+
         if (! $this->acquireLock()) {
             throw new \RuntimeException('Another backup or restore is already running. Try again shortly.');
         }
@@ -210,14 +213,40 @@ class DatabaseBackupService
             $this->writeSqlDump($fullPath);
             clearstatcache(true, $fullPath);
             $size = is_file($fullPath) ? (int) filesize($fullPath) : 0;
-            $payload = $this->gzipFileForStorage($fullPath);
-            $row->update([
-                'status' => 'success',
-                'file_size' => $size,
-                'file_payload' => $payload,
-                'details' => ($trigger === 'scheduled' ? 'Scheduled' : 'Manual').' backup completed successfully',
-                'finished_at' => now(),
-            ]);
+            if ($size <= 0) {
+                throw new \RuntimeException('Backup file was empty or could not be written.');
+            }
+
+            // Best-effort DB copy for download after redeploy. Never fail the backup if
+            // packet/memory limits block storing a large gzip payload.
+            $payload = null;
+            $payloadNote = '';
+            try {
+                $payload = $this->gzipFileForStorage($fullPath);
+            } catch (\Throwable $payloadErr) {
+                $payloadNote = ' (disk only — could not store DB copy)';
+                $payload = null;
+            }
+
+            try {
+                $row->update([
+                    'status' => 'success',
+                    'file_size' => $size,
+                    'file_payload' => $payload,
+                    'details' => ($trigger === 'scheduled' ? 'Scheduled' : 'Manual').' backup completed successfully'.$payloadNote,
+                    'finished_at' => now(),
+                ]);
+            } catch (\Throwable $updateErr) {
+                // Payload too large for MySQL packet — save metadata without blob.
+                $row->update([
+                    'status' => 'success',
+                    'file_size' => $size,
+                    'file_payload' => null,
+                    'details' => ($trigger === 'scheduled' ? 'Scheduled' : 'Manual')
+                        .' backup completed successfully (disk only — DB copy skipped)',
+                    'finished_at' => now(),
+                ]);
+            }
         } catch (\Throwable $e) {
             $row->update([
                 'status' => 'failed',
@@ -381,6 +410,11 @@ class DatabaseBackupService
         if (! is_file($fullPath) || ! Schema::hasColumn('tbl_backup_history', 'file_payload')) {
             return null;
         }
+        // Avoid loading huge dumps into memory twice (OOM on Railway).
+        $size = (int) filesize($fullPath);
+        if ($size <= 0 || $size > 12 * 1024 * 1024) {
+            return null;
+        }
         $data = file_get_contents($fullPath);
         if ($data === false || $data === '') {
             return null;
@@ -445,7 +479,6 @@ class DatabaseBackupService
             fwrite($out, "SET FOREIGN_KEY_CHECKS=0;\n\n");
 
             foreach ($tables as $table) {
-                // Never dump backup history mid-write into itself inconsistently — include it.
                 $safeTable = str_replace('`', '``', $table);
                 fwrite($out, "--\n-- Table structure for `{$table}`\n--\n\n");
                 fwrite($out, "DROP TABLE IF EXISTS `{$safeTable}`;\n");
@@ -463,33 +496,78 @@ class DatabaseBackupService
                 fwrite($out, $createSql.";\n\n");
                 fwrite($out, "--\n-- Data for `{$table}`\n--\n\n");
 
-                $rows = DB::table($table)->get();
-                if ($rows->isEmpty()) {
+                // Never dump stored backup blobs — they balloon memory and nest backups forever.
+                $skipBlobCols = $table === 'tbl_backup_history'
+                    ? ['file_payload' => true]
+                    : [];
+
+                $columns = $this->listTableColumns($table);
+                if ($columns === []) {
+                    fwrite($out, "\n");
+                    continue;
+                }
+                $exportCols = array_values(array_filter(
+                    $columns,
+                    static fn ($c) => ! isset($skipBlobCols[$c])
+                ));
+                if ($exportCols === []) {
                     fwrite($out, "\n");
                     continue;
                 }
 
-                $first = (array) $rows->first();
-                $cols = array_map(
-                    static fn ($c) => '`'.str_replace('`', '``', (string) $c).'`',
-                    array_keys($first)
-                );
-                $colList = implode(', ', $cols);
+                $colList = implode(', ', array_map(
+                    static fn ($c) => '`'.str_replace('`', '``', $c).'`',
+                    $exportCols
+                ));
 
                 $batch = [];
-                foreach ($rows as $row) {
+                $flushBatch = function () use (&$batch, &$out, $safeTable, $colList) {
+                    if ($batch === []) {
+                        return;
+                    }
+                    fwrite($out, "INSERT INTO `{$safeTable}` ({$colList}) VALUES\n".implode(",\n", $batch).";\n");
+                    $batch = [];
+                };
+
+                $writeRow = function ($row) use (&$batch, $flushBatch, $exportCols, $pdo) {
+                    $arr = (array) $row;
                     $vals = [];
-                    foreach ((array) $row as $v) {
+                    foreach ($exportCols as $col) {
+                        $v = $arr[$col] ?? null;
                         $vals[] = $v === null ? 'NULL' : $pdo->quote((string) $v);
                     }
                     $batch[] = '('.implode(', ', $vals).')';
-                    if (count($batch) >= 150) {
-                        fwrite($out, "INSERT INTO `{$safeTable}` ({$colList}) VALUES\n".implode(",\n", $batch).";\n");
-                        $batch = [];
+                    if (count($batch) >= 100) {
+                        $flushBatch();
                     }
+                };
+
+                // Chunked reads — full get() OOMs once prior file_payload rows exist.
+                if (in_array('id', $columns, true)) {
+                    $selectCols = in_array('id', $exportCols, true)
+                        ? $exportCols
+                        : array_values(array_unique(array_merge(['id'], $exportCols)));
+                    DB::table($table)
+                        ->orderBy('id')
+                        ->select($selectCols)
+                        ->chunkById(200, function ($rows) use ($writeRow) {
+                            foreach ($rows as $row) {
+                                $writeRow($row);
+                            }
+                        }, 'id');
+                } else {
+                    DB::table($table)
+                        ->orderBy($columns[0])
+                        ->select($exportCols)
+                        ->chunk(200, function ($rows) use ($writeRow) {
+                            foreach ($rows as $row) {
+                                $writeRow($row);
+                            }
+                        });
                 }
                 if ($batch !== []) {
-                    fwrite($out, "INSERT INTO `{$safeTable}` ({$colList}) VALUES\n".implode(",\n", $batch).";\n\n");
+                    $flushBatch();
+                    fwrite($out, "\n");
                 } else {
                     fwrite($out, "\n");
                 }
@@ -622,6 +700,21 @@ class DatabaseBackupService
             static fn ($r) => (string) ($r->name ?? ''),
             $rows
         ));
+    }
+
+    /** @return list<string> */
+    private function listTableColumns(string $table): array
+    {
+        $dbName = (string) DB::getDatabaseName();
+        $rows = DB::select(
+            'SELECT COLUMN_NAME AS name FROM information_schema.COLUMNS WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ? ORDER BY ORDINAL_POSITION',
+            [$dbName, $table]
+        );
+
+        return array_values(array_filter(array_map(
+            static fn ($r) => (string) ($r->name ?? ''),
+            $rows
+        )));
     }
 
     public function normalizeTime(?string $time): string
