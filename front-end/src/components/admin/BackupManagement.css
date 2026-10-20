@@ -362,6 +362,19 @@
   cursor: not-allowed;
 }
 
+.backup-link--busy {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  color: #0369a1;
+  cursor: wait;
+}
+
+.backup-link--busy:disabled {
+  color: #0369a1;
+  opacity: 0.9;
+}
+
 .backup-pagination {
   display: flex;
   align-items: center;

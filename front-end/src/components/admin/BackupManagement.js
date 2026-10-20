@@ -42,6 +42,7 @@ const BackupManagement = () => {
   const [savingSchedule, setSavingSchedule] = useState(false);
   const [creating, setCreating] = useState(false);
   const [busyId, setBusyId] = useState(null);
+  const [busyAction, setBusyAction] = useState(null); // 'download' | 'restore'
   const [error, setError] = useState('');
   const [form, setForm] = useState({
     enabled: true,
@@ -179,6 +180,7 @@ const BackupManagement = () => {
 
   const downloadRow = async (row) => {
     setBusyId(row.id);
+    setBusyAction('download');
     try {
       const res = await api.get(`/system/backup/download/${row.id}`, {
         responseType: 'blob',
@@ -221,6 +223,7 @@ const BackupManagement = () => {
       await swalError('Download failed', msg);
     } finally {
       setBusyId(null);
+      setBusyAction(null);
     }
   };
 
@@ -232,6 +235,7 @@ const BackupManagement = () => {
     });
     if (!ok) return;
     setBusyId(row.id);
+    setBusyAction('restore');
     try {
       await api.post(`/system/backup/restore/${row.id}`, {}, { timeout: 0 });
       swalToast('success', 'Database restored');
@@ -244,6 +248,7 @@ const BackupManagement = () => {
       await loadHistory(historyPage);
     } finally {
       setBusyId(null);
+      setBusyAction(null);
     }
   };
 
@@ -457,6 +462,8 @@ const BackupManagement = () => {
                     row.status === 'success' &&
                     row.file_exists !== false;
                   const busy = busyId === row.id;
+                  const downloading = busy && busyAction === 'download';
+                  const restoring = busy && busyAction === 'restore';
                   return (
                     <tr key={row.id}>
                       <td>{formatWhen(row.started_at || row.created_at)}</td>
@@ -487,19 +494,35 @@ const BackupManagement = () => {
                         <div className="backup-row-actions">
                           <button
                             type="button"
-                            className="backup-link"
-                            disabled={!canUse || busy || creating}
+                            className={`backup-link${downloading ? ' backup-link--busy' : ''}`}
+                            disabled={!canUse || busyId != null || creating}
                             onClick={() => downloadRow(row)}
+                            aria-busy={downloading}
                           >
-                            Download
+                            {downloading ? (
+                              <>
+                                <i className="fa-solid fa-spinner fa-spin" aria-hidden />
+                                Downloading…
+                              </>
+                            ) : (
+                              'Download'
+                            )}
                           </button>
                           <button
                             type="button"
-                            className="backup-link"
-                            disabled={!canUse || busy || creating}
+                            className={`backup-link${restoring ? ' backup-link--busy' : ''}`}
+                            disabled={!canUse || busyId != null || creating}
                             onClick={() => restoreRow(row)}
+                            aria-busy={restoring}
                           >
-                            Restore
+                            {restoring ? (
+                              <>
+                                <i className="fa-solid fa-spinner fa-spin" aria-hidden />
+                                Restoring…
+                              </>
+                            ) : (
+                              'Restore'
+                            )}
                           </button>
                         </div>
                       </td>
