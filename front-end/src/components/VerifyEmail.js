@@ -1,7 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import api from '../api/axios';
-import { swalError, swalSuccess } from '../utils/swal';
 import './Login.css';
 
 const publicUrl = process.env.PUBLIC_URL || '';
@@ -11,8 +10,6 @@ export default function VerifyEmail() {
   const token = useMemo(() => params.get('token') || '', [params]);
   const [status, setStatus] = useState(token ? 'loading' : 'missing');
   const [message, setMessage] = useState('');
-  const [resendEmail, setResendEmail] = useState('');
-  const [resending, setResending] = useState(false);
 
   useEffect(() => {
     if (!token) return undefined;
@@ -38,28 +35,6 @@ export default function VerifyEmail() {
       cancelled = true;
     };
   }, [token]);
-
-  const onResend = async (e) => {
-    e.preventDefault();
-    if (!resendEmail.trim()) {
-      await swalError('Missing email', 'Enter your email or Student ID.');
-      return;
-    }
-    setResending(true);
-    try {
-      const res = await api.post('/email/resend', { email: resendEmail.trim() }, { skipLoading: true });
-      setMessage(res.data?.message || 'If needed, a new link was sent.');
-      setStatus('resent');
-      await swalSuccess('Request sent', res.data?.message || 'Check your email if verification is needed.');
-    } catch (err) {
-      const msg = err.response?.data?.message || 'Could not resend verification email.';
-      setMessage(msg);
-      setStatus('error');
-      await swalError('Could not resend', msg);
-    } finally {
-      setResending(false);
-    }
-  };
 
   return (
     <div className="login-page">
@@ -107,31 +82,10 @@ export default function VerifyEmail() {
                 <p className="login-page__lead">
                   {status === 'loading' && 'Confirming your email…'}
                   {status === 'ok' && (message || 'Your email is verified. You can sign in.')}
-                  {status === 'missing' && 'No verification token was found in this link.'}
-                  {(status === 'error' || status === 'resent') && message}
+                  {status === 'missing' && 'Sign-in does not send an email. Use Forgot password on the login page if you need a reset link.'}
+                  {status === 'error' && (message || 'This verification link is invalid or expired. You can still sign in. Use Forgot password if you need a reset link.')}
                 </p>
               </div>
-
-              {(status === 'error' || status === 'missing' || status === 'resent') && (
-                <form className="login-page__form" onSubmit={onResend} noValidate>
-                  <div className="login-page__field">
-                    <label htmlFor="resend-email">Resend to email / Student ID</label>
-                    <div className="login-page__input-wrap">
-                      <input
-                        id="resend-email"
-                        type="text"
-                        value={resendEmail}
-                        onChange={(e) => setResendEmail(e.target.value)}
-                        disabled={resending}
-                        placeholder="you@school.edu"
-                      />
-                    </div>
-                  </div>
-                  <button type="submit" className="login-page__submit" disabled={resending}>
-                    {resending ? 'Sending…' : 'Resend verification'}
-                  </button>
-                </form>
-              )}
 
               <div className="login-page__card-footer">
                 <Link to="/login" className="login-page__home-link">

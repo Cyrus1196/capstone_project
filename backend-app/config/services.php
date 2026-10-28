@@ -36,11 +36,23 @@ return [
     ],
 
     /*
-    | Brevo (Sendinblue) transactional HTTP API — preferred on Railway (SMTP ports often hang).
+    | Brevo (Sendinblue) transactional HTTP API — used only when Google Apps Script is not set.
     | Create an API key in Brevo → SMTP & API → API Keys (starts with xkeysib-).
     */
     'brevo' => [
         'key' => env('BREVO_API_KEY'),
+    ],
+
+    /*
+    | Google Apps Script web app (GmailApp.sendEmail).
+    | Deploy scripts/gscript/Code.gs as a web app, then set the exec URL and the same secret here.
+    */
+    'gscript' => [
+        'url' => env('GSCRIPT_WEB_APP_URL'),
+        'secret' => env('GSCRIPT_SECRET'),
+        'from_email' => env('GSCRIPT_FROM_EMAIL', 'cyrustadoy@gmail.com'),
+        'from_name' => env('GSCRIPT_FROM_NAME', 'PHINMA COC'),
+        'timeout' => (int) env('GSCRIPT_TIMEOUT', 30),
     ],
 
 ];

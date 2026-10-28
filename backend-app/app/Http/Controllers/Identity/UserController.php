@@ -13,7 +13,6 @@ use App\Models\Role;
 use App\Models\SecretaryProfile;
 use App\Models\SecuritySetting;
 use App\Models\TblUser;
-use App\Services\AccountMailService;
 use App\Services\AuthUnitHelpers;
 use App\Services\StudentAccountEmail;
 use App\Support\CachedSchema;
@@ -299,15 +298,6 @@ class UserController extends Controller
             }
 
             DB::commit();
-
-            // New staff with a real email get a verification link (log or SMTP).
-            if (AccountMailService::canReceiveMail($user)) {
-                try {
-                    AccountMailService::sendVerification($user->fresh());
-                } catch (\Throwable $e) {
-                    report($e);
-                }
-            }
 
             return response()->json($user->fresh([
                 'role',

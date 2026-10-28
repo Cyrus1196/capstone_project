@@ -22,22 +22,19 @@ return [
     /*
     |--------------------------------------------------------------------------
     | When true, staff with a real email must verify before login.
-    | Keep false until SMTP is confirmed working with your instructor.
+    | Left off: sign-in does not send email. Forgot password is the mail that stays.
     |--------------------------------------------------------------------------
     */
     'require_verified' => filter_var(env('MAIL_REQUIRE_VERIFIED', false), FILTER_VALIDATE_BOOL),
 
     /*
     |--------------------------------------------------------------------------
-    | New-device / login email OTP
+    | Login email OTP
     |--------------------------------------------------------------------------
-    | All roles must verify via emailed OTP on login, except roles listed in
-    | DEVICE_OTP_EXEMPT_ROLES (Student by default).
-    |
-    | Optional allow-list: if DEVICE_OTP_ROLES is set to a non-empty list, only
-    | those roles require OTP (still minus any exempt roles). Leave unset to
-    | require OTP for every non-exempt role.
+    | Off for every role. Login does not email a code. Set DEVICE_OTP_ENABLED=true
+    | only if that code should come back. Forgot password is the email that stays.
     */
+    'device_otp_enabled' => filter_var(env('DEVICE_OTP_ENABLED', false), FILTER_VALIDATE_BOOL),
     'device_otp_roles' => array_values(array_filter(array_map(
         'trim',
         explode(',', (string) env('DEVICE_OTP_ROLES', ''))

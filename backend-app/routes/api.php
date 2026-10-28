@@ -45,7 +45,7 @@ Route::prefix('jwt')->group(function () {
 });
 Route::post('/jwt/refresh', [JwtAuthController::class, 'refresh'])->middleware('throttle:60,1');
 
-// Account email (SMTP): forgot password + email verification — works with MAIL_MAILER=log until SMTP is set.
+// Account email (Google Apps Script): forgot password + email verification.
 Route::middleware('throttle:8,1')->group(function () {
     Route::post('/password/forgot', [PasswordResetController::class, 'requestReset']);
     Route::post('/password/reset', [PasswordResetController::class, 'reset']);

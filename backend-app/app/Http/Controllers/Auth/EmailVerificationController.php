@@ -41,26 +41,12 @@ class EmailVerificationController extends Controller
      */
     public function resend(Request $request)
     {
-        $validated = $request->validate([
+        $request->validate([
             'email' => ['required', 'string', 'max:255'],
         ]);
 
-        $user = AuthController::findUserByLogin(trim($validated['email']));
-
-        if ($user && AccountMailService::canReceiveMail($user) && ! AccountMailService::isEmailVerified($user)) {
-            try {
-                AccountMailService::sendVerification($user);
-            } catch (\Throwable $e) {
-                report($e);
-
-                return response()->json([
-                    'message' => 'Unable to send email right now. Please try again later or contact an administrator.',
-                ], 503);
-            }
-        }
-
         return response()->json([
-            'message' => 'If that account needs verification, a new link has been sent.',
+            'message' => 'Sign-in does not send an email. Use Forgot password on the login page if you need a reset link.',
         ]);
     }
 
@@ -74,26 +60,8 @@ class EmailVerificationController extends Controller
             return response()->json(['message' => 'Unauthorized'], 401);
         }
 
-        if (! AccountMailService::canReceiveMail($user)) {
-            return response()->json([
-                'message' => 'This account does not have a real contact email. Ask an administrator to add one.',
-            ], 422);
-        }
-
-        if (AccountMailService::isEmailVerified($user)) {
-            return response()->json(['message' => 'Email is already verified.']);
-        }
-
-        try {
-            AccountMailService::sendVerification($user);
-        } catch (\Throwable $e) {
-            report($e);
-
-            return response()->json([
-                'message' => 'Unable to send email right now. Please try again later.',
-            ], 503);
-        }
-
-        return response()->json(['message' => 'Verification email sent.']);
+        return response()->json([
+            'message' => 'Sign-in does not send an email. Use Forgot password if you need a reset link.',
+        ]);
     }
 }

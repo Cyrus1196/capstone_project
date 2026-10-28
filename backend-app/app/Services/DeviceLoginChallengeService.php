@@ -78,6 +78,10 @@ class DeviceLoginChallengeService
 
     public static function requiresDeviceOtp(TblUser $user): bool
     {
+        if (! config('account_mail.device_otp_enabled', false)) {
+            return false;
+        }
+
         try {
             self::ensureTables();
         } catch (\Throwable $e) {
