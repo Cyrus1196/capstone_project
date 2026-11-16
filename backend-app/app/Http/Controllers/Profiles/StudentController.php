@@ -284,6 +284,7 @@ class StudentController extends Controller
                 'contact_number' => InputGuards::contactNumberRule(false),
                 'address' => 'nullable|string',
                 'academic_status' => 'nullable|string|max:50',
+                'enrollment_status' => 'nullable|string|in:Enrolled,Inactive,Transferred,Graduate',
                 // Distinct from academic_status (Regular/Irregular): set when creating the student account.
                 'student_entry_type' => 'nullable|string|in:Shiftee,Returnee,Transferee',
                 'year_level_id' => 'nullable|integer|exists:year_level,year_level_id',
@@ -791,6 +792,8 @@ class StudentController extends Controller
                     ->first()?->semester_id;
             }
 
+            $termLoad = is_array($profile->standing_term_load) ? $profile->standing_term_load : null;
+
             return response()->json([
                 'curriculum' => $transformed,
                 'promotion' => [
@@ -798,6 +801,8 @@ class StudentController extends Controller
                     'target_year_level_id' => $promotionTargetYearId,
                     'target_semester_id' => $promotionTargetSemesterId,
                 ],
+                // OFFSEM / Semestral retake placement (same flags Dean evaluation uses).
+                'standing_term_load' => $termLoad,
             ]);
         } catch (\Exception $e) {
             return response()->json([

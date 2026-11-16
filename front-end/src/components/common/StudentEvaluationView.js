@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import api from '../../api/axios';
 import { useAuth } from '../../context/AuthContext';
 import { swalToast, swalError, swalConfirm, swalInfo, swalSelect } from '../../utils/swal';
+import { jsPDF } from 'jspdf';
 import { downloadBwHtmlAsPdf } from '../../utils/evaluationBwPdf';
 import { useSystemGuide } from './SystemGuide';
 import PromoteSemesterModal from './PromoteSemesterModal';
@@ -16,6 +17,7 @@ import {
   manualGradeToSavePayload,
   manualGradesEquivalentForRow,
   gradeRawToEvaluatorFormValue,
+  normalizeManualGradeInput,
   SIS_DEFAULT_FAIL_GRADE,
   SIS_DEFAULT_PASS_GRADE,
 } from '../../utils/gradePercentageConversion';
@@ -438,13 +440,27 @@ function evaluationTermKeyFromRow(row) {
   return evaluationTermKeyFromParts(row?.year_level_id, row?.semester_id);
 }
 
-/** UI uses `inc`; API stores `incomplete`. */
+/** UI uses lowercase remark keys (`passed` / `failed` / `inc` / `complete`). */
 function normalizeStatusForUi(status) {
   if (status == null || status === '') return '';
   const t = String(status).trim().toLowerCase();
   if (t === 'incomplete') return 'inc';
-  if (t === 'complete' || t === 'completed') return 'Complete';
-  return String(status).trim();
+  if (t === 'complete' || t === 'completed') return 'complete';
+  if (t === 'pass' || t === 'passed') return 'passed';
+  if (t === 'fail' || t === 'failed' || t === 'f') return 'failed';
+  if (t === 'credit' || t === 'credited') return 'passed';
+  if (t === 'dropped' || t === 'drop') return 'failed';
+  if (t === 'inc') return 'inc';
+  return t;
+}
+
+/** Prefer saved remark; otherwise derive Pass/Fail from the numeric grade. */
+function draftStatusFromRow(row) {
+  const fromDb = normalizeStatusForUi(row?.status ?? '');
+  if (fromDb) return fromDb;
+  const grade = draftGradeFromRow(row);
+  if (!grade) return '';
+  return normalizeManualGradeInput(grade, row).status || '';
 }
 
 function semesterSortValue(semesterId, semesterName = '') {
@@ -1096,6 +1112,7 @@ function lowerYearMajorsComplete(allRows, targetRow, parseYearNumber) {
   if (!maxY || maxY <= 1) return true;
   return (allRows || []).every((row) => {
     if (row?.previous_program_only === true) return true;
+    if (row?.previous_curriculum_only === true) return true;
     if (!isMajorEvalRow(row)) return true;
     const y = yearOrdinalFromEvalRow(row, parseYearNumber);
     if (!y || y >= maxY) return true;
@@ -1394,8 +1411,8 @@ function unmetEvalPrerequisiteLabels(allRows, targetRow, enrollmentYearOrd = nul
 
 /**
  * @param {object} props
- * @param {'need-evaluation'|'already-evaluated'} [props.listMode]
- * @param {'pending'|'completed'|'all'} [props.listScope] — API student list filter (default: completed for evaluated tab, all for need-evaluation tab).
+ * @param {'need-evaluation'|'already-evaluated'|'inactive-roster'} [props.listMode]
+ * @param {'pending'|'completed'|'all'} [props.listScope] — API student list filter (default: all for Student / Inactive & Graduates).
  * @param {'default'|'curriculumTracking'} [props.variant] — Curriculum tab: Figma-style copy and all-student list.
  */
 const EVALUATION_WORK_PERMS = [
@@ -1553,9 +1570,19 @@ const StudentEvaluationView = ({
     return String(user?.email || '').trim();
   }, [user?.display_name, user?.first_name, user?.fname, user?.last_name, user?.lname, user?.email]);
   const { open: systemGuideOpen } = useSystemGuide();
-  const canEdit = !!(isAdmin || isFaculty || isProgramHead || hasAnyPermission(EVALUATION_WORK_PERMS));
-  const canEditGrades = !!(isAdmin || hasAnyPermission(GRADE_EDIT_PERMS));
-  const canPromoteStudents = !!(isAdmin || hasAnyPermission(PROMOTE_PERMS));
+  const canEdit = !!(
+    isAdmin ||
+    isDean ||
+    isFaculty ||
+    isProgramHead ||
+    hasAnyPermission(EVALUATION_WORK_PERMS)
+  );
+  const canEditGrades = !!(
+    isAdmin ||
+    isDean ||
+    hasAnyPermission(GRADE_EDIT_PERMS)
+  );
+  const canPromoteStudents = !!(isAdmin || isDean || hasAnyPermission(PROMOTE_PERMS));
   /** View only / Promote only: evaluation rows are read-only. */
   const isEvaluatorOnly = canEdit && !canEditGrades;
   const canEditEvaluationRows = canEdit && !isEvaluatorOnly;
@@ -1563,7 +1590,9 @@ const StudentEvaluationView = ({
   const canManageSubjectEquivalences = isAdmin || hasAnyPermission(SUBJECT_EQUIV_MUTATE_PERMS);
   /** Dean / PH / Admin may unlock major subjects blocked by year-standing. */
   const canGrantMajorStandingOverride = !!(isAdmin || isDean || isProgramHead);
-  const isEvaluatedModule = listMode === 'already-evaluated';
+  const isInactiveRoster = listMode === 'inactive-roster';
+  /** Legacy prop; treated like Inactive & Graduates for UI gates. */
+  const isEvaluatedModule = listMode === 'already-evaluated' || isInactiveRoster;
   /** Practice accounts for Dean-side testing without touching real students. */
   const canManageSimulationDummy = !!(
     (isAdmin || isDean || isProgramHead) &&
@@ -1571,9 +1600,10 @@ const StudentEvaluationView = ({
     !isEvaluatedModule
   );
   const isCurriculumTracking = variant === 'curriculumTracking';
-  /** Need-evaluation tab loads the full roster (`all`) so students stay visible after a completion is logged; Evaluated tab still filters to `completed`. */
+  // Student tab: full enrolled roster (`all`); use Standing to filter Evaluated / Unevaluated.
+  // Inactive & Graduates: enrollment_group=non_active (stopped, transferred, graduate).
   const resolvedListScope =
-    listScopeProp ?? (isEvaluatedModule ? 'completed' : 'all');
+    listScopeProp ?? (listMode === 'already-evaluated' ? 'completed' : 'all');
 
   const [loading, setLoading] = useState(false);
   const [loadingList, setLoadingList] = useState(false);
@@ -1610,9 +1640,11 @@ const StudentEvaluationView = ({
   const [guideLoadPlanPreviewSaved, setGuideLoadPlanPreviewSaved] = useState(false);
   const [electiveTrackSaving, setElectiveTrackSaving] = useState(false);
   const [pendingProgramId, setPendingProgramId] = useState(null);
+  const [pendingCurriculumHeaderId, setPendingCurriculumHeaderId] = useState(null);
   /** Editable name draft for simulation dummies only. */
   const [pendingSimName, setPendingSimName] = useState(null);
   const [programPreviewLoading, setProgramPreviewLoading] = useState(false);
+  const [curriculumPreviewLoading, setCurriculumPreviewLoading] = useState(false);
   const [programs, setPrograms] = useState([]);
   const [electiveTrackPopoverKey, setElectiveTrackPopoverKey] = useState(null);
   const [electiveSubjectPopoverKey, setElectiveSubjectPopoverKey] = useState(null);
@@ -1625,6 +1657,16 @@ const StudentEvaluationView = ({
   const [downloadSelectedTermKeys, setDownloadSelectedTermKeys] = useState([]);
   const [downloadingPdf, setDownloadingPdf] = useState(false);
   const [downloadingCsv, setDownloadingCsv] = useState(false);
+  /** Student roster: choose standing → preview table → download CSV / Excel / PDF. */
+  const [studentListPreviewOpen, setStudentListPreviewOpen] = useState(false);
+  const [studentListPreviewScope, setStudentListPreviewScope] = useState('all');
+  const [studentListPreviewRows, setStudentListPreviewRows] = useState([]);
+  const [studentListSortBy, setStudentListSortBy] = useState('year'); // year | name
+  /** '' = all years in preview; otherwise year_level_id string (or __none__). */
+  const [studentListYearFilter, setStudentListYearFilter] = useState('');
+  /** '' = all; 'yes' = evaluated; 'no' = not evaluated. */
+  const [studentListEvaluatedFilter, setStudentListEvaluatedFilter] = useState('');
+  const [studentListDownloading, setStudentListDownloading] = useState(false);
   const electiveTrackPopoverRef = useRef(null);
   const [subjectEquivModalOpen, setSubjectEquivModalOpen] = useState(false);
   const [subjectEquivFixedLocal, setSubjectEquivFixedLocal] = useState(null);
@@ -1653,8 +1695,12 @@ const StudentEvaluationView = ({
 
   const [listCampusFilter, setListCampusFilter] = useState('');
   const [listYearLevelFilter, setListYearLevelFilter] = useState('');
-  /** '' | regular | irregular | unevaluated | unevaluated_irregular */
+  /**
+   * Student tab: '' | regular | irregular | unevaluated | evaluated | unevaluated_irregular
+   * Inactive & Graduates: '' | inactive | graduate | transferred
+   */
   const [listStandingFilter, setListStandingFilter] = useState('');
+  const [enrollmentStatusSaving, setEnrollmentStatusSaving] = useState(false);
   /** Full Lookup year-level list so Year level filter always includes 3rd Year etc. */
   const [lookupYearLevels, setLookupYearLevels] = useState([]);
   const [lookupCampuses, setLookupCampuses] = useState([]);
@@ -2135,8 +2181,19 @@ const StudentEvaluationView = ({
         if (listYearLevelFilter) {
           params.year_level_id = listYearLevelFilter;
         }
-        if (listStandingFilter) {
-          params.standing = listStandingFilter;
+        if (isInactiveRoster) {
+          params.enrollment_group = 'non_active';
+          if (listStandingFilter) {
+            params.enrollment_status = listStandingFilter;
+          }
+        } else {
+          if (listStandingFilter) {
+            params.standing = listStandingFilter;
+          }
+          if (listMode === 'need-evaluation') {
+            // Day-to-day Student tab: currently enrolled only (Inactive/Graduate live in the archive tab).
+            params.enrollment_group = 'active';
+          }
         }
         const response = await api.get('/evaluation/students', {
           params,
@@ -2176,13 +2233,25 @@ const StudentEvaluationView = ({
         }
       }
     },
-    [resolvedListScope, listCampusFilter, listYearLevelFilter, listStandingFilter]
+    [
+      resolvedListScope,
+      listCampusFilter,
+      listYearLevelFilter,
+      listStandingFilter,
+      isInactiveRoster,
+      listMode,
+    ]
   );
 
-  /** After grades are saved, ensure one academic-record completion exists so the student appears under Evaluated students (no separate "Store" step). */
+  /**
+   * When earned units cover the full curriculum (remaining = 0), store them under
+   * Evaluated students and drop them from Curriculum Evaluation (pending list).
+   */
   const syncStudentToEvaluatedListIfNeeded = useCallback(
-    async (studentId) => {
+    async (studentId, lackingUnits) => {
       if (!canEdit || isEvaluatedModule || !studentId) return;
+      const remaining = Number(lackingUnits);
+      if (!Number.isFinite(remaining) || remaining > 0) return;
       try {
         const res = await api.get('/evaluation/academic-record/completions', {
           params: { student_id: studentId },
@@ -2192,6 +2261,7 @@ const StudentEvaluationView = ({
         if (!already) {
           await api.post('/evaluation/academic-record/complete', {
             student_id: studentId,
+            notes: 'Curriculum complete — all required units earned.',
           });
         }
         await fetchStudentList(searchTerm);
@@ -2797,8 +2867,23 @@ const StudentEvaluationView = ({
     );
   }, [isSelectedSimulation, pendingSimName, baselineData?.student]);
 
+  const savedCurriculumHeaderId =
+    baselineData?.curriculum?.curriculum_header_id ??
+    data?.curriculum?.curriculum_header_id ??
+    null;
+  const hasPendingCurriculumChange =
+    pendingCurriculumHeaderId != null &&
+    Number(pendingCurriculumHeaderId) !==
+      Number(baselineData?.curriculum?.curriculum_header_id ?? savedCurriculumHeaderId ?? '');
+  const displayCurriculumHeaderId = hasPendingCurriculumChange
+    ? pendingCurriculumHeaderId
+    : data?.curriculum?.curriculum_header_id ?? savedCurriculumHeaderId;
+
   const unsavedChangeCount =
-    modifiedKeys.size + (hasPendingProgramChange ? 1 : 0) + (hasPendingSimNameChange ? 1 : 0);
+    modifiedKeys.size +
+    (hasPendingProgramChange ? 1 : 0) +
+    (hasPendingCurriculumChange ? 1 : 0) +
+    (hasPendingSimNameChange ? 1 : 0);
   const hasUnsavedChanges = unsavedChangeCount > 0;
   const displayProgramId = hasPendingProgramChange ? pendingProgramId : savedProgramId;
 
@@ -2840,19 +2925,22 @@ const StudentEvaluationView = ({
     return opts;
   }, [students, lookupYearLevels]);
 
-  // Server already applies Campus / Year / Standing; keep a light client pass so UI stays
-  // consistent if an older API response is briefly in state.
+  // Server already applies Campus / Year / Standing. When the user is typing a name/ID
+  // search, the API skips Year Level so matches are not hidden by a stale year — do the same here.
   const filteredStudents = useMemo(() => {
     let list = students;
+    const searching = String(searchTerm || '').trim() !== '';
     if (listCampusFilter === '__unassigned__') {
       list = list.filter((s) => s.campus_id == null || s.campus_id === '');
     } else if (listCampusFilter) {
       list = list.filter((s) => String(s.campus_id ?? '') === listCampusFilter);
     }
-    if (listYearLevelFilter === '__unassigned__') {
-      list = list.filter((s) => s.year_level_id == null || s.year_level_id === '');
-    } else if (listYearLevelFilter) {
-      list = list.filter((s) => String(s.year_level_id ?? '') === listYearLevelFilter);
+    if (!searching) {
+      if (listYearLevelFilter === '__unassigned__') {
+        list = list.filter((s) => s.year_level_id == null || s.year_level_id === '');
+      } else if (listYearLevelFilter) {
+        list = list.filter((s) => String(s.year_level_id ?? '') === listYearLevelFilter);
+      }
     }
 
     if (listStandingFilter) {
@@ -2860,9 +2948,14 @@ const StudentEvaluationView = ({
         // Practice dummies are for Guide/testing only — they are not counted in any standing
         // (same as Dean Analytics).
         if (s.is_simulation) return false;
+        if (isInactiveRoster) {
+          const status = String(s.enrollment_status || '').trim().toLowerCase();
+          return status === String(listStandingFilter).toLowerCase();
+        }
         const isIrregular = /^irregular$/i.test(String(s.academic_status || '').trim());
         const isUnevaluated = !s.academic_record_evaluated;
         if (listStandingFilter === 'unevaluated') return isUnevaluated;
+        if (listStandingFilter === 'evaluated') return !isUnevaluated;
         if (listStandingFilter === 'regular') return !isIrregular;
         if (listStandingFilter === 'irregular') return isIrregular;
         if (listStandingFilter === 'unevaluated_irregular') return isUnevaluated && isIrregular;
@@ -2871,7 +2964,14 @@ const StudentEvaluationView = ({
     }
 
     return list;
-  }, [students, listCampusFilter, listYearLevelFilter, listStandingFilter]);
+  }, [
+    students,
+    listCampusFilter,
+    listYearLevelFilter,
+    listStandingFilter,
+    searchTerm,
+    isInactiveRoster,
+  ]);
 
   const evaluationFilterOptions = useMemo(() => {
     if (!data?.rows?.length) {
@@ -2887,13 +2987,28 @@ const StudentEvaluationView = ({
     });
     const years = [...yearsMap.values()].sort((a, b) => Number(a.id) - Number(b.id));
 
-    // Curriculum dropdown = student's assigned curriculum version only (e.g. 2018-19).
-    const curricula = [];
+    // Curriculum dropdown = all Effective SY versions for this student's program.
+    const optRows = Array.isArray(data?.curriculum_options) ? data.curriculum_options : [];
+    const curricula = optRows
+      .map((o) => ({
+        id: String(o.curriculum_header_id ?? o.id ?? ''),
+        label:
+          o.label ||
+          (o.effective_year
+            ? `${o.effective_year}-${Number(o.effective_year) + 1}`
+            : String(o.curriculum_header_id ?? '')),
+      }))
+      .filter((o) => o.id);
     const curriculumMeta = data?.curriculum;
-    if (curriculumMeta?.curriculum_header_id != null) {
-      curricula.push({
+    if (
+      curriculumMeta?.curriculum_header_id != null &&
+      !curricula.some((c) => c.id === String(curriculumMeta.curriculum_header_id))
+    ) {
+      curricula.unshift({
         id: String(curriculumMeta.curriculum_header_id),
-        label: curriculumMeta.label || String(curriculumMeta.effective_year || curriculumMeta.curriculum_header_id),
+        label:
+          curriculumMeta.label ||
+          String(curriculumMeta.effective_year || curriculumMeta.curriculum_header_id),
       });
     }
 
@@ -5368,7 +5483,7 @@ const StudentEvaluationView = ({
       const key = getRowKey(row);
       next[key] = {
         grade: draftGradeFromRow(row),
-        status: normalizeStatusForUi(row.status ?? ''),
+        status: draftStatusFromRow(row),
         inc_compliance_deadline: row.inc_compliance_deadline
           ? String(row.inc_compliance_deadline).slice(0, 10)
           : '',
@@ -5443,6 +5558,7 @@ const StudentEvaluationView = ({
     setBaselineData(evaluationPayload);
     setData(evaluationPayload);
     setPendingProgramId(null);
+    setPendingCurriculumHeaderId(null);
     const st = evaluationPayload?.student;
     if (st?.is_simulation) {
       setPendingSimName({
@@ -5623,6 +5739,8 @@ const StudentEvaluationView = ({
     setSelectedStudent(null);
     setBaselineData(null);
     setData(null);
+    setPendingProgramId(null);
+    setPendingCurriculumHeaderId(null);
     setPendingSimName(null);
     setError('');
     clearLastEvaluationSelection(selectionCacheKey);
@@ -5639,7 +5757,15 @@ const StudentEvaluationView = ({
       setListYearLevelFilter(saved.listYearLevelFilter);
     }
     if (saved?.listStandingFilter) {
-      setListStandingFilter(saved.listStandingFilter);
+      const savedFilter = String(saved.listStandingFilter);
+      if (isInactiveRoster) {
+        const ok = ['Inactive', 'Graduate', 'Transferred'].some(
+          (v) => v.toLowerCase() === savedFilter.toLowerCase()
+        );
+        if (ok) setListStandingFilter(savedFilter);
+      } else {
+        setListStandingFilter(savedFilter);
+      }
     }
     if (!saved?.student_id_number) {
       selectionRestoredRef.current = true;
@@ -5650,7 +5776,7 @@ const StudentEvaluationView = ({
       student_id: saved.student_id,
       student_id_number: saved.student_id_number,
     });
-  }, [selectionCacheKey, handleStudentSelect]);
+  }, [selectionCacheKey, handleStudentSelect, isInactiveRoster]);
 
   // Keep filters in the same cache entry while a student stays open.
   useEffect(() => {
@@ -6001,6 +6127,27 @@ const StudentEvaluationView = ({
         'Cancel'
       );
       if (!confirmed) return;
+    } else if (hasPendingCurriculumChange) {
+      const oldLabel =
+        baselineData?.curriculum?.label ||
+        evaluationFilterOptions.curricula.find(
+          (o) => Number(o.id) === Number(baselineData?.curriculum?.curriculum_header_id)
+        )?.label ||
+        'current curriculum';
+      const newLabel =
+        evaluationFilterOptions.curricula.find(
+          (o) => Number(o.id) === Number(pendingCurriculumHeaderId)
+        )?.label ||
+        data?.curriculum?.label ||
+        'new curriculum';
+
+      const confirmed = await swalConfirm(
+        'Move student to another curriculum?',
+        `Move this student from ${oldLabel} to ${newLabel}? Only the new curriculum map is shown. Matching / PE term grades (e.g. Movement Enhancement → PATHFIT 1) stay applied.`,
+        'Save & change curriculum',
+        'Cancel'
+      );
+      if (!confirmed) return;
     }
 
     savingAllRef.current = true;
@@ -6170,7 +6317,10 @@ const StudentEvaluationView = ({
         );
         const sid = evaluation?.student?.student_id;
         if (sid) {
-          await syncStudentToEvaluatedListIfNeeded(sid);
+          await syncStudentToEvaluatedListIfNeeded(
+            sid,
+            evaluation?.summary?.lacking_units
+          );
         }
         if (results.success > 0 || nameSaved) {
           swalToast(
@@ -6181,6 +6331,33 @@ const StudentEvaluationView = ({
           );
         } else {
           swalToast('success', response.data?.message || 'Program updated.');
+        }
+      } else if (hasPendingCurriculumChange) {
+        const response = await api.post('/evaluation/student/change-curriculum', {
+          student_id: data.student.student_id,
+          curriculum_header_id: Number(pendingCurriculumHeaderId),
+        });
+        const evaluation = response.data?.evaluation ?? response.data;
+        clearLocalEvaluationDraftCache();
+        applySavedEvaluation(evaluation);
+        setDrafts({});
+        setModifiedKeys(new Set());
+        const sid = evaluation?.student?.student_id;
+        if (sid) {
+          await syncStudentToEvaluatedListIfNeeded(
+            sid,
+            evaluation?.summary?.lacking_units
+          );
+        }
+        if (results.success > 0 || nameSaved) {
+          swalToast(
+            'success',
+            `Saved${results.success > 0 ? ` ${results.success} evaluation(s)` : ''}${
+              nameSaved ? ' + name' : ''
+            } and moved curriculum.`
+          );
+        } else {
+          swalToast('success', response.data?.message || 'Curriculum updated.');
         }
       } else {
         const parts = [];
@@ -6198,7 +6375,10 @@ const StudentEvaluationView = ({
         applySavedEvaluation(response.data);
         const sid = response.data?.student?.student_id;
         if (sid) {
-          await syncStudentToEvaluatedListIfNeeded(sid);
+          await syncStudentToEvaluatedListIfNeeded(
+            sid,
+            response.data?.summary?.lacking_units
+          );
         }
       }
     } catch (err) {
@@ -6218,13 +6398,16 @@ const StudentEvaluationView = ({
 
     const clearMessage = hasPendingProgramChange
       ? 'Reset all grades, statuses, and the pending program change to original values?'
-      : 'Reset all grades and statuses to original values?';
+      : hasPendingCurriculumChange
+        ? 'Reset all grades, statuses, and the pending curriculum change to original values?'
+        : 'Reset all grades and statuses to original values?';
 
     swalConfirm('Clear All Changes?', clearMessage, 'Clear', 'Cancel')
       .then((confirmed) => {
         if (!confirmed) return;
 
         setPendingProgramId(null);
+        setPendingCurriculumHeaderId(null);
         if (baselineData?.student?.is_simulation) {
           setPendingSimName({
             first_name: baselineData.student.first_name || '',
@@ -6275,7 +6458,7 @@ const StudentEvaluationView = ({
           const key = getRowKey(row);
           nextDrafts[key] = {
             grade: draftGradeFromRow(row),
-            status: normalizeStatusForUi(row.status ?? ''),
+            status: draftStatusFromRow(row),
             inc_compliance_deadline: row.inc_compliance_deadline
               ? String(row.inc_compliance_deadline).slice(0, 10)
               : '',
@@ -6342,16 +6525,17 @@ const StudentEvaluationView = ({
         return;
       }
 
-      if (modifiedKeys.size > 0) {
+      if (modifiedKeys.size > 0 || hasPendingCurriculumChange) {
         const confirmed = await swalConfirm(
           'Unsaved subject changes',
-          `You have ${modifiedKeys.size} unsaved subject change(s). Switch program preview anyway?`,
+          `You have unsaved changes. Switch program preview anyway?`,
           'Preview program',
           'Cancel'
         );
         if (!confirmed) return;
       }
 
+      setPendingCurriculumHeaderId(null);
       setPendingProgramId(Number(nextId));
       setProgramPreviewLoading(true);
       setError('');
@@ -6378,7 +6562,65 @@ const StudentEvaluationView = ({
       canEditEvaluationRows,
       baselineData,
       modifiedKeys.size,
+      hasPendingCurriculumChange,
       savedProgramId,
+      selectedStudent?.student_id_number,
+    ]
+  );
+
+  const handleCurriculumChange = useCallback(
+    async (nextHeaderId) => {
+      if (!canEditEvaluationRows || !selectedStudent?.student_id_number) return;
+
+      const currentId = String(baselineData?.curriculum?.curriculum_header_id ?? '');
+      const nextId = String(nextHeaderId ?? '');
+      if (!nextId || nextId === currentId) {
+        setPendingCurriculumHeaderId(null);
+        if (baselineData && !hasPendingProgramChange) {
+          setData(baselineData);
+        }
+        return;
+      }
+
+      if (modifiedKeys.size > 0 || hasPendingProgramChange) {
+        const confirmed = await swalConfirm(
+          'Unsaved changes',
+          'You have unsaved changes. Preview another curriculum anyway?',
+          'Preview curriculum',
+          'Cancel'
+        );
+        if (!confirmed) return;
+      }
+
+      setPendingProgramId(null);
+      setPendingCurriculumHeaderId(Number(nextId));
+      setCurriculumPreviewLoading(true);
+      setError('');
+      try {
+        const response = await api.get(
+          `/evaluation/student/${encodeURIComponent(selectedStudent.student_id_number)}/curriculum-preview`,
+          { params: { curriculum_header_id: Number(nextId) } }
+        );
+        setData(response.data);
+        setEvalFilterCurriculumId(nextId);
+      } catch (err) {
+        setPendingCurriculumHeaderId(null);
+        if (baselineData) {
+          setData(baselineData);
+        }
+        await swalError(
+          'Could not preview curriculum',
+          err.response?.data?.message || 'Request failed'
+        );
+      } finally {
+        setCurriculumPreviewLoading(false);
+      }
+    },
+    [
+      canEditEvaluationRows,
+      baselineData,
+      modifiedKeys.size,
+      hasPendingProgramChange,
       selectedStudent?.student_id_number,
     ]
   );
@@ -6477,7 +6719,7 @@ const StudentEvaluationView = ({
             swalToast('info', 'Already promoted — standing refreshed to that year/semester.');
           }
         } else {
-          swalToast('success', successToast || 'Promotion saved and logged for Evaluated students.');
+          swalToast('success', successToast || 'Promotion saved. Find them under Standing → Evaluated.');
         }
         return true;
       } catch (err) {
@@ -7036,6 +7278,371 @@ const StudentEvaluationView = ({
     user?.email,
   ]);
 
+  const buildStudentListForStandingExport = useCallback(
+    (scope) => {
+      let list = Array.isArray(students) ? [...students] : [];
+      if (listCampusFilter === '__unassigned__') {
+        list = list.filter((s) => s.campus_id == null || s.campus_id === '');
+      } else if (listCampusFilter) {
+        list = list.filter((s) => String(s.campus_id ?? '') === listCampusFilter);
+      }
+      if (listYearLevelFilter === '__unassigned__') {
+        list = list.filter((s) => s.year_level_id == null || s.year_level_id === '');
+      } else if (listYearLevelFilter) {
+        list = list.filter((s) => String(s.year_level_id ?? '') === listYearLevelFilter);
+      }
+
+      // Practice / simulation accounts stay out of exported rosters.
+      list = list.filter((s) => !s.is_simulation);
+
+      if (scope === 'irregular') {
+        list = list.filter((s) => /^irregular$/i.test(String(s.academic_status || '').trim()));
+      } else if (scope === 'regular') {
+        list = list.filter((s) => !/^irregular$/i.test(String(s.academic_status || '').trim()));
+      }
+
+      return list.map((s) => {
+        const standing = /^irregular$/i.test(String(s.academic_status || '').trim())
+          ? 'Irregular'
+          : String(s.academic_status || '').trim() || 'Regular';
+        const yearIdRaw = s.year_level_id;
+        const yearIdNum = Number(yearIdRaw);
+        return {
+          student_id: s.student_id,
+          student_id_number: s.student_id_number || '',
+          last_name: s.last_name || '',
+          first_name: s.first_name || '',
+          middle_name: s.middle_name || '',
+          full_name: s.full_name || '',
+          program_name: s.program_name || s.program?.program_name || '',
+          campus_name: s.campus?.campus_name || '',
+          year_level_id: Number.isFinite(yearIdNum) ? yearIdNum : null,
+          year_level_name: s.year_level_name || '',
+          standing,
+          enrollment_status: s.enrollment_status || '',
+          evaluated: s.academic_record_evaluated ? 'Yes' : 'No',
+        };
+      });
+    },
+    [students, listCampusFilter, listYearLevelFilter]
+  );
+
+  const studentListYearFilterOptions = useMemo(() => {
+    const map = new Map();
+    studentListPreviewRows.forEach((row) => {
+      const id =
+        row.year_level_id != null && Number.isFinite(Number(row.year_level_id))
+          ? String(row.year_level_id)
+          : '__none__';
+      if (!map.has(id)) {
+        map.set(id, {
+          id,
+          label: row.year_level_name || (id === '__none__' ? 'No year level' : `Year ${id}`),
+          sort: id === '__none__' ? 999 : Number(id),
+        });
+      }
+    });
+    return [...map.values()].sort((a, b) => a.sort - b.sort);
+  }, [studentListPreviewRows]);
+
+  const sortedStudentListPreviewRows = useMemo(() => {
+    let rows = [...studentListPreviewRows];
+    if (studentListYearFilter === '__none__') {
+      rows = rows.filter(
+        (r) => r.year_level_id == null || !Number.isFinite(Number(r.year_level_id))
+      );
+    } else if (studentListYearFilter) {
+      rows = rows.filter((r) => String(r.year_level_id ?? '') === studentListYearFilter);
+    }
+
+    if (studentListEvaluatedFilter === 'yes') {
+      rows = rows.filter((r) => String(r.evaluated || '').toLowerCase() === 'yes');
+    } else if (studentListEvaluatedFilter === 'no') {
+      rows = rows.filter((r) => String(r.evaluated || '').toLowerCase() !== 'yes');
+    }
+
+    const nameCmp = (a, b) => {
+      const ln = String(a.last_name || '').localeCompare(String(b.last_name || ''), undefined, {
+        sensitivity: 'base',
+      });
+      if (ln !== 0) return ln;
+      return String(a.first_name || '').localeCompare(String(b.first_name || ''), undefined, {
+        sensitivity: 'base',
+      });
+    };
+    const yearKey = (row) => {
+      if (row.year_level_id != null && Number.isFinite(Number(row.year_level_id))) {
+        return Number(row.year_level_id);
+      }
+      const m = String(row.year_level_name || '').match(/(\d+)/);
+      return m ? Number(m[1]) : 999;
+    };
+
+    if (studentListSortBy === 'name') {
+      rows.sort(nameCmp);
+    } else {
+      rows.sort((a, b) => {
+        const y = yearKey(a) - yearKey(b);
+        if (y !== 0) return y;
+        return nameCmp(a, b);
+      });
+    }
+    return rows;
+  }, [
+    studentListPreviewRows,
+    studentListSortBy,
+    studentListYearFilter,
+    studentListEvaluatedFilter,
+  ]);
+
+  /** Choose Irregulars / All / Regular, then open preview (no download yet). */
+  const handleOpenStudentListPreview = useCallback(async () => {
+    const scope = await swalSelect({
+      title: 'Preview student list',
+      text: 'Choose which students to include. Current Campus and Year filters still apply.',
+      inputOptions: {
+        irregular: 'Irregulars',
+        all: 'All',
+        regular: 'Regular',
+      },
+      inputValue: 'all',
+      confirmButtonText: 'Preview',
+      cancelButtonText: 'Cancel',
+    });
+    if (!scope) return;
+
+    const rows = buildStudentListForStandingExport(scope);
+    if (rows.length === 0) {
+      swalToast('info', 'No students match that standing filter.');
+      return;
+    }
+
+    setStudentListPreviewScope(scope);
+    setStudentListSortBy('year');
+    setStudentListYearFilter('');
+    setStudentListEvaluatedFilter('');
+    setStudentListPreviewRows(rows);
+    setStudentListPreviewOpen(true);
+  }, [buildStudentListForStandingExport]);
+
+  const closeStudentListPreview = useCallback(() => {
+    setStudentListPreviewOpen(false);
+    setStudentListPreviewRows([]);
+    setStudentListYearFilter('');
+    setStudentListEvaluatedFilter('');
+    setStudentListDownloading(false);
+  }, []);
+
+  const studentListScopeLabel =
+    studentListPreviewScope === 'irregular'
+      ? 'irregulars'
+      : studentListPreviewScope === 'regular'
+        ? 'regular'
+        : 'all';
+
+  const studentListScopeTitle =
+    studentListPreviewScope === 'irregular'
+      ? 'Irregular students'
+      : studentListPreviewScope === 'regular'
+        ? 'Regular students'
+        : 'All students';
+
+  const confirmDownloadStudentList = useCallback(
+    async (format) => {
+      const rows = sortedStudentListPreviewRows;
+      if (!rows.length) {
+        swalToast('info', 'Nothing to download.');
+        return;
+      }
+
+      setStudentListDownloading(true);
+      try {
+        const yearPart = studentListYearFilter
+          ? `-${
+              studentListYearFilterOptions.find((o) => o.id === studentListYearFilter)?.label ||
+              `year-${studentListYearFilter}`
+            }`
+          : '';
+        const baseName = safeDownloadName(`student-list-${studentListScopeLabel}${yearPart}`);
+        const triggerBlobDownload = (blob, filename) => {
+          const url = URL.createObjectURL(blob);
+          const link = document.createElement('a');
+          link.href = url;
+          link.download = filename;
+          document.body.appendChild(link);
+          link.click();
+          link.remove();
+          URL.revokeObjectURL(url);
+        };
+
+        if (format === 'csv' || format === 'excel') {
+          const csvEscape = (value) => {
+            const raw = value == null ? '' : String(value);
+            if (/[",\n\r]/.test(raw)) return `"${raw.replace(/"/g, '""')}"`;
+            return raw;
+          };
+          const header = [
+            'Student ID',
+            'Last Name',
+            'First Name',
+            'Middle Name',
+            'Full Name',
+            'Program',
+            'Campus',
+            'Year Level',
+            'Standing',
+            'Status',
+            'Evaluated',
+          ];
+          const body = rows.map((s) => [
+            s.student_id_number,
+            s.last_name,
+            s.first_name,
+            s.middle_name,
+            s.full_name,
+            s.program_name,
+            s.campus_name,
+            s.year_level_name,
+            s.standing,
+            s.enrollment_status || '',
+            s.evaluated,
+          ]);
+
+          if (format === 'csv') {
+            const csv = [header, ...body].map((cols) => cols.map(csvEscape).join(',')).join('\r\n');
+            triggerBlobDownload(
+              new Blob([`\uFEFF${csv}`], { type: 'text/csv;charset=utf-8;' }),
+              `${baseName}.csv`
+            );
+          } else {
+            // Excel-friendly HTML workbook (.xls opens in Excel / Sheets).
+            const cell = (value) =>
+              `<td>${String(value ?? '')
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')}</td>`;
+            const thead = `<tr>${header.map((h) => `<th>${h}</th>`).join('')}</tr>`;
+            const tbody = body.map((cols) => `<tr>${cols.map(cell).join('')}</tr>`).join('');
+            const html = `<!DOCTYPE html><html><head><meta charset="utf-8" /></head><body><table border="1">${thead}${tbody}</table></body></html>`;
+            triggerBlobDownload(
+              new Blob([`\uFEFF${html}`], { type: 'application/vnd.ms-excel;charset=utf-8;' }),
+              `${baseName}.xls`
+            );
+          }
+        } else if (format === 'pdf') {
+          const pdf = new jsPDF({ orientation: 'landscape', unit: 'pt', format: 'letter' });
+          const pageW = pdf.internal.pageSize.getWidth();
+          const pageH = pdf.internal.pageSize.getHeight();
+          const marginX = 28;
+          const marginTop = 36;
+          const lineH = 12;
+          const cols = [
+            { key: 'n', label: '#', w: 28 },
+            { key: 'student_id_number', label: 'Student ID', w: 88 },
+            { key: 'full_name', label: 'Name', w: 170 },
+            { key: 'program_name', label: 'Program', w: 150 },
+            { key: 'campus_name', label: 'Campus', w: 90 },
+            { key: 'year_level_name', label: 'Year', w: 60 },
+            { key: 'standing', label: 'Standing', w: 60 },
+            { key: 'enrollment_status', label: 'Status', w: 60 },
+            { key: 'evaluated', label: 'Eval', w: 36 },
+          ];
+
+          const drawHeader = (y) => {
+            pdf.setFont('helvetica', 'bold');
+            pdf.setFontSize(12);
+            pdf.text(studentListScopeTitle, marginX, y);
+            pdf.setFont('helvetica', 'normal');
+            pdf.setFontSize(9);
+            pdf.text(
+              `${rows.length} students · ${
+                studentListYearFilter ? `year filter on · ` : ''
+              }${
+                studentListEvaluatedFilter === 'yes'
+                  ? 'evaluated only · '
+                  : studentListEvaluatedFilter === 'no'
+                    ? 'not evaluated only · '
+                    : ''
+              }sorted by ${studentListSortBy === 'name' ? 'name' : 'year level'}`,
+              marginX,
+              y + 14
+            );
+            let x = marginX;
+            const hy = y + 32;
+            pdf.setFont('helvetica', 'bold');
+            pdf.setFontSize(8);
+            cols.forEach((c) => {
+              pdf.text(c.label, x, hy);
+              x += c.w;
+            });
+            pdf.setDrawColor(0);
+            pdf.setLineWidth(0.6);
+            pdf.line(marginX, hy + 3, pageW - marginX, hy + 3);
+            return hy + 14;
+          };
+
+          let y = drawHeader(marginTop);
+          pdf.setFont('helvetica', 'normal');
+          pdf.setFontSize(7.5);
+
+          rows.forEach((row, idx) => {
+            if (y > pageH - 28) {
+              pdf.addPage();
+              y = drawHeader(marginTop);
+              pdf.setFont('helvetica', 'normal');
+              pdf.setFontSize(7.5);
+            }
+            let x = marginX;
+            const values = [
+              String(idx + 1),
+              row.student_id_number || '',
+              row.full_name || `${row.last_name}, ${row.first_name}`.trim(),
+              row.program_name || '',
+              row.campus_name || '',
+              row.year_level_name || '',
+              row.standing || '',
+              row.enrollment_status || '',
+              row.evaluated || '',
+            ];
+            values.forEach((val, i) => {
+              const maxW = cols[i].w - 4;
+              const text = pdf.splitTextToSize(String(val), maxW)[0] || '';
+              pdf.text(text, x, y);
+              x += cols[i].w;
+            });
+            y += lineH;
+          });
+
+          pdf.save(`${baseName}.pdf`);
+        } else {
+          swalToast('error', 'Unknown download format.');
+          return;
+        }
+
+        swalToast(
+          'success',
+          `Downloaded ${rows.length} student(s) as ${String(format).toUpperCase()}.`
+        );
+        closeStudentListPreview();
+      } catch (err) {
+        console.error(err);
+        swalToast('error', 'Download failed. Please try again.');
+      } finally {
+        setStudentListDownloading(false);
+      }
+    },
+    [
+      sortedStudentListPreviewRows,
+      studentListScopeLabel,
+      studentListScopeTitle,
+      studentListSortBy,
+      studentListYearFilter,
+      studentListYearFilterOptions,
+      studentListEvaluatedFilter,
+      closeStudentListPreview,
+    ]
+  );
+
   const toggleDownloadTermKey = useCallback((termKey) => {
     setDownloadSelectedTermKeys((prev) =>
       prev.includes(termKey)
@@ -7201,7 +7808,7 @@ const StudentEvaluationView = ({
             )}
           </div>
           <div className="eval-hero__status-capsule" title={statusTitle}>
-            <span className="eval-hero__status-capsule-label">Status</span>
+            <span className="eval-hero__status-capsule-label">Standing</span>
             <span
               className={`eval-hero__status-capsule-value${
                 isIrregularStatus ? ' eval-hero__status-capsule-value--irregular' : ''
@@ -7294,6 +7901,54 @@ const StudentEvaluationView = ({
               >
                 Curriculum / Evaluation
               </button>
+              <div
+                className="eval-hero__name-status"
+                title="Student status: Enrolled, Inactive, Transferred, or Graduate (separate from Regular/Irregular standing)"
+              >
+                <span className="eval-hero__name-status-label">Status</span>
+                {canEditEvaluationRows ? (
+                  <select
+                    className="eval-hero__name-status-select"
+                    value={String(student?.enrollment_status || '')}
+                    disabled={enrollmentStatusSaving || !data?.student?.student_id}
+                    onChange={async (e) => {
+                      const next = e.target.value;
+                      if (!next || !data?.student?.student_id) return;
+                      setEnrollmentStatusSaving(true);
+                      try {
+                        const res = await api.post('/evaluation/student/enrollment-status', {
+                          student_id: Number(data.student.student_id),
+                          enrollment_status: next,
+                        });
+                        const evaluation = res.data?.evaluation ?? res.data;
+                        if (evaluation) {
+                          applySavedEvaluation(evaluation);
+                        }
+                        swalToast('success', res.data?.message || 'Student status updated.');
+                        await fetchStudentList(searchTerm);
+                      } catch (err) {
+                        await swalError(
+                          'Could not update status',
+                          err.response?.data?.message || 'Request failed'
+                        );
+                      } finally {
+                        setEnrollmentStatusSaving(false);
+                      }
+                    }}
+                    aria-label="Student status"
+                  >
+                    <option value="">—</option>
+                    <option value="Enrolled">Enrolled</option>
+                    <option value="Inactive">Inactive</option>
+                    <option value="Transferred">Transferred</option>
+                    <option value="Graduate">Graduate</option>
+                  </select>
+                ) : (
+                  <span className="eval-hero__name-status-value">
+                    {student?.enrollment_status || '—'}
+                  </span>
+                )}
+              </div>
             </div>
             <div
               className={`eval-hero__degree${
@@ -7526,14 +8181,34 @@ const StudentEvaluationView = ({
             <i className="fa-regular fa-calendar eval-filter-field__icon" aria-hidden />
             <span className="eval-filter-field__label">Curriculum</span>
             <select
-              className="eval-filter-field__control"
-              value={evalFilterCurriculumId}
-              onChange={(e) => setEvalFilterCurriculumId(e.target.value)}
-              disabled={curricula.length <= 1}
+              className={`eval-filter-field__control${
+                hasPendingCurriculumChange ? ' eval-filter-field__control--pending' : ''
+              }`}
+              value={String(displayCurriculumHeaderId ?? evalFilterCurriculumId ?? '')}
+              onChange={(e) => {
+                if (canEditEvaluationRows) {
+                  void handleCurriculumChange(e.target.value);
+                  return;
+                }
+                setEvalFilterCurriculumId(e.target.value);
+              }}
+              disabled={
+                !canEditEvaluationRows ||
+                curricula.length === 0 ||
+                savingAll ||
+                programPreviewLoading ||
+                curriculumPreviewLoading
+              }
               title={
-                curriculumEffectiveLabel
-                  ? `Curriculum Effective SY ${curriculumEffectiveLabel} (subject map for this student)`
-                  : 'Student curriculum'
+                !canEditEvaluationRows
+                  ? curriculumEffectiveLabel
+                    ? `Curriculum Effective SY ${curriculumEffectiveLabel}`
+                    : 'Student curriculum'
+                  : curricula.length <= 1
+                    ? 'Only one curriculum version exists for this program — add another Effective SY in Curriculum Management to switch'
+                    : hasPendingCurriculumChange
+                      ? 'Previewing another curriculum — Save All to confirm'
+                      : 'Change Effective SY to move this student (taken subjects carry over)'
               }
             >
               {curricula.length === 0 ? (
@@ -7561,7 +8236,12 @@ const StudentEvaluationView = ({
                 className={`eval-filter-program-select${
                   hasPendingProgramChange ? ' eval-filter-program-select--pending' : ''
                 }`}
-                disabled={programOptions.length === 0 || savingAll || programPreviewLoading}
+                disabled={
+                  programOptions.length === 0 ||
+                  savingAll ||
+                  programPreviewLoading ||
+                  curriculumPreviewLoading
+                }
                 aria-label="Program"
               />
             ) : (
@@ -7647,6 +8327,24 @@ const StudentEvaluationView = ({
               . Shared subjects keep their grades with a <strong>FROM</strong> tag. Subjects only in
               the previous program stay visible for review and are removed when you click{' '}
               <strong>Save All Changes</strong> to confirm the shift.
+            </span>
+          </div>
+        ) : null}
+        {hasPendingCurriculumChange ? (
+          <div className="eval-program-preview-banner" role="status">
+            <i className="fa-solid fa-eye" aria-hidden />
+            <span>
+              Previewing curriculum{' '}
+              <strong>
+                {curricula.find(
+                  (o) => Number(o.id) === Number(pendingCurriculumHeaderId)
+                )?.label ||
+                  data?.curriculum?.label ||
+                  'selected Effective SY'}
+              </strong>
+              . Only this map’s subjects are shown. Taken PE grades (e.g. Movement Enhancement /
+              Fitness Exercise) carry onto the matching PATHFIT slot — click{' '}
+              <strong>Save All Changes</strong> to confirm.
             </span>
           </div>
         ) : null}
@@ -7753,9 +8451,12 @@ const StudentEvaluationView = ({
     // During an unsaved program-shift preview, keep those rows visible for review.
     const isProgramShiftPreview =
       hasPendingProgramChange || data?.preview_program_shift === true;
+    const isCurriculumShiftPreview =
+      hasPendingCurriculumChange || data?.preview_curriculum_shift === true;
     const showOnlySubjectsToTake =
       !isEvaluatedModule &&
       !isProgramShiftPreview &&
+      !isCurriculumShiftPreview &&
       shouldShowOnlySubjectsToTake(data?.student);
     // Always show the full curriculum. Year/Semester dropdowns only mark current standing.
     const matchesTermFilters = ([, rows]) => rows.length > 0;
@@ -7767,6 +8468,8 @@ const StudentEvaluationView = ({
           const merged = mergedRowsByKey.get(getRowKey(row)) || row;
           if (merged?.previous_program_only === true) return false;
           if (merged?.from_previous_program === true) return false;
+          if (merged?.previous_curriculum_only === true) return false;
+          if (merged?.from_previous_curriculum === true) return false;
           return !isTransferCreditRowForTermGate(merged);
         });
         return [groupKey, visibleRows];
@@ -8298,6 +9001,25 @@ const StudentEvaluationView = ({
                                     {formatPreviousProgramTag(row, data?.student)}
                                   </span>
                                 ) : null}
+                                {row.from_previous_curriculum && !row.previous_curriculum_only ? (
+                                  <span
+                                    className="eval-previous-program-tag"
+                                    title={
+                                      row.carried_from_subject_code || row.carried_from_subject_name
+                                        ? `Grade carried from ${[
+                                            row.carried_from_subject_code,
+                                            row.carried_from_subject_name,
+                                          ]
+                                            .filter(Boolean)
+                                            .join(' — ')}`
+                                        : 'Grade carried from previous curriculum Effective SY'
+                                    }
+                                  >
+                                    {row.carried_from_subject_code
+                                      ? `FROM ${row.carried_from_subject_code}`
+                                      : 'FROM previous curriculum'}
+                                  </span>
+                                ) : null}
                                 {isPreviewPendingForRow && (
                                   <span
                                     className="eval-preview-move-badge"
@@ -8366,8 +9088,14 @@ const StudentEvaluationView = ({
                               type="text"
                               className="eval-grade-input"
                               value={draft.grade ?? ''}
-                              title="Enter grade"
-                              onChange={(e) => updateDraft(row, { grade: e.target.value })}
+                              title="Enter grade (1.0–3.0 marks Passed, above 3.0 marks Failed)"
+                              onChange={(e) => {
+                                const norm = normalizeManualGradeInput(e.target.value, row);
+                                updateDraft(row, {
+                                  grade: norm.display,
+                                  status: norm.status,
+                                });
+                              }}
                               disabled={savingAll}
                             />
                           ) : termCanEditNumericGrades && gradable && !prereqsMet ? (
@@ -8993,16 +9721,18 @@ const StudentEvaluationView = ({
   };
 
   const sectionTitle =
-    isCurriculumTracking && !isEvaluatedModule
+    isCurriculumTracking && !isInactiveRoster && listMode !== 'already-evaluated'
       ? 'Curriculum tracking'
-      : isEvaluatedModule
-        ? 'Evaluated students'
-        : 'Curriculum Evaluation';
+      : isInactiveRoster
+        ? 'Inactive & Graduates'
+        : listMode === 'already-evaluated'
+          ? 'Inactive & Graduates'
+          : 'Curriculum Evaluation';
   const listCountLabel =
-    isCurriculumTracking && !isEvaluatedModule
+    isCurriculumTracking && !isInactiveRoster && listMode !== 'already-evaluated'
       ? `${filteredStudents.length} students`
-      : isEvaluatedModule
-        ? `${filteredStudents.length} stored`
+      : isInactiveRoster || listMode === 'already-evaluated'
+        ? `${filteredStudents.length} records`
         : `${filteredStudents.length} students`;
   // Do not auto-clear the open student when Year/Standing filters no longer match
   // (e.g. after Promote they leave Unevaluated). Keep their curriculum on screen
@@ -9024,7 +9754,11 @@ const StudentEvaluationView = ({
       className={`student-eval-section student-eval-section--cdoc${
         isCurriculumTracking ? ' student-eval-section--curriculum-tracking' : ''
       }`}
-      data-tour={isEvaluatedModule ? 'page-evaluated-students' : 'page-academic-record'}
+      data-tour={
+        isInactiveRoster || listMode === 'already-evaluated'
+          ? 'page-inactive-graduates'
+          : 'page-academic-record'
+      }
       data-guide-promotion-saved={guidePromotionPreviewSaved ? 'true' : 'false'}
       data-guide-load-saved={guideLoadPlanPreviewSaved ? 'true' : 'false'}
     >
@@ -9032,29 +9766,41 @@ const StudentEvaluationView = ({
         <div className="section-header-titles">
           <h2>{sectionTitle}</h2>
         </div>
-        {canEditEvaluationRows && hasUnsavedChanges && (
-          <div className="header-actions">
-            <span className="unsaved-indicator">
-              <span className="dot">●</span> {unsavedChangeCount} unsaved
-            </span>
-            <button
-              type="button"
-              className="clear-all-btn"
-              onClick={handleClearAll}
-              disabled={savingAll}
-            >
-              Clear All
-            </button>
-            <button
-              type="button"
-              className="save-all-btn"
-              onClick={handleSaveAll}
-              disabled={savingAll || !hasUnsavedChanges}
-            >
-              {savingAll ? 'Saving...' : `Save All (${unsavedChangeCount})`}
-            </button>
-          </div>
-        )}
+        <div className="header-actions header-actions--eval-list">
+          {canEditEvaluationRows && hasUnsavedChanges ? (
+            <>
+              <span className="unsaved-indicator">
+                <span className="dot">●</span> {unsavedChangeCount} unsaved
+              </span>
+              <button
+                type="button"
+                className="clear-all-btn"
+                onClick={handleClearAll}
+                disabled={savingAll}
+              >
+                Clear All
+              </button>
+              <button
+                type="button"
+                className="save-all-btn"
+                onClick={handleSaveAll}
+                disabled={savingAll || !hasUnsavedChanges}
+              >
+                {savingAll ? 'Saving...' : `Save All (${unsavedChangeCount})`}
+              </button>
+            </>
+          ) : null}
+          <button
+            type="button"
+            className="eval-list-download-btn"
+            onClick={handleOpenStudentListPreview}
+            disabled={loadingList || !students.length}
+            title="Preview then download student list (Irregulars, All, or Regular)"
+          >
+            <i className="fa-solid fa-download" aria-hidden />
+            <span>Download list</span>
+          </button>
+        </div>
       </div>
 
       <div className="eval-container eval-container--selector-layout">
@@ -9129,19 +9875,41 @@ const StudentEvaluationView = ({
             </label>
 
             <label className="eval-list-toolbar__field" data-tour="evaluation-standing-filter">
-              <span className="eval-list-toolbar__hint">Standing</span>
+              <span className="eval-list-toolbar__hint">
+                {isInactiveRoster ? 'Status' : 'Standing'}
+              </span>
               <select
                 className="eval-list-toolbar__select"
                 value={listStandingFilter}
                 onChange={(e) => setListStandingFilter(e.target.value)}
-                aria-label="Filter by evaluation standing"
-                title="Unevaluated = not yet staff-evaluated (missed auto-promote or still needs review). Unevaluated irregular = Irregular students who still need manual Promote/Complete. Practice students are excluded from every standing filter."
+                aria-label={
+                  isInactiveRoster
+                    ? 'Filter by enrollment status'
+                    : 'Filter by evaluation standing'
+                }
+                title={
+                  isInactiveRoster
+                    ? 'Filter this archive by enrollment status: Inactive, Graduate, or Transferred.'
+                    : 'Evaluated = academic-record completion on file. Unevaluated = still needs review. Unevaluated irregular = Irregular students who still need manual Promote/Complete. Practice students are excluded from every standing filter.'
+                }
               >
-                <option value="">All students</option>
-                <option value="regular">Regular</option>
-                <option value="irregular">Irregular</option>
-                <option value="unevaluated">Unevaluated</option>
-                <option value="unevaluated_irregular">Unevaluated irregular</option>
+                {isInactiveRoster ? (
+                  <>
+                    <option value="">All statuses</option>
+                    <option value="Inactive">Inactive</option>
+                    <option value="Graduate">Graduate</option>
+                    <option value="Transferred">Transferred</option>
+                  </>
+                ) : (
+                  <>
+                    <option value="">All students</option>
+                    <option value="regular">Regular</option>
+                    <option value="irregular">Irregular</option>
+                    <option value="evaluated">Evaluated</option>
+                    <option value="unevaluated">Unevaluated</option>
+                    <option value="unevaluated_irregular">Unevaluated irregular</option>
+                  </>
+                )}
               </select>
             </label>
 
@@ -9184,8 +9952,8 @@ const StudentEvaluationView = ({
                 emptyLabel={
                   loadingList
                     ? 'Loading students...'
-                    : isEvaluatedModule
-                      ? 'No stored evaluations found'
+                    : isInactiveRoster || listMode === 'already-evaluated'
+                      ? 'No inactive or graduate records found'
                       : 'Type a name or student ID…'
                 }
                 placeholder="Type student name or ID..."
@@ -9202,6 +9970,9 @@ const StudentEvaluationView = ({
 
           {programPreviewLoading && !loading && (
             <div className="loading-message">Loading program preview...</div>
+          )}
+          {curriculumPreviewLoading && !loading && (
+            <div className="loading-message">Loading curriculum preview...</div>
           )}
 
           {canEditEvaluationRows && hasUnsavedChanges && (
@@ -9222,11 +9993,23 @@ const StudentEvaluationView = ({
               </p>
             </div>
           )}
-          {!loading && !programPreviewLoading && selectedStudent && renderStudentHero()}
-          {!loading && !programPreviewLoading && selectedStudent && renderFilterRail()}
-          {!loading && !programPreviewLoading && selectedStudent && renderTable()}
+          {!loading &&
+            !programPreviewLoading &&
+            !curriculumPreviewLoading &&
+            selectedStudent &&
+            renderStudentHero()}
+          {!loading &&
+            !programPreviewLoading &&
+            !curriculumPreviewLoading &&
+            selectedStudent &&
+            renderFilterRail()}
+          {!loading &&
+            !programPreviewLoading &&
+            !curriculumPreviewLoading &&
+            selectedStudent &&
+            renderTable()}
 
-          {/* Floating Save Bar for unsaved grade / program changes */}
+          {/* Floating Save Bar for unsaved grade / program / curriculum changes */}
           {canEditEvaluationRows && hasUnsavedChanges && (
             <div
               className={`floating-save-bar${
@@ -9238,12 +10021,16 @@ const StudentEvaluationView = ({
                   ? `${unsavedChangeCount} unsaved (incl. program shift)`
                   : hasPendingProgramChange
                     ? 'Program shift pending — save to apply'
-                    : hasPendingSimNameChange && modifiedKeys.size > 0
-                      ? `${modifiedKeys.size} unsaved + dummy name`
-                      : hasPendingSimNameChange
-                        ? 'Dummy name pending — save to store'
-                        : `${modifiedKeys.size} unsaved · kept on this device`}
-                }
+                    : hasPendingCurriculumChange &&
+                        (modifiedKeys.size > 0 || hasPendingSimNameChange)
+                      ? `${unsavedChangeCount} unsaved (incl. curriculum move)`
+                      : hasPendingCurriculumChange
+                        ? 'Curriculum move pending — save to apply'
+                        : hasPendingSimNameChange && modifiedKeys.size > 0
+                          ? `${modifiedKeys.size} unsaved + dummy name`
+                          : hasPendingSimNameChange
+                            ? 'Dummy name pending — save to store'
+                            : `${modifiedKeys.size} unsaved · kept on this device`}
               </span>
               <div className="floating-actions">
                 <button
@@ -9295,6 +10082,7 @@ const StudentEvaluationView = ({
           {/* FAB: subject placement — portaled so it stays viewport bottom-right */}
           {!loading &&
             !programPreviewLoading &&
+            !curriculumPreviewLoading &&
             selectedStudent &&
             data?.rows?.length > 0 &&
             createPortal(
@@ -10002,6 +10790,170 @@ const StudentEvaluationView = ({
           </div>
         </div>
       )}
+
+      {studentListPreviewOpen ? (
+        <div className="eval-download-modal-overlay" role="presentation">
+          <div
+            className="eval-download-modal eval-download-modal--student-list"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="student-list-preview-title"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="eval-download-modal__header">
+              <div>
+                <p className="eval-download-modal__eyebrow">Preview before download</p>
+                <h3 id="student-list-preview-title">{studentListScopeTitle}</h3>
+              </div>
+              <button
+                type="button"
+                className="eval-download-modal__close"
+                onClick={closeStudentListPreview}
+                disabled={studentListDownloading}
+                aria-label="Close preview"
+              >
+                ×
+              </button>
+            </div>
+            <div className="eval-download-modal__body eval-download-modal__body--student-list">
+              <div className="student-list-preview-toolbar">
+                <p className="eval-download-modal__hint">
+                  {sortedStudentListPreviewRows.length} student
+                  {sortedStudentListPreviewRows.length === 1 ? '' : 's'}
+                  {studentListYearFilter
+                    ? ` · ${
+                        studentListYearFilterOptions.find((o) => o.id === studentListYearFilter)
+                          ?.label || 'Selected year'
+                      } only`
+                    : ' · All years in this list'}
+                  {studentListEvaluatedFilter === 'yes'
+                    ? ' · Evaluated only'
+                    : studentListEvaluatedFilter === 'no'
+                      ? ' · Not evaluated only'
+                      : ' · All evaluation statuses'}{' '}
+                  · Campus filter applied · Practice students excluded
+                </p>
+                <div className="student-list-preview-controls">
+                  <label className="student-list-preview-sort">
+                    <span>Year level</span>
+                    <select
+                      value={studentListYearFilter}
+                      onChange={(e) => setStudentListYearFilter(e.target.value)}
+                      disabled={studentListDownloading}
+                      aria-label="Filter student list by year level"
+                    >
+                      <option value="">All year levels</option>
+                      {studentListYearFilterOptions.map((o) => (
+                        <option key={o.id} value={o.id}>
+                          {o.label}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="student-list-preview-sort">
+                    <span>Evaluated</span>
+                    <select
+                      value={studentListEvaluatedFilter}
+                      onChange={(e) => setStudentListEvaluatedFilter(e.target.value)}
+                      disabled={studentListDownloading}
+                      aria-label="Filter student list by evaluation status"
+                    >
+                      <option value="">All</option>
+                      <option value="yes">Evaluated</option>
+                      <option value="no">Not evaluated</option>
+                    </select>
+                  </label>
+                  <label className="student-list-preview-sort">
+                    <span>Sort by</span>
+                    <select
+                      value={studentListSortBy}
+                      onChange={(e) => setStudentListSortBy(e.target.value)}
+                      disabled={studentListDownloading}
+                      aria-label="Sort student list"
+                    >
+                      <option value="year">Year level</option>
+                      <option value="name">Name</option>
+                    </select>
+                  </label>
+                </div>
+              </div>
+              <div className="student-list-preview-table-wrap">
+                <table className="student-list-preview-table">
+                  <thead>
+                    <tr>
+                      <th>#</th>
+                      <th>Student ID</th>
+                      <th>Name</th>
+                      <th>Program</th>
+                      <th>Campus</th>
+                      <th>Year</th>
+                      <th>Standing</th>
+                      <th>Status</th>
+                      <th>Evaluated</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {sortedStudentListPreviewRows.map((row, idx) => (
+                      <tr key={row.student_id ?? `${row.student_id_number}-${idx}`}>
+                        <td>{idx + 1}</td>
+                        <td>{row.student_id_number || '—'}</td>
+                        <td>
+                          {row.full_name ||
+                            `${row.last_name}, ${row.first_name}`.trim() ||
+                            '—'}
+                        </td>
+                        <td>{row.program_name || '—'}</td>
+                        <td>{row.campus_name || '—'}</td>
+                        <td>{row.year_level_name || '—'}</td>
+                        <td>{row.standing}</td>
+                        <td>{row.enrollment_status || '—'}</td>
+                        <td>{row.evaluated}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+            <div className="eval-download-modal__footer">
+              <div />
+              <div className="eval-download-modal__footer-actions">
+                <button
+                  type="button"
+                  className="eval-download-modal__cancel"
+                  onClick={closeStudentListPreview}
+                  disabled={studentListDownloading}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  className="eval-download-modal__download eval-download-modal__download--csv"
+                  onClick={() => void confirmDownloadStudentList('csv')}
+                  disabled={studentListDownloading || !sortedStudentListPreviewRows.length}
+                >
+                  {studentListDownloading ? 'Working…' : 'CSV'}
+                </button>
+                <button
+                  type="button"
+                  className="eval-download-modal__download"
+                  onClick={() => void confirmDownloadStudentList('excel')}
+                  disabled={studentListDownloading || !sortedStudentListPreviewRows.length}
+                >
+                  {studentListDownloading ? 'Working…' : 'Excel'}
+                </button>
+                <button
+                  type="button"
+                  className="eval-download-modal__download"
+                  onClick={() => void confirmDownloadStudentList('pdf')}
+                  disabled={studentListDownloading || !sortedStudentListPreviewRows.length}
+                >
+                  {studentListDownloading ? 'Working…' : 'PDF'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       <PromoteSemesterModal
         open={promoteModalOpen}

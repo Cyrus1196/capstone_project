@@ -330,6 +330,47 @@ const LookupDataManagement = ({
   const lookupModalRef = useRef(null);
   const [editingItem, setEditingItem] = useState(null);
   const [formData, setFormData] = useState({});
+
+  /** Subjects for Offered Subject form: only curriculum subjects for the selected (or scoped) program. */
+  const offeredSubjectOptions = useMemo(() => {
+    const all = lookupData.subjects || [];
+    const programId = formData?.program_id;
+    const rows = lookupData.curriculums || [];
+    if (!programId || !rows.length) {
+      return all.map((subject) => ({
+        value: String(subject.subject_id),
+        label: `${subject.subject_code} - ${subject.subject_name}`,
+      }));
+    }
+    const allowed = new Set(
+      rows
+        .filter((r) => String(r.program_id ?? r.program?.program_id ?? '') === String(programId))
+        .map((r) => String(r.subject_id ?? r.subject?.subject_id ?? ''))
+        .filter(Boolean)
+    );
+    return all
+      .filter((s) => allowed.has(String(s.subject_id)))
+      .map((subject) => ({
+        value: String(subject.subject_id),
+        label: `${subject.subject_code} - ${subject.subject_name}`,
+      }));
+  }, [lookupData.subjects, lookupData.curriculums, formData?.program_id]);
+
+  const offeredProgramOptions = useMemo(
+    () =>
+      (lookupData.programs || []).map((program) => ({
+        value: String(program.program_id),
+        label: `${program.program_code} - ${program.program_name}`,
+      })),
+    [lookupData.programs]
+  );
+
+  /** One assigned program → lock the field (Dean / PH / etc. with a single scope). */
+  const offeredProgramLocked = offeredProgramOptions.length === 1;
+  const soleOfferedProgramId = offeredProgramLocked
+    ? Number(offeredProgramOptions[0].value)
+    : null;
+
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isAddingBulkSubjects, setIsAddingBulkSubjects] = useState(false);
   useDialogFocus(showModal, lookupModalRef, null, () => {
@@ -929,7 +970,15 @@ const LookupDataManagement = ({
       },
       tracks: { track_code: '', track_name: '' },
       curriculumHeaders: { program_id: '', Effective_Year: '', academic_year_id: '', description: '' },
-      offeredSubjects: { subject_id: '', academic_year_id: '', semester_id: '', program_id: '', track_id: '', year_level_id: '', status: 'active' },
+      offeredSubjects: {
+        subject_id: '',
+        academic_year_id: '',
+        semester_id: '',
+        program_id: soleOfferedProgramId || '',
+        track_id: '',
+        year_level_id: '',
+        status: 'active',
+      },
       electiveSubjects: { department_id: '', program_id: '', track_id: '', subject_id: '', elective_slot_id: '', description: '' },
     };
     return defaults[section] || {};
@@ -2494,6 +2543,35 @@ const LookupDataManagement = ({
       offeredSubjects: (
         <>
           <div className="form-group">
+            <label htmlFor="ldm-os-program">Program</label>
+            <SearchableSelect
+              id="ldm-os-program"
+              value={formData.program_id === '' || formData.program_id == null ? '' : String(formData.program_id)}
+              onChange={(v) => {
+                if (offeredProgramLocked) return;
+                const nextProgramId = v ? parseInt(v, 10) : '';
+                setFormData((prev) => ({
+                  ...prev,
+                  program_id: nextProgramId,
+                  // Subject list is program-scoped — clear stale pick from another program.
+                  subject_id: '',
+                }));
+              }}
+              options={offeredProgramOptions}
+              emptyLabel="Select Program"
+              placeholder="Search program…"
+              required
+              disabled={offeredProgramLocked}
+              clearable={!offeredProgramLocked}
+              aria-label="Program"
+            />
+            {offeredProgramLocked ? (
+              <small style={{ color: '#6c757d', display: 'block', marginTop: '6px' }}>
+                Locked to your assigned program.
+              </small>
+            ) : null}
+          </div>
+          <div className="form-group">
             <label htmlFor="ldm-os-subject">Subject</label>
             <SearchableSelect
               id="ldm-os-subject"
@@ -2501,15 +2579,19 @@ const LookupDataManagement = ({
               onChange={(v) =>
                 setFormData({ ...formData, subject_id: v ? parseInt(v, 10) : '' })
               }
-              options={(lookupData.subjects || []).map((subject) => ({
-                value: String(subject.subject_id),
-                label: `${subject.subject_code} - ${subject.subject_name}`,
-              }))}
-              emptyLabel="Select Subject"
+              options={offeredSubjectOptions}
+              emptyLabel={
+                formData.program_id
+                  ? 'Select Subject (this program’s curriculum)'
+                  : 'Select Program first'
+              }
               placeholder="Search subject…"
               required
               aria-label="Offered subject"
             />
+            <small style={{ color: '#6c757d', display: 'block', marginTop: '6px' }}>
+              Only subjects under the program(s) you handle are listed.
+            </small>
           </div>
           <div className="form-group">
             <label htmlFor="ldm-os-ay">Academic Year</label>
@@ -2526,7 +2608,9 @@ const LookupDataManagement = ({
               aria-label="Academic year (present school year)"
             />
             <small style={{ color: '#6c757d', display: 'block', marginTop: '6px' }}>
-              Offered subjects always apply to the present school year.
+              {currentAcademicYear
+                ? 'Offered subjects always apply to the present school year (active Academic year).'
+                : 'No active Academic year in Lookup yet. Ask Admin to Activate one under Lookup → Academic year, then refresh this page.'}
             </small>
           </div>
           <div className="form-group">
@@ -2545,24 +2629,6 @@ const LookupDataManagement = ({
               placeholder="Search semester…"
               required
               aria-label="Semester"
-            />
-          </div>
-          <div className="form-group">
-            <label htmlFor="ldm-os-program">Program</label>
-            <SearchableSelect
-              id="ldm-os-program"
-              value={formData.program_id === '' || formData.program_id == null ? '' : String(formData.program_id)}
-              onChange={(v) =>
-                setFormData({ ...formData, program_id: v ? parseInt(v, 10) : '' })
-              }
-              options={(lookupData.programs || []).map((program) => ({
-                value: String(program.program_id),
-                label: `${program.program_code} - ${program.program_name}`,
-              }))}
-              emptyLabel="Select Program"
-              placeholder="Search program…"
-              required
-              aria-label="Program"
             />
           </div>
           <div className="form-group">

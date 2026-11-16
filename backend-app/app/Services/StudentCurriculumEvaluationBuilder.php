@@ -255,6 +255,7 @@ class StudentCurriculumEvaluationBuilder
                 'academic_status_reasons' => [],
                 'student' => $this->studentSummary($profile),
                 'curriculum' => null,
+                'curriculum_options' => [],
                 'active_semester' => $this->activeSemesterSummary(),
                 'active_academic_year' => $this->activeAcademicYearSummary(),
                 'offered_subjects' => [],
@@ -604,6 +605,25 @@ class StudentCurriculumEvaluationBuilder
             ];
         }
 
+        // Curriculum Effective SY switch: keep only this map's subjects, but carry grades
+        // from an older map when the same term slot has a PE / matching taken subject
+        // (e.g. PED 025 Movement Enhancement → PED 030 PATHFIT 1).
+        $activeHeaderId = $curriculumHeader?->curriculum_header_id !== null
+            ? (int) $curriculumHeader->curriculum_header_id
+            : null;
+        if ($activeHeaderId) {
+            $rows = $this->carryGradesFromOtherCurriculumVersions($rows, $profile, $activeHeaderId);
+            $totalUnitsEarned = 0;
+            $passedInOrder = [];
+            foreach ($rows as $row) {
+                $earned = (int) ($row['units_earned'] ?? 0);
+                $totalUnitsEarned += $earned;
+                $passedInOrder[] = $earned > 0
+                    || ! empty($row['passed_via_transfer_credit'])
+                    || $this->rowIndicatesPassedForCarry($row);
+            }
+        }
+
         $lackingUnits = max(0, $totalUnitsInCurriculum - $totalUnitsEarned);
 
         $classified = AcademicStatusClassifier::fromPassSequence($passedInOrder, $rows);
@@ -613,6 +633,7 @@ class StudentCurriculumEvaluationBuilder
             'academic_status_reasons' => $classified['reasons'],
             'student' => $this->studentSummary($profile),
             'curriculum' => $this->curriculumHeaderSummary($curriculumHeader),
+            'curriculum_options' => $this->curriculumOptionsForStudent($profile),
             'active_semester' => $this->activeSemesterSummary(),
             'active_academic_year' => $this->activeAcademicYearSummary(),
             'offered_subjects' => $this->activeOfferedSubjectsForProgram($profile, $curriculumHeader),
@@ -1048,6 +1069,19 @@ class StudentCurriculumEvaluationBuilder
             return null;
         }
 
+        // Manual override from Curriculum dropdown (same program, different Effective SY).
+        $forcedId = $profile->curriculum_header_id !== null && $profile->curriculum_header_id !== ''
+            ? (int) $profile->curriculum_header_id
+            : null;
+        if ($forcedId) {
+            $forced = $headers->first(
+                static fn (CurriculumHeader $h) => (int) $h->curriculum_header_id === $forcedId
+            );
+            if ($forced instanceof CurriculumHeader) {
+                return $forced;
+            }
+        }
+
         $entryYear = $this->inferStudentEntryYear($profile);
         if ($entryYear !== null) {
             $match = $headers
@@ -1060,6 +1094,307 @@ class StudentCurriculumEvaluationBuilder
         }
 
         return $headers->first();
+    }
+
+    /**
+     * Curriculum versions available for this student's current program.
+     *
+     * @return list<array{curriculum_header_id: int, effective_year: int, label: string, description: ?string}>
+     */
+    public function curriculumOptionsForStudent(StudentProfile $profile): array
+    {
+        $programId = (int) $profile->current_program;
+        if ($programId <= 0) {
+            return [];
+        }
+
+        return CurriculumHeader::query()
+            ->where('program_id', $programId)
+            ->orderByDesc('Effective_Year')
+            ->orderByDesc('curriculum_header_id')
+            ->get()
+            ->map(function (CurriculumHeader $header) {
+                $year = (int) $header->Effective_Year;
+                $label = $year > 0
+                    ? sprintf('%d-%d', $year, $year + 1)
+                    : (string) $header->curriculum_header_id;
+
+                return [
+                    'curriculum_header_id' => (int) $header->curriculum_header_id,
+                    'effective_year' => $year,
+                    'label' => $label,
+                    'description' => $header->description,
+                ];
+            })
+            ->values()
+            ->all();
+    }
+
+    /**
+     * Preview another curriculum Effective SY for the same program.
+     * Only the target map is shown; taken PE / same-term subjects keep grades on the new codes.
+     *
+     * @return array<string, mixed>
+     */
+    public function buildPayloadForCurriculumPreview(StudentProfile $profile, int $previewHeaderId): array
+    {
+        $programId = (int) $profile->current_program;
+        $savedHeaderId = $profile->curriculum_header_id !== null && $profile->curriculum_header_id !== ''
+            ? (int) $profile->curriculum_header_id
+            : null;
+        $resolvedBefore = $this->resolveCurriculumHeaderForStudent($profile);
+        $fromHeaderId = $resolvedBefore?->curriculum_header_id !== null
+            ? (int) $resolvedBefore->curriculum_header_id
+            : null;
+
+        $previewHeader = CurriculumHeader::query()
+            ->where('curriculum_header_id', $previewHeaderId)
+            ->where('program_id', $programId)
+            ->first();
+        if (! $previewHeader) {
+            throw new \InvalidArgumentException('Curriculum version is not available for this program.');
+        }
+
+        $profile->curriculum_header_id = $previewHeaderId;
+        $payload = $this->buildPayload($profile);
+        $payload['preview_curriculum_shift'] = true;
+        $payload['saved_curriculum_header_id'] = $fromHeaderId;
+        $payload['curriculum_options'] = $this->curriculumOptionsForStudent($profile);
+        $profile->curriculum_header_id = $savedHeaderId;
+
+        return $payload;
+    }
+
+    /**
+     * Apply grades earned under another Effective SY onto empty rows of the active map.
+     * Match by same year + semester for PE/PATHFIT/Movement/Fitness subjects (or identical codes).
+     * Does not append old-map-only subjects — only the active curriculum is shown.
+     *
+     * @param  list<array<string, mixed>>  $rows
+     * @return list<array<string, mixed>>
+     */
+    private function carryGradesFromOtherCurriculumVersions(
+        array $rows,
+        StudentProfile $profile,
+        int $activeHeaderId
+    ): array {
+        $programId = (int) ($profile->current_program ?? 0);
+        if ($programId <= 0 || $rows === []) {
+            return $rows;
+        }
+
+        $otherHeaders = CurriculumHeader::query()
+            ->where('program_id', $programId)
+            ->where('curriculum_header_id', '!=', $activeHeaderId)
+            ->pluck('curriculum_header_id')
+            ->map(static fn ($id) => (int) $id)
+            ->all();
+        if ($otherHeaders === []) {
+            return $rows;
+        }
+
+        $activeSubjectIds = [];
+        foreach ($rows as $row) {
+            $sid = $row['subject_id'] ?? null;
+            if ($sid !== null && $sid !== '') {
+                $activeSubjectIds[(int) $sid] = true;
+            }
+        }
+
+        $donorItems = Curriculum::query()
+            ->whereIn('curriculum_header_id', $otherHeaders)
+            ->whereNotNull('subject_id')
+            ->with(['subject'])
+            ->get();
+
+        /** @var array<int, list<array{year:int,sem:int,code:string,name:string,header:int}>> $donorPlacements */
+        $donorPlacements = [];
+        foreach ($donorItems as $item) {
+            $sid = (int) $item->subject_id;
+            if ($sid < 1 || isset($activeSubjectIds[$sid])) {
+                continue;
+            }
+            $year = (int) ($item->year_level ?? 0);
+            $sem = (int) ($item->semester_id ?? 0);
+            if ($year < 1 || $sem < 1) {
+                continue;
+            }
+            $subject = $item->subject;
+            $donorPlacements[$sid][] = [
+                'year' => $year,
+                'sem' => $sem,
+                'code' => strtoupper(trim((string) ($subject->subject_code ?? ''))),
+                'name' => (string) ($subject->subject_name ?? ''),
+                'header' => (int) $item->curriculum_header_id,
+            ];
+        }
+        if ($donorPlacements === []) {
+            return $rows;
+        }
+
+        $evaluations = Evaluation::query()
+            ->where('student_id', $profile->student_id)
+            ->whereNotNull('subject_id')
+            ->with(['subject', 'evaluatedBy'])
+            ->get()
+            ->groupBy('subject_id')
+            ->map(fn ($group) => $this->preferredEvaluationFromGroup($group));
+
+        $gradeHelper = app(GradeScaleHelper::class);
+        $usedDonorSubjectIds = [];
+
+        foreach ($rows as $index => $row) {
+            $hasOwnGrade = ($row['grade'] ?? null) !== null && trim((string) $row['grade']) !== '';
+            $hasOwnStatus = ($row['status'] ?? null) !== null && trim((string) $row['status']) !== '';
+            if ($hasOwnGrade || $hasOwnStatus || ! empty($row['passed_via_transfer_credit'])) {
+                continue;
+            }
+
+            $targetYear = (int) ($row['year_level_id'] ?? 0);
+            $targetSem = (int) ($row['semester_id'] ?? 0);
+            $targetCode = strtoupper(trim((string) ($row['subject_code'] ?? '')));
+            $targetName = (string) ($row['subject_name'] ?? '');
+            if ($targetYear < 1 || $targetSem < 1) {
+                continue;
+            }
+
+            $best = null;
+            $bestScore = -1;
+            foreach ($evaluations as $donorSubjectId => $evaluation) {
+                $donorSid = (int) $donorSubjectId;
+                if ($donorSid < 1 || isset($usedDonorSubjectIds[$donorSid]) || isset($activeSubjectIds[$donorSid])) {
+                    continue;
+                }
+                if (! isset($donorPlacements[$donorSid])) {
+                    continue;
+                }
+
+                $gradeRaw = $evaluation->grade ?? null;
+                $status = $evaluation->evaluation_status ?? null;
+                $hasTaken = ($gradeRaw !== null && trim((string) $gradeRaw) !== '')
+                    || ($status !== null && trim((string) $status) !== '');
+                if (! $hasTaken) {
+                    continue;
+                }
+
+                foreach ($donorPlacements[$donorSid] as $place) {
+                    if ($place['year'] !== $targetYear || $place['sem'] !== $targetSem) {
+                        continue;
+                    }
+                    if (! $this->subjectsCompatibleForCurriculumCarry(
+                        $targetCode,
+                        $targetName,
+                        $place['code'],
+                        $place['name']
+                    )) {
+                        continue;
+                    }
+
+                    $score = 0;
+                    if ($place['code'] !== '' && $place['code'] === $targetCode) {
+                        $score += 100;
+                    }
+                    if ($this->isPhysicalEducationSubject($place['code'], $place['name'])
+                        && $this->isPhysicalEducationSubject($targetCode, $targetName)) {
+                        $score += 50;
+                    }
+                    if ($score > $bestScore) {
+                        $bestScore = $score;
+                        $best = [
+                            'evaluation' => $evaluation,
+                            'donor_subject_id' => $donorSid,
+                            'donor_code' => $place['code'],
+                            'donor_name' => $place['name'],
+                            'header' => $place['header'],
+                        ];
+                    }
+                }
+            }
+
+            if ($best === null) {
+                continue;
+            }
+
+            $evaluation = $best['evaluation'];
+            $gradeRaw = $evaluation->grade ?? null;
+            $grade = $gradeRaw !== null && $gradeRaw !== '' ? (string) $gradeRaw : null;
+            $status = $evaluation->evaluation_status ?? null;
+            $units = (int) ($row['units'] ?? 0);
+            $isPassed = $gradeHelper->gradeIndicatesPass($gradeRaw, $row['passing_grade'] ?? null, $status)
+                || in_array(strtolower(trim((string) $status)), ['passed', 'pass', 'credit', 'complete', 'completed'], true);
+
+            $rows[$index]['grade'] = $grade;
+            $rows[$index]['status'] = $status;
+            $rows[$index]['units_earned'] = $isPassed ? $units : 0;
+            $rows[$index]['evaluation_id'] = $evaluation->evaluation_id ?? null;
+            $rows[$index]['academic_year_id'] = $evaluation->academic_year_id ?? ($row['academic_year_id'] ?? null);
+            $rows[$index]['evaluated_by'] = $evaluation->evaluatedBy;
+            $rows[$index]['evaluation_date'] = $evaluation->evaluation_date;
+            $rows[$index]['enrolled_date'] = $evaluation->enrolled_date;
+            $rows[$index]['inc_compliance_deadline'] = $evaluation->inc_compliance_deadline
+                ? $evaluation->inc_compliance_deadline->format('Y-m-d')
+                : null;
+            $rows[$index]['from_previous_curriculum'] = true;
+            $rows[$index]['previous_curriculum_only'] = false;
+            $rows[$index]['previous_curriculum_header_id'] = $best['header'];
+            $rows[$index]['carried_from_subject_id'] = $best['donor_subject_id'];
+            $rows[$index]['carried_from_subject_code'] = $best['donor_code'];
+            $rows[$index]['carried_from_subject_name'] = $best['donor_name'];
+
+            $usedDonorSubjectIds[$best['donor_subject_id']] = true;
+        }
+
+        return $rows;
+    }
+
+    private function isPhysicalEducationSubject(string $code, string $name): bool
+    {
+        $code = strtoupper(trim($code));
+        $name = strtoupper(trim($name));
+        if ($code !== '' && str_starts_with($code, 'PED')) {
+            return true;
+        }
+
+        return str_contains($name, 'PATHFIT')
+            || str_contains($name, 'PATH FIT')
+            || str_contains($name, 'MOVEMENT')
+            || str_contains($name, 'FITNESS EXERCISE')
+            || str_contains($name, 'PHYSICAL ACTIVITIES');
+    }
+
+    private function subjectsCompatibleForCurriculumCarry(
+        string $targetCode,
+        string $targetName,
+        string $donorCode,
+        string $donorName
+    ): bool {
+        if ($targetCode !== '' && $donorCode !== '' && $targetCode === $donorCode) {
+            return true;
+        }
+
+        return $this->isPhysicalEducationSubject($targetCode, $targetName)
+            && $this->isPhysicalEducationSubject($donorCode, $donorName);
+    }
+
+    /**
+     * @param  array<string, mixed>  $row
+     */
+    private function rowIndicatesPassedForCarry(array $row): bool
+    {
+        $status = strtolower(trim((string) ($row['status'] ?? '')));
+        if (in_array($status, ['passed', 'pass', 'credit', 'complete', 'completed'], true)) {
+            return true;
+        }
+        $grade = $row['grade'] ?? null;
+        if ($grade === null || trim((string) $grade) === '') {
+            return false;
+        }
+
+        return app(GradeScaleHelper::class)->gradeIndicatesPass(
+            $grade,
+            $row['passing_grade'] ?? null,
+            $row['status'] ?? null
+        );
     }
 
     private function inferStudentEntryYear(StudentProfile $profile): ?int
@@ -1320,9 +1655,9 @@ class StudentCurriculumEvaluationBuilder
      * Persist academic_status from the same curriculum evaluation payload as
      * computed_academic_status (Regular / Irregular from sequence rules).
      *
-     * Also lifts year_level_id to match earned-units standing (46→2nd, 94→3rd, 132→4th)
-     * when the stored year is behind. Does not demote a year that is already ahead
-     * (manual / auto promotion). Semester movement remains an explicit promote action.
+     * Always sets year_level_id from earned-units standing (46→2nd, 94→3rd, 132→4th)
+     * so Year Level filters match the Standing label. Semester movement remains an
+     * explicit promote action (promotion_target_*); those fields are not used for filters.
      *
      * @param  array{rows?: list<array<string, mixed>>, computed_academic_status?: string, summary?: array{total_units_earned?: int|float}}|null  $built  From buildPayload(); omit to run one build.
      */
@@ -1353,16 +1688,41 @@ class StudentCurriculumEvaluationBuilder
         }
 
         $earned = (float) ($built['summary']['total_units_earned'] ?? 0);
-        $unitsYearOrdinal = $earned >= 132 ? 4 : ($earned >= 94 ? 3 : ($earned >= 46 ? 2 : 1));
+        $unitsYearOrdinal = \App\Support\EvaluationStanding::yearOrdinalFromEarnedUnits($earned);
         $unitsYearId = $this->resolveYearLevelIdForOrdinal($unitsYearOrdinal);
         $currentYearId = $profile->year_level_id !== null && $profile->year_level_id !== ''
             ? (int) $profile->year_level_id
             : null;
+        if ($unitsYearId !== null && $currentYearId !== $unitsYearId) {
+            $profile->year_level_id = $unitsYearId;
+            $changed = true;
+        }
+
+        // Enrollment lifecycle: units complete → Graduate (does not touch Regular/Irregular).
+        $enrollmentCurrent = \App\Support\EnrollmentStatus::normalize($profile->enrollment_status);
+        if (
+            ! \App\Support\EnrollmentStatus::isProtected($enrollmentCurrent)
+            && $enrollmentCurrent !== \App\Support\EnrollmentStatus::GRADUATE
+        ) {
+            $totalUnits = (float) ($built['summary']['total_units_in_curriculum'] ?? 0);
+            $lackingUnits = (float) ($built['summary']['lacking_units'] ?? 0);
+            if ($totalUnits > 0 && $lackingUnits <= 0) {
+                $profile->enrollment_status = \App\Support\EnrollmentStatus::GRADUATE;
+                $changed = true;
+            }
+        }
+
+        // Keep a lagging promotion_target from blocking nothing (filters use year_level_id),
+        // but still advance it when units standing moves ahead so promote UI stays coherent.
+        $targetYearId = $profile->promotion_target_year_level_id !== null
+            && $profile->promotion_target_year_level_id !== ''
+            ? (int) $profile->promotion_target_year_level_id
+            : null;
         if (
             $unitsYearId !== null
-            && ($currentYearId === null || $currentYearId < $unitsYearId)
+            && ($targetYearId === null || $targetYearId < $unitsYearId)
         ) {
-            $profile->year_level_id = $unitsYearId;
+            $profile->promotion_target_year_level_id = $unitsYearId;
             $changed = true;
         }
 
@@ -1598,6 +1958,7 @@ class StudentCurriculumEvaluationBuilder
                 ($profile->middle_name ? ' '.$profile->middle_name : '')
             ),
             'academic_status' => $profile->academic_status,
+            'enrollment_status' => $profile->enrollment_status,
             // Shiftee / Returnee / Transferee - distinct from Regular/Irregular academic_status
             'student_entry_type' => $profile->student_entry_type,
             'year_level_id' => $profile->year_level_id,
@@ -1623,6 +1984,9 @@ class StudentCurriculumEvaluationBuilder
                 ]
                 : null,
             'program' => $profile->program,
+            'curriculum_header_id' => $profile->curriculum_header_id !== null && $profile->curriculum_header_id !== ''
+                ? (int) $profile->curriculum_header_id
+                : null,
             'previous_program_id' => $profile->previous_program,
             'previous_program' => $profile->relationLoaded('previousProgram')
                 ? $profile->getRelation('previousProgram')

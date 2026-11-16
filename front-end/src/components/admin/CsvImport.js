@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import api from '../../api/axios';
 import { swalConfirm, swalSuccess, swalError } from '../../utils/swal';
+import { touchSessionActivity } from '../../utils/sessionActivity';
 import useDialogFocus from '../../hooks/useDialogFocus';
 import SearchableSelect from '../common/SearchableSelect';
 import './CsvImport.css';
@@ -338,11 +339,22 @@ const CsvImport = ({
   const [file, setFile] = useState(null);
   const [preview, setPreview] = useState(null);
   const [loading, setLoading] = useState(false);
+  /** Preview-phase upload % (file → API) before the server finishes parsing. */
+  const [previewUploadPercent, setPreviewUploadPercent] = useState(null);
+  const [previewElapsedSec, setPreviewElapsedSec] = useState(0);
+  const previewStartedAtRef = useRef(null);
   const [importing, setImporting] = useState(false);
+  const [importProgress, setImportProgress] = useState(null);
+  /** 0–100 while the browser is still uploading the file to the API. */
+  const [uploadPercent, setUploadPercent] = useState(null);
+  const [importElapsedSec, setImportElapsedSec] = useState(0);
+  const importStartedAtRef = useRef(null);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [sisTermAyId, setSisTermAyId] = useState('');
   const [sisTermSemId, setSisTermSemId] = useState('');
+  const [lookupAcademicYears, setLookupAcademicYears] = useState([]);
+  const [lookupSemesters, setLookupSemesters] = useState([]);
   const [previewFilter, setPreviewFilter] = useState('all');
   const [previewOutcomeFilter, setPreviewOutcomeFilter] = useState('all');
   const [previewSearch, setPreviewSearch] = useState('');
@@ -372,6 +384,29 @@ const CsvImport = ({
     fetchImportTypes();
     // eslint-disable-next-line react-hooks/exhaustive-deps -- refetch when CSV scope props change
   }, [restrictToImportKeys, excludeImportKeys]);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const [ayRes, semRes] = await Promise.all([
+          api.get('/academic-years', { skipLoading: true, silent: true }),
+          api.get('/semesters', { skipLoading: true, silent: true }),
+        ]);
+        if (cancelled) return;
+        setLookupAcademicYears(Array.isArray(ayRes.data) ? ayRes.data : ayRes.data?.data || []);
+        setLookupSemesters(Array.isArray(semRes.data) ? semRes.data : semRes.data?.data || []);
+      } catch {
+        if (!cancelled) {
+          setLookupAcademicYears([]);
+          setLookupSemesters([]);
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     const rows = Array.isArray(preview?.preview) ? preview.preview : [];
@@ -473,8 +508,11 @@ const CsvImport = ({
 
     try {
       setLoading(true);
+      setPreviewUploadPercent(0);
+      previewStartedAtRef.current = Date.now();
+      setPreviewElapsedSec(0);
       setError('');
-      
+
       const formData = new FormData();
       formData.append('csv_file', file);
       formData.append('import_type', selectedType);
@@ -488,9 +526,22 @@ const CsvImport = ({
           'Content-Type': 'multipart/form-data',
         },
         timeout: 0,
-        showLoading: true,
+        // Dedicated preview overlay (not global Loading) — large SIS files can take minutes.
+        showLoading: false,
+        skipLoading: true,
+        onUploadProgress: (evt) => {
+          const total = evt.total || file?.size || 0;
+          if (!total) {
+            setPreviewUploadPercent((prev) =>
+              prev == null ? 5 : Math.min(90, prev + 3)
+            );
+            return;
+          }
+          setPreviewUploadPercent(Math.max(1, Math.min(100, Math.round((evt.loaded / total) * 100))));
+        },
       });
 
+      setPreviewUploadPercent(100);
       setPreview(response.data);
       setRowFixes({});
       setExcludedRowNumbers(new Set());
@@ -508,8 +559,185 @@ const CsvImport = ({
       setPreview(null);
     } finally {
       setLoading(false);
+      setPreviewUploadPercent(null);
+      previewStartedAtRef.current = null;
+      setPreviewElapsedSec(0);
     }
   };
+
+  const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+  const pollImportJob = async (jobId) => {
+    let status = null;
+    const startedAt = Date.now();
+    let networkMisses = 0;
+    let lastSeenProcessed = -1;
+    let stalledSince = Date.now();
+
+    for (;;) {
+      try {
+        // Fast status read — never waits on a chunk. Fixes “stuck at 30%” when a
+        // long advance request hung while the job actually finished on the server.
+        const peekRes = await api.get(`/csv-import/jobs/${jobId}`, {
+          params: { peek: 1 },
+          showLoading: false,
+          silent: true,
+          timeout: 20000,
+        });
+        networkMisses = 0;
+        status = peekRes.data;
+        setUploadPercent(null);
+        setImportProgress(status);
+        // Long imports must not hit idle-session logout mid-run.
+        touchSessionActivity();
+
+        if (status?.status === 'completed' || status?.status === 'failed') {
+          return status;
+        }
+
+        const processed = Number(status?.processed_rows);
+        if (Number.isFinite(processed) && processed !== lastSeenProcessed) {
+          lastSeenProcessed = processed;
+          stalledSince = Date.now();
+        }
+
+        // Kick one import chunk in the background (queue worker may already be doing this).
+        void api
+          .get(`/csv-import/jobs/${jobId}`, {
+            showLoading: false,
+            silent: true,
+            timeout: 90000,
+          })
+          .then((advanceRes) => {
+            const next = advanceRes?.data;
+            if (!next) return;
+            setImportProgress((prev) => {
+              const prevP = Number(prev?.processed_rows) || 0;
+              const nextP = Number(next.processed_rows) || 0;
+              if (next.status === 'completed' || next.status === 'failed' || nextP >= prevP) {
+                return next;
+              }
+              return prev;
+            });
+          })
+          .catch(() => {});
+
+        if (Date.now() - stalledSince > 180000) {
+          setImportProgress((prev) => ({
+            ...(prev || status || {}),
+            message:
+              prev?.message ||
+              'Still running — waiting for the next batch. Keep this tab open.',
+          }));
+          stalledSince = Date.now();
+        }
+      } catch (pollErr) {
+        networkMisses += 1;
+        setImportProgress((prev) => ({
+          ...(prev || {}),
+          status: prev?.status || 'running',
+          phase: prev?.phase || 'importing',
+          message: prev?.message || 'Still importing… reconnecting to progress',
+          progress_percent: prev?.progress_percent ?? 1,
+          processed_rows: prev?.processed_rows,
+          total_rows: prev?.total_rows,
+          imported: prev?.imported,
+        }));
+        if (Date.now() - startedAt > 45 * 60 * 1000) {
+          throw pollErr;
+        }
+      }
+      await sleep(networkMisses > 0 ? 2000 : 1200);
+    }
+  };
+
+  const clearImportLoading = () => {
+    setImporting(false);
+    setImportProgress(null);
+    setUploadPercent(null);
+    setImportElapsedSec(0);
+    importStartedAtRef.current = null;
+  };
+
+  const finishImportFromResults = async (results, fallbackSkipped = 0) => {
+    const imported = results.imported ?? 0;
+    const failed = results.failed ?? 0;
+    const skipped = results.skipped ?? fallbackSkipped;
+    const total = results.total ?? preview?.total_rows ?? 0;
+    const summary = `Imported ${imported} of ${total} records.${skipped ? ` ${skipped} row(s) skipped.` : ''}${failed ? ` ${failed} row(s) failed.` : ''}`;
+    clearImportLoading();
+    setSuccess(summary);
+    await swalSuccess('Import finished', summary);
+    if (failed > 0) {
+      setError(`${failed} rows failed to import. Check the error details.`);
+    }
+  };
+
+  const formatElapsed = (sec) => {
+    const s = Math.max(0, Math.floor(sec));
+    const m = Math.floor(s / 60);
+    const r = s % 60;
+    return m > 0 ? `${m}m ${String(r).padStart(2, '0')}s` : `${r}s`;
+  };
+
+  const importOverlayLabel = (() => {
+    if (!importing) return '';
+    if (uploadPercent != null && !importProgress) {
+      return `Uploading file to server… ${uploadPercent}%`;
+    }
+    if (!importProgress) return 'Uploading file to server…';
+    if (importProgress.message) return importProgress.message;
+    if (importProgress.phase === 'syncing') return 'Updating student standing…';
+    if (importProgress.phase === 'parsing') return 'Parsing import file…';
+    if (importProgress.status === 'pending') return 'Starting import on server…';
+    return 'Importing rows…';
+  })();
+
+  const importOverlayPercent = (() => {
+    if (!importing) return null;
+    if (uploadPercent != null && !importProgress) {
+      return Math.max(0, Math.min(100, Math.round(uploadPercent)));
+    }
+    if (!importProgress) return 0;
+    if (importProgress.status === 'completed') return 100;
+    const pct = Number(importProgress.progress_percent);
+    if (Number.isFinite(pct) && pct > 0) {
+      return Math.max(1, Math.min(99, Math.round(pct)));
+    }
+    if (importProgress.phase === 'parsing' || importProgress.status === 'pending') return 1;
+    if (importProgress.phase === 'syncing') return 95;
+    return 1;
+  })();
+
+  useEffect(() => {
+    if (!importing) return undefined;
+    importStartedAtRef.current = Date.now();
+    setImportElapsedSec(0);
+    const id = window.setInterval(() => {
+      const start = importStartedAtRef.current || Date.now();
+      setImportElapsedSec(Math.floor((Date.now() - start) / 1000));
+    }, 500);
+    return () => window.clearInterval(id);
+  }, [importing]);
+
+  useEffect(() => {
+    if (!loading) return undefined;
+    const id = window.setInterval(() => {
+      const start = previewStartedAtRef.current || Date.now();
+      setPreviewElapsedSec(Math.floor((Date.now() - start) / 1000));
+    }, 500);
+    return () => window.clearInterval(id);
+  }, [loading]);
+
+  const previewOverlayLabel =
+    previewUploadPercent != null && previewUploadPercent < 100
+      ? `Uploading file for preview… ${previewUploadPercent}%`
+      : 'Reading and validating rows on the server…';
+
+  const previewOverlayPercent =
+    previewUploadPercent != null && previewUploadPercent < 100
+      ? previewUploadPercent
+      : null;
 
   const handleImport = async () => {
     if (!file || !selectedType) {
@@ -532,6 +760,8 @@ const CsvImport = ({
 
     try {
       setImporting(true);
+      setImportProgress(null);
+      setUploadPercent(0);
       setError('');
       setSuccess('');
 
@@ -554,34 +784,57 @@ const CsvImport = ({
           'Content-Type': 'multipart/form-data',
         },
         timeout: 0,
-        showLoading: true,
+        showLoading: false,
+        onUploadProgress: (evt) => {
+          const total = evt.total || file?.size || 0;
+          if (!total) {
+            setUploadPercent((prev) => (prev == null ? 5 : Math.min(95, prev + 2)));
+            return;
+          }
+          const pct = Math.round((evt.loaded / total) * 100);
+          setUploadPercent(Math.max(1, Math.min(100, pct)));
+        },
       });
 
-      const results = response.data.results || {};
-      const imported = results.imported ?? 0;
-      const failed = results.failed ?? 0;
-      const skipped = results.skipped ?? excludedRowNumbers.size;
-      const total = results.total ?? preview?.total_rows ?? 0;
-      const summary = `Imported ${imported} of ${total} records.${skipped ? ` ${skipped} row(s) skipped.` : ''}${failed ? ` ${failed} row(s) failed.` : ''}`;
-      setSuccess(summary);
-      await swalSuccess('Import finished', summary);
-
-      if (failed > 0) {
-        setError(`${failed} rows failed to import. Check the error details.`);
+      if (response.data?.async && response.data?.job_id) {
+        setUploadPercent(100);
+        setImportProgress(
+          response.data.status || {
+            status: 'pending',
+            phase: 'queued',
+            message: 'File received — importing rows…',
+            progress_percent: 1,
+          }
+        );
+        const finalStatus = await pollImportJob(response.data.job_id);
+        if (finalStatus?.status === 'failed') {
+          const msg =
+            finalStatus.message ||
+            'Import failed. Check the file and try again.';
+          clearImportLoading();
+          setError(msg);
+          await swalError('Import failed', msg);
+          return;
+        }
+        await finishImportFromResults(finalStatus?.results || finalStatus || {}, excludedRowNumbers.size);
+        return;
       }
+
+      await finishImportFromResults(response.data.results || {}, excludedRowNumbers.size);
     } catch (err) {
       const network = !err.response;
       const msg = network
-        ? 'The server did not respond. The import may have timed out on a large file, or php artisan serve stopped. Confirm the API is running, then try again.'
+        ? 'The server did not respond. Confirm the API is running, then try again.'
         : err.response?.data?.error ||
           err.response?.data?.message ||
           (err.response?.status === 403
             ? 'You do not have permission to import, or your session expired. Log in again and retry.'
             : 'Import failed');
+      clearImportLoading();
       setError(msg);
       await swalError('Import failed', msg);
     } finally {
-      setImporting(false);
+      clearImportLoading();
     }
   };
 
@@ -851,6 +1104,89 @@ const CsvImport = ({
 
       {error && <div className="csv-import-error">{error}</div>}
       {success && <div className="csv-import-success">{success}</div>}
+
+      {loading && (
+        <div
+          className="csv-import-loading-overlay"
+          role="alertdialog"
+          aria-modal="true"
+          aria-busy="true"
+          aria-live="assertive"
+          aria-label={previewOverlayLabel}
+        >
+          <div className="csv-import-loading-panel">
+            <span className="csv-import-loading-spinner" aria-hidden />
+            <div className="csv-import-loading-title">Preview in progress</div>
+            <div className="csv-import-loading-text">{previewOverlayLabel}</div>
+            <div className="csv-import-progress-bar csv-import-loading-bar">
+              <div
+                className={`csv-import-progress-fill${
+                  previewOverlayPercent == null ? ' is-indeterminate' : ''
+                }`}
+                style={
+                  previewOverlayPercent == null
+                    ? undefined
+                    : { width: `${previewOverlayPercent}%` }
+                }
+              />
+            </div>
+            <div className="csv-import-progress-meta">
+              <strong>
+                {previewOverlayPercent != null ? `${previewOverlayPercent}%` : 'Working…'}
+              </strong>
+              {` · ${file?.name || 'file'}`}
+              {` · elapsed ${formatElapsed(previewElapsedSec)}`}
+            </div>
+            <p className="csv-import-loading-hint">
+              Large SIS Excel files can take 1–3 minutes to preview. If elapsed time is
+              counting, it is still running — do not refresh.
+            </p>
+          </div>
+        </div>
+      )}
+
+      {importing && (
+        <div
+          className="csv-import-loading-overlay"
+          role="alertdialog"
+          aria-modal="true"
+          aria-busy="true"
+          aria-live="assertive"
+          aria-label={importOverlayLabel}
+        >
+          <div className="csv-import-loading-panel">
+            <span className="csv-import-loading-spinner" aria-hidden />
+            <div className="csv-import-loading-title">Import in progress</div>
+            <div className="csv-import-loading-text">{importOverlayLabel}</div>
+            <div className="csv-import-progress-bar csv-import-loading-bar">
+              <div
+                className={`csv-import-progress-fill${importOverlayPercent == null ? ' is-indeterminate' : ''}`}
+                style={
+                  importOverlayPercent == null
+                    ? undefined
+                    : { width: `${importOverlayPercent}%` }
+                }
+              />
+            </div>
+            <div className="csv-import-progress-meta">
+              <strong>{importOverlayPercent != null ? `${importOverlayPercent}%` : '0%'}</strong>
+              {importProgress?.processed_rows != null && importProgress?.total_rows
+                ? ` · ${importProgress.processed_rows} / ${importProgress.total_rows} rows`
+                : uploadPercent != null && !importProgress
+                  ? ' · uploading file…'
+                  : ' · working…'}
+              {importProgress?.imported != null && Number(importProgress.imported) > 0
+                ? ` · imported ${importProgress.imported}`
+                : null}
+              {` · elapsed ${formatElapsed(importElapsedSec)}`}
+            </div>
+            <p className="csv-import-loading-hint">
+              If the % is moving or elapsed time is counting, import is running. Keep this
+              tab open until 100%.
+            </p>
+          </div>
+        </div>
+      )}
 
       <div className="csv-import-form">
         {importTypes.length === 0 ? (
@@ -1349,7 +1685,7 @@ const CsvImport = ({
                 disabled={importing}
               >
                 {importing
-                  ? 'Importing...'
+                  ? 'Processing…'
                   : `Import ${previewStats.validCount} record${previewStats.validCount === 1 ? '' : 's'}${
                       previewStats.excludedCount > 0
                         ? ` (skip ${previewStats.excludedCount} excluded)`

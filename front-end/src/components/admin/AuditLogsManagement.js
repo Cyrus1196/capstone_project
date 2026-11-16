@@ -22,6 +22,15 @@ const summarizeEntry = (item) => {
   const action = (item.actions || '').toUpperCase();
   const newVal = item.new_value;
   const oldVal = item.old_value;
+  if (action === 'BULK_IMPORT' && newVal && typeof newVal === 'object' && !Array.isArray(newVal)) {
+    const imported = newVal.imported ?? 0;
+    const failed = newVal.failed ?? 0;
+    const skipped = newVal.skipped ?? 0;
+    const type = newVal.import_type ? String(newVal.import_type).replace(/_/g, ' ') : 'import';
+    return `Bulk ${type}: ${imported} imported` +
+      (failed ? `, ${failed} failed` : '') +
+      (skipped ? `, ${skipped} skipped` : '');
+  }
   if (action === 'UPDATE' && newVal && typeof newVal === 'object' && !Array.isArray(newVal)) {
     const n = Object.keys(newVal).length;
     return n ? `${n} field(s) changed` : '—';
@@ -41,6 +50,7 @@ const actionBadgeClass = (action) => {
   if (a === 'CREATE') return 'audit-action-badge audit-action-badge--create';
   if (a === 'UPDATE') return 'audit-action-badge audit-action-badge--update';
   if (a === 'DELETE') return 'audit-action-badge audit-action-badge--delete';
+  if (a === 'BULK_IMPORT') return 'audit-action-badge audit-action-badge--bulk';
   return 'audit-action-badge audit-action-badge--other';
 };
 
@@ -284,6 +294,7 @@ const AuditLogsManagement = () => {
             <option value="CREATE">CREATE</option>
             <option value="UPDATE">UPDATE</option>
             <option value="DELETE">DELETE</option>
+            <option value="BULK_IMPORT">BULK_IMPORT</option>
           </select>
         </label>
         <button type="button" className="refresh-button" onClick={applyFilters}>

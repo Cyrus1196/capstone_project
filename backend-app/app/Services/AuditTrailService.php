@@ -73,6 +73,39 @@ class AuditTrailService
         }
     }
 
+    /**
+     * One summary row for a bulk operation (CSV import, etc.).
+     * Bypasses suppressDepth so it can be written after a suppressed batch.
+     *
+     * @param  array<string, mixed>|null  $summary
+     */
+    public static function logBulk(
+        string $action,
+        string $tableName,
+        ?array $summary,
+        ?int $userId = null,
+        ?int $recordId = null
+    ): void {
+        $userId = $userId ?? self::currentUserId();
+        if ($userId === null) {
+            return;
+        }
+
+        try {
+            AuditLog::create([
+                'user_id' => $userId,
+                'actions' => $action,
+                'table_name' => $tableName,
+                'record_id' => $recordId,
+                'old_value' => null,
+                'new_value' => self::normalizePayload($summary),
+                'action_timestamp' => now(),
+            ]);
+        } catch (\Throwable $e) {
+            report($e);
+        }
+    }
+
     /** Binary / secret columns that must not be copied into audit_logs. */
     private const OMIT_KEYS = ['avatar_data', 'file_payload', 'password', 'remember_token'];
 

@@ -200,7 +200,11 @@ const StudentProfile = () => {
 
       {error ? <div className="error-message">{error}</div> : null}
 
-      <form onSubmit={handleSubmit} className="profile-form student-profile-form">
+      <form
+        onSubmit={handleSubmit}
+        className="profile-form student-profile-form"
+        data-tour="student-profile-form"
+      >
         <section className="student-profile-section" aria-labelledby="student-profile-personal-heading">
           <h3 id="student-profile-personal-heading" className="student-profile-section-title">
             Personal information
@@ -386,12 +390,19 @@ const StudentProfile = () => {
         </section>
 
         <div className="form-actions student-profile-actions">
-          <button type="submit" className="save-button" disabled={saving}>
+          <button
+            type="submit"
+            className="save-button"
+            disabled={saving}
+            data-tour="student-profile-save"
+          >
             {saving ? 'Saving…' : 'Save profile'}
           </button>
         </div>
       </form>
-      <ProfileChangePassword />
+      <div data-tour="student-change-password">
+        <ProfileChangePassword />
+      </div>
     </div>
   );
 };

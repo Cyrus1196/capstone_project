@@ -15,6 +15,7 @@ use App\Models\YearLevel;
 use App\Services\DeanProgramAnalytics;
 use App\Services\RegularStudentAutoPromotion;
 use App\Support\CachedSchema;
+use App\Support\EvaluationStanding;
 use App\Support\HeavyRequest;
 use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Builder;
@@ -657,7 +658,7 @@ class EvaluationReportController extends Controller
 
         if ($allowedYears !== null) {
             $query->whereIn(
-                DB::raw('COALESCE(promotion_target_year_level_id, year_level_id)'),
+                DB::raw('('.EvaluationStanding::sqlEffectiveYearLevelIdExpr().')'),
                 $allowedYears
             );
         }
@@ -1134,7 +1135,10 @@ class EvaluationReportController extends Controller
                 &$incomplete
             ) {
                 foreach ($students as $stu) {
-                    $yl = (int) ($stu->promotion_target_year_level_id ?: $stu->year_level_id ?: 0);
+                    $yl = (int) (EvaluationStanding::resolveEffectiveYearLevelId(
+                        $stu->promotion_target_year_level_id,
+                        $stu->year_level_id
+                    ) ?? 0);
                     if (! array_key_exists($yl, $totals)) {
                         continue;
                     }

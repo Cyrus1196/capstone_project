@@ -265,6 +265,143 @@ class LookupDataController extends Controller
         return $user->canAccessLookupResource($slug, false);
     }
 
+    /**
+     * Program / department scope for Dean, PH, Secretary, Adviser (Admin = unrestricted).
+     *
+     * @return array{program_ids: list<int>|null, department_ids: list<int>|null}
+     *         null program_ids = no restriction
+     */
+    private function lookupStaffScope(Request $request): array
+    {
+        $user = $request->user();
+        if (! $user || $user->isAdmin()) {
+            return ['program_ids' => null, 'department_ids' => null];
+        }
+
+        $user->loadMissing([
+            'deanProfile',
+            'facultyProfile',
+            'programHeadProfile',
+            'secretaryProfile',
+        ]);
+
+        $programIds = [];
+        $departmentIds = [];
+
+        $pushProgram = static function (?int $id) use (&$programIds): void {
+            if ($id !== null && $id > 0) {
+                $programIds[] = $id;
+            }
+        };
+        $pushDepartment = static function (?int $id) use (&$departmentIds): void {
+            if ($id !== null && $id > 0) {
+                $departmentIds[] = $id;
+            }
+        };
+
+        if ($user->hasRole('Dean')) {
+            $dean = $user->deanProfile;
+            $pushDepartment($dean?->department_id ? (int) $dean->department_id : null);
+            $pushProgram($dean?->program_id ? (int) $dean->program_id : null);
+            $pushDepartment($user->department_id ? (int) $user->department_id : null);
+            $pushProgram($user->program_id ? (int) $user->program_id : null);
+        } elseif ($user->hasRole('Program Head')) {
+            $ph = $user->programHeadProfile;
+            $pushDepartment($ph?->department_id ? (int) $ph->department_id : null);
+            $pushProgram($ph?->program_id ? (int) $ph->program_id : null);
+            $pushDepartment($user->department_id ? (int) $user->department_id : null);
+            $pushProgram($user->program_id ? (int) $user->program_id : null);
+        } elseif ($user->hasRole('Secretary')) {
+            $sec = $user->secretaryProfile;
+            $pushDepartment($sec?->department_id ? (int) $sec->department_id : null);
+            $pushProgram($sec?->program_id ? (int) $sec->program_id : null);
+            $pushDepartment($user->department_id ? (int) $user->department_id : null);
+            $pushProgram($user->program_id ? (int) $user->program_id : null);
+        } elseif ($user->isEvaluatorLike()) {
+            $fac = $user->facultyProfile;
+            $pushDepartment($fac?->department_id ? (int) $fac->department_id : null);
+            $pushProgram($fac?->program_id ? (int) $fac->program_id : null);
+            $pushDepartment($user->department_id ? (int) $user->department_id : null);
+            $pushProgram($user->program_id ? (int) $user->program_id : null);
+        } else {
+            return ['program_ids' => null, 'department_ids' => null];
+        }
+
+        $departmentIds = array_values(array_unique($departmentIds));
+        $programIds = array_values(array_unique($programIds));
+
+        if ($departmentIds !== []) {
+            $fromDept = Program::query()
+                ->whereIn('department_id', $departmentIds)
+                ->pluck('program_id')
+                ->map(fn ($id) => (int) $id)
+                ->all();
+            $programIds = array_values(array_unique(array_merge($programIds, $fromDept)));
+        }
+
+        if ($programIds === [] && $departmentIds === []) {
+            // Profile not assigned yet — do not expose every program/subject.
+            return ['program_ids' => [], 'department_ids' => []];
+        }
+
+        return [
+            'program_ids' => $programIds,
+            'department_ids' => $departmentIds,
+        ];
+    }
+
+    /**
+     * @param  array{program_ids: list<int>|null, department_ids: list<int>|null}  $scope
+     */
+    private function assertProgramInStaffScope(array $scope, int $programId): ?JsonResponse
+    {
+        if ($scope['program_ids'] === null) {
+            return null;
+        }
+        if (in_array($programId, $scope['program_ids'], true)) {
+            return null;
+        }
+
+        return response()->json([
+            'message' => 'That program is outside your assigned department / program.',
+            'errors' => ['program_id' => ['You can only use programs you handle.']],
+        ], 422);
+    }
+
+    /**
+     * Subject must appear on a curriculum for a program in scope (or the selected program).
+     *
+     * @param  array{program_ids: list<int>|null, department_ids: list<int>|null}  $scope
+     */
+    private function assertSubjectInStaffScope(array $scope, int $subjectId, ?int $programId = null): ?JsonResponse
+    {
+        if ($scope['program_ids'] === null) {
+            return null;
+        }
+
+        $query = Curriculum::query()->where('subject_id', $subjectId);
+        if ($programId !== null && $programId > 0) {
+            $query->where('program_id', $programId);
+        } else {
+            if ($scope['program_ids'] === []) {
+                return response()->json([
+                    'message' => 'No program is assigned to your account. Ask Admin to set your department or program.',
+                    'errors' => ['subject_id' => ['Subject is outside your scope.']],
+                ], 422);
+            }
+            $query->whereIn('program_id', $scope['program_ids']);
+        }
+
+        if ($query->exists()) {
+            return null;
+        }
+
+        return response()->json([
+            'message' => 'That subject is not in the curriculum for your program(s).',
+            'errors' => ['subject_id' => ['Choose a subject under the program you handle.']],
+        ], 422);
+    }
+
     /** Same visibility rules as ElectiveSlotController::index. */
     private function canListElectiveSlotsBundle(Request $request): bool
     {
@@ -295,13 +432,34 @@ class LookupDataController extends Controller
                 return response()->json(['message' => 'Unauthenticated'], 401);
             }
 
+            $scope = $this->lookupStaffScope($request);
+            $scopedProgramIds = $scope['program_ids']; // null = all
+
+            $programsQuery = Program::with('department')->orderByDesc('program_id');
+            if (is_array($scopedProgramIds)) {
+                $programsQuery->whereIn('program_id', $scopedProgramIds !== [] ? $scopedProgramIds : [0]);
+            }
             $programs = $this->canReadLookup($request, 'programs')
-                ? Program::with('department')->orderByDesc('program_id')->get()
+                ? $programsQuery->get()
                 : collect([]);
-            $subjects = $this->canReadLookup($request, 'subjects')
-                ? Subject::select('subject_id', 'subject_code', 'subject_name', 'number_of_units', 'number_of_hrs', 'status')
-                    ->orderByDesc('subject_id')
-                    ->get()
+
+            $subjectsQuery = Subject::query()
+                ->select('subject_id', 'subject_code', 'subject_name', 'number_of_units', 'number_of_hrs', 'status')
+                ->orderByDesc('subject_id');
+            if (is_array($scopedProgramIds)) {
+                $subjectIds = $scopedProgramIds === []
+                    ? []
+                    : Curriculum::query()
+                        ->whereIn('program_id', $scopedProgramIds)
+                        ->distinct()
+                        ->pluck('subject_id')
+                        ->all();
+                $subjectsQuery->whereIn('subject_id', $subjectIds !== [] ? $subjectIds : [0]);
+            }
+            // Offered-subject form needs subjects even when the Subjects panel itself is hidden.
+            $subjects = ($this->canReadLookup($request, 'subjects')
+                || $this->canReadLookup($request, 'offered_subjects'))
+                ? $subjectsQuery->get()
                 : collect([]);
             $yearLevels = $this->canReadLookup($request, 'year_levels')
                 ? YearLevel::select('year_level_id', 'year_level', 'status')->orderByDesc('year_level_id')->get()
@@ -327,7 +485,12 @@ class LookupDataController extends Controller
             $departments = $this->canReadLookup($request, 'departments')
                 ? Department::with('campus')->orderByDesc('department_id')->get()
                 : collect([]);
-            $academicYears = $this->canReadLookup($request, 'academic_years')
+            // Offered subjects / curriculum headers need the present school year even when the
+            // user cannot open Lookup → Academic year (common for Dean with offered_subjects only).
+            $needsAcademicYearsForForms = $this->canReadLookup($request, 'academic_years')
+                || $this->canReadLookup($request, 'offered_subjects')
+                || $this->canReadLookup($request, 'curriculum_headers');
+            $academicYears = $needsAcademicYearsForForms
                 ? AcademicYear::orderByDesc('academic_year_id')
                     ->get()
                     ->map(function ($y) {
@@ -347,23 +510,47 @@ class LookupDataController extends Controller
             $tracks = $this->canReadLookup($request, 'tracks')
                 ? Track::orderByDesc('track_id')->get()
                 : collect([]);
+            $curriculumHeadersQuery = CurriculumHeader::with(['program', 'academicYear'])
+                ->orderByDesc('curriculum_header_id');
+            if (is_array($scopedProgramIds)) {
+                $curriculumHeadersQuery->whereIn(
+                    'program_id',
+                    $scopedProgramIds !== [] ? $scopedProgramIds : [0]
+                );
+            }
             $curriculumHeaders = $this->canReadLookup($request, 'curriculum_headers')
-                ? CurriculumHeader::with(['program', 'academicYear'])
-                    ->orderByDesc('curriculum_header_id')
-                    ->get()
+                ? $curriculumHeadersQuery->get()
                 : collect([]);
-            $curriculums = ($this->canReadLookup($request, 'curriculum_headers') || $this->canReadLookup($request, 'requisites'))
-                ? Curriculum::with(['subject', 'program', 'yearLevel', 'semester', 'curriculumHeader'])
-                    ->orderBy('program_id')
-                    ->orderBy('year_level')
-                    ->orderBy('semester_id')
-                    ->orderBy('curriculum_id')
-                    ->get()
+
+            $curriculumsQuery = Curriculum::with(['subject', 'program', 'yearLevel', 'semester', 'curriculumHeader'])
+                ->orderBy('program_id')
+                ->orderBy('year_level')
+                ->orderBy('semester_id')
+                ->orderBy('curriculum_id');
+            if (is_array($scopedProgramIds)) {
+                $curriculumsQuery->whereIn(
+                    'program_id',
+                    $scopedProgramIds !== [] ? $scopedProgramIds : [0]
+                );
+            }
+            $curriculums = (
+                $this->canReadLookup($request, 'curriculum_headers')
+                || $this->canReadLookup($request, 'requisites')
+                || $this->canReadLookup($request, 'offered_subjects')
+            )
+                ? $curriculumsQuery->get()
                 : collect([]);
+
+            $offeredSubjectsQuery = OfferedSubject::with(['subject', 'academicYear', 'semester', 'program', 'track', 'yearLevel'])
+                ->orderByDesc('offered_subject_id');
+            if (is_array($scopedProgramIds)) {
+                $offeredSubjectsQuery->whereIn(
+                    'program_id',
+                    $scopedProgramIds !== [] ? $scopedProgramIds : [0]
+                );
+            }
             $offeredSubjects = $this->canReadLookup($request, 'offered_subjects')
-                ? OfferedSubject::with(['subject', 'academicYear', 'semester', 'program', 'track', 'yearLevel'])
-                    ->orderByDesc('offered_subject_id')
-                    ->get()
+                ? $offeredSubjectsQuery->get()
                 : collect([]);
             $electiveSubjects = $this->canReadLookup($request, 'elective_subjects')
                 ? ElectiveSubject::with(['department', 'program', 'track', 'subject', 'electiveSlot'])
@@ -1575,6 +1762,18 @@ class LookupDataController extends Controller
             return $resp;
         }
 
+        $scope = $this->lookupStaffScope($request);
+        if ($resp = $this->assertProgramInStaffScope($scope, (int) $validated['program_id'])) {
+            return $resp;
+        }
+        if ($resp = $this->assertSubjectInStaffScope(
+            $scope,
+            (int) $validated['subject_id'],
+            (int) $validated['program_id']
+        )) {
+            return $resp;
+        }
+
         $offered = OfferedSubject::create($validated);
         $offered->load(['subject', 'academicYear', 'semester', 'program', 'track', 'yearLevel']);
 
@@ -1600,6 +1799,18 @@ class LookupDataController extends Controller
         ]);
         $validated['status'] = $validated['status'] ?? 'active';
         if ($resp = $this->applyCurrentAcademicYear($validated)) {
+            return $resp;
+        }
+
+        $scope = $this->lookupStaffScope($request);
+        if ($resp = $this->assertProgramInStaffScope($scope, (int) $validated['program_id'])) {
+            return $resp;
+        }
+        if ($resp = $this->assertSubjectInStaffScope(
+            $scope,
+            (int) $validated['subject_id'],
+            (int) $validated['program_id']
+        )) {
             return $resp;
         }
 

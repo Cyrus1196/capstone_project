@@ -489,6 +489,55 @@
   gap: 0.45rem 0.8rem;
 }
 
+.eval-hero__name-status {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: stretch;
+  border-radius: 999px;
+  background: #fff;
+  overflow: hidden;
+  border: 1px solid #b7d9bb;
+  box-shadow: 0 1px 0 rgba(26, 61, 36, 0.06);
+  flex-shrink: 0;
+}
+
+.eval-hero__name-status-label,
+.eval-hero__name-status-value,
+.eval-hero__name-status-select {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.28rem 0.7rem;
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  line-height: 1.1;
+  color: var(--eval-hero-ink);
+}
+
+.eval-hero__name-status-label {
+  border-right: 1px solid #c8e6c9;
+  color: #2e4a36;
+}
+
+.eval-hero__name-status-select {
+  border: none;
+  background: transparent;
+  color: var(--eval-hero-green-deep);
+  cursor: pointer;
+  appearance: auto;
+  max-width: 9.5rem;
+}
+
+.eval-hero__name-status-select:disabled {
+  cursor: wait;
+  opacity: 0.7;
+}
+
+.eval-hero__name-status-value {
+  color: var(--eval-hero-green-deep);
+}
+
 .eval-hero__name-link {
   border: 0;
   background: transparent;
@@ -1078,6 +1127,12 @@ button.eval-hero__campus--editable:focus-visible {
 }
 
 .eval-filter-program-select--pending .searchable-select__trigger {
+  border-color: #f59e0b;
+  background: #fffbeb;
+  box-shadow: 0 0 0 1px rgba(245, 158, 11, 0.25);
+}
+
+.eval-filter-field__control--pending {
   border-color: #f59e0b;
   background: #fffbeb;
   box-shadow: 0 0 0 1px rgba(245, 158, 11, 0.25);
@@ -3474,7 +3529,7 @@ button.eval-code-pill--elective-trigger {
 }
 
 .section-header--academic-record {
-  align-items: flex-start;
+  align-items: center;
   gap: 1rem;
 }
 
@@ -3493,6 +3548,137 @@ button.eval-code-pill--elective-trigger {
   display: flex;
   gap: 12px;
   align-items: center;
+}
+
+.header-actions--eval-list {
+  margin-left: auto;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.eval-list-download-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin: 0;
+  padding: 0.4rem 0.75rem;
+  border: 1px solid #1a1a1a;
+  border-radius: 999px;
+  background: #fff;
+  color: #1a1a1a;
+  font-size: 0.82rem;
+  font-weight: 700;
+  line-height: 1.2;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.eval-list-download-btn:hover:not(:disabled) {
+  background: #1a1a1a;
+  color: #fff;
+}
+
+.eval-list-download-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.eval-list-download-btn i {
+  font-size: 0.78rem;
+}
+
+.eval-download-modal--student-list {
+  display: flex;
+  flex-direction: column;
+  width: min(1280px, calc(100vw - 1.25rem));
+  height: min(96vh, 980px);
+  max-height: min(96vh, 980px);
+}
+
+.eval-download-modal__body--student-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+  min-height: 0;
+  flex: 1;
+  overflow: hidden;
+}
+
+.student-list-preview-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.student-list-preview-toolbar .eval-download-modal__hint {
+  margin: 0;
+  flex: 1;
+  min-width: 12rem;
+}
+
+.student-list-preview-controls {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.65rem;
+  flex-wrap: wrap;
+}
+
+.student-list-preview-sort {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: #111;
+}
+
+.student-list-preview-sort select {
+  min-width: 8.5rem;
+  padding: 0.35rem 0.5rem;
+  border: 1px solid #1a1a1a;
+  border-radius: 6px;
+  background: #fff;
+  color: #111;
+  font-size: 0.82rem;
+}
+
+.student-list-preview-table-wrap {
+  overflow: auto;
+  flex: 1;
+  min-height: min(62vh, 620px);
+  max-height: min(72vh, 720px);
+  border: 1px solid #d4d4d4;
+  border-radius: 8px;
+  background: #fff;
+}
+
+.student-list-preview-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.82rem;
+  color: #111;
+}
+
+.student-list-preview-table th,
+.student-list-preview-table td {
+  padding: 0.45rem 0.55rem;
+  border-bottom: 1px solid #e5e5e5;
+  text-align: left;
+  white-space: nowrap;
+}
+
+.student-list-preview-table th {
+  position: sticky;
+  top: 0;
+  background: #f5f5f5;
+  font-weight: 700;
+  z-index: 1;
+}
+
+.student-list-preview-table tbody tr:nth-child(even) {
+  background: #fafafa;
 }
 
 .unsaved-indicator {

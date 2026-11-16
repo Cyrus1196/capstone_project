@@ -201,6 +201,9 @@
   font-size: 0.88rem;
   font-weight: 700;
   cursor: pointer;
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
 }
 
 .guide-button:hover {

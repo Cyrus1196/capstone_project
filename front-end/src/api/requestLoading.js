@@ -35,6 +35,13 @@ export function endRequestLoading() {
   notify();
 }
 
+/** Clear a stuck overlay (e.g. after 401 / forced redirect to login). */
+export function resetRequestLoading() {
+  pending = 0;
+  messages.length = 0;
+  notify();
+}
+
 export function getPendingRequestCount() {
   return pending;
 }

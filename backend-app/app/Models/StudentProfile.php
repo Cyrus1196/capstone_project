@@ -25,10 +25,13 @@ class StudentProfile extends Model
         'last_name',
         'address',
         'academic_status',
+        // Enrollment lifecycle (Enrolled / Inactive / Transferred / Graduate) — not Regular/Irregular.
+        'enrollment_status',
         // Shiftee / Returnee / Transferee — set at account creation; not Regular/Irregular.
         'student_entry_type',
         'Current_Program',
         'current_program',
+        'curriculum_header_id',
         'Previous_Program',
         'previous_program',
         'year_level_id',

@@ -3,7 +3,9 @@
 namespace App\Http\Controllers\Administration;
 
 use App\Http\Controllers\Controller;
+use App\Jobs\ProcessCsvImportJob;
 use App\Models\AcademicYear;
+use App\Models\CsvImportJob;
 use App\Models\Curriculum;
 use App\Models\Evaluation;
 use App\Models\Prerequisite;
@@ -20,6 +22,7 @@ use App\Services\GradeScaleHelper;
 use App\Services\ImportTabularFileReader;
 use App\Services\SisGradeDeliberationImportParser;
 use App\Services\StudentCurriculumEvaluationBuilder;
+use App\Services\StudentEnrollmentStatusSync;
 use App\Services\StudentLoginProvisioner;
 use App\Services\ElectiveSlotFromImportAssigner;
 use App\Services\StudentTrackFromImportAssigner;
@@ -29,15 +32,31 @@ use App\Support\HeavyRequest;
 use App\Support\InputGuards;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
+use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\Rule;
 
 class CsvImportController extends Controller
 {
     /** Commit SIS / grade imports in chunks so php artisan serve does not hold one giant transaction. */
-    private const IMPORT_COMMIT_CHUNK = 80;
+    private const IMPORT_COMMIT_CHUNK = 100;
+
+    /** Rows processed per advance step (background runner updates DB; UI only reads status). */
+    private const IMPORT_PROGRESS_CHUNK = 250;
+
+    /** Standing rebuild batch size after grades are written (unique students). */
+    private const IMPORT_STANDING_BATCH = 20;
+
+    /** Heavy imports run on the queue so HTTP stays free for login and normal requests. */
+    private const ASYNC_IMPORT_TYPES = [
+        'sis_grade_deliberation',
+        'grades',
+        'sis_mixed',
+    ];
 
     /** @var array<string, true> student_id_number already upserted during the current import request */
     private array $sisProfilesUpsertedThisRequest = [];
@@ -1196,12 +1215,11 @@ class CsvImportController extends Controller
     }
 
     /**
-     * Import CSV data
+     * Import CSV data. Heavy SIS/grade imports are queued; lighter types stay synchronous.
      */
     public function import(Request $request)
     {
         $this->sisProfilesUpsertedThisRequest = [];
-        $auditSuppressed = false;
 
         try {
             $this->raiseImportResourceLimits();
@@ -1215,8 +1233,9 @@ class CsvImportController extends Controller
                 'csv_file' => $this->importUploadRules(),
                 'academic_year_id' => 'nullable|integer|exists:tbl_academic_year,academic_year_id',
                 'semester_id' => 'nullable|integer|exists:tbl_semester,semester_id',
-                'row_fixes' => 'nullable|string|max:200000',
-                'skip_rows' => 'nullable|string|max:200000',
+                // Large campus files may exclude / fix thousands of rows — no tight cap.
+                'row_fixes' => 'nullable|string|max:10000000',
+                'skip_rows' => 'nullable|string|max:10000000',
             ]);
 
             if ($validated['import_type'] === 'sis_grade_deliberation' && ! $request->user()?->canImportSisData()) {
@@ -1231,21 +1250,12 @@ class CsvImportController extends Controller
                 ], 422);
             }
 
-            $importType = $this->importTypes[$validated['import_type']];
-            $file = $request->file('csv_file');
-            $isSisGrades = $validated['import_type'] === 'sis_grade_deliberation';
-
-            if ($isSisGrades) {
-                $parser = new SisGradeDeliberationImportParser;
-                $data = $parser->parseFileToGradeRows(
-                    $file,
-                    $ayOverride,
-                    $semOverride,
-                    $file->getClientOriginalName()
-                );
-            } else {
-                $data = $this->parseCsv($file);
+            if (in_array($validated['import_type'], self::ASYNC_IMPORT_TYPES, true)) {
+                return $this->queueHeavyImport($request, $validated);
             }
+
+            $file = $request->file('csv_file');
+            $data = $this->parseCsv($file);
 
             if (empty($data)) {
                 return response()->json([
@@ -1253,45 +1263,559 @@ class CsvImportController extends Controller
                 ], 400);
             }
 
-            $results = [
-                'total' => count($data),
-                'imported' => 0,
-                'failed' => 0,
-                'skipped' => 0,
-                'errors' => [],
-            ];
+            $results = $this->runImportRows(
+                $request,
+                $validated['import_type'],
+                $data,
+                $validated['row_fixes'] ?? null,
+                $validated['skip_rows'] ?? null,
+                null
+            );
 
-            if ($isSisGrades || $validated['import_type'] === 'grades') {
-                AuditTrailService::suppress();
-                $auditSuppressed = true;
+            if ($results['imported'] === 0) {
+                return response()->json([
+                    'error' => 'No records were imported',
+                    'results' => $results,
+                ], 400);
             }
 
-            /** @var array<string, bool> $pendingSisStudentIds */
-            $pendingSisStudentIds = [];
-            /** @var array<string, true> $sidsToSync */
-            $sidsToSync = [];
-            $rowFixes = $this->parseCsvImportRowFixes($validated['row_fixes'] ?? null);
-            $skipRows = $this->parseCsvImportSkipRows($validated['skip_rows'] ?? null);
-            $pendingInChunk = 0;
+            Log::info("CSV Import: {$results['imported']} {$validated['import_type']} imported by user {$request->user()->user_id}");
 
+            $this->writeImportBulkAudit(
+                (int) $request->user()->user_id,
+                $validated['import_type'],
+                $results
+            );
+
+            return response()->json([
+                'message' => 'Import completed',
+                'results' => $results,
+            ]);
+        } catch (\Exception $e) {
+            if (DB::transactionLevel() > 0) {
+                DB::rollBack();
+            }
+            Log::error('CSV Import Error: '.$e->getMessage());
+
+            return response()->json([
+                'error' => 'Import failed',
+                'message' => $e->getMessage(),
+            ], 500);
+        }
+    }
+
+    /**
+     * Poll status for a queued heavy import.
+     */
+    public function importJobStatus(Request $request, string $jobId)
+    {
+        if (! $request->user()?->canUseCsvImport()) {
+            return response()->json(['message' => 'Unauthorized'], 403);
+        }
+
+        $job = CsvImportJob::query()->where('public_id', $jobId)->first();
+        if (! $job) {
+            return response()->json(['error' => 'Import job not found'], 404);
+        }
+
+        if ((int) $job->user_id !== (int) $request->user()->user_id
+            && ! $request->user()->isAdmin()) {
+            return response()->json(['message' => 'Unauthorized'], 403);
+        }
+
+        // peek=1 → status only (always fast). Default/advance → process one chunk.
+        // UI peeks on a timer so a slow advance request can never freeze the modal.
+        $peekOnly = $request->boolean('peek');
+        if (! $peekOnly && ! in_array($job->status, ['completed', 'failed'], true)) {
+            $this->advanceQueuedImport((int) $job->id);
+            $job->refresh();
+        }
+
+        return response()->json($job->toStatusPayload());
+    }
+
+    /**
+     * Parse (once) then import the next row chunk. Safe under concurrent polls (file lock).
+     */
+    public function advanceQueuedImport(int $csvImportJobId): void
+    {
+        // Long lock: 15k+ files spend minutes inside a single advance/standing batch.
+        $lock = Cache::lock('csv-import-advance-'.$csvImportJobId, 1200);
+        if (! $lock->get()) {
+            return;
+        }
+
+        try {
+            $this->raiseImportResourceLimits();
+            $job = CsvImportJob::query()->find($csvImportJobId);
+            if (! $job || in_array($job->status, ['completed', 'failed'], true)) {
+                return;
+            }
+
+            // One step per poll so the UI can show live % (parse → import → standing).
+            if ($job->status === 'pending' || in_array($job->phase, ['queued', 'parsing'], true)) {
+                $this->prepareQueuedImportPayload($job);
+
+                return;
+            }
+
+            if ($job->phase === 'syncing') {
+                $this->finalizeQueuedImportStanding($job);
+
+                return;
+            }
+
+            if ($job->phase === 'importing') {
+                $this->importQueuedImportChunk($job, self::IMPORT_PROGRESS_CHUNK);
+            }
+        } catch (\Throwable $e) {
+            if (DB::transactionLevel() > 0) {
+                DB::rollBack();
+            }
+            Log::error('Chunked CSV Import Error: '.$e->getMessage(), [
+                'csv_import_job_id' => $csvImportJobId,
+            ]);
+            $job = CsvImportJob::query()->find($csvImportJobId);
+            if ($job && ! in_array($job->status, ['completed', 'failed'], true)) {
+                $job->forceFill([
+                    'status' => 'failed',
+                    'phase' => 'failed',
+                    'message' => $e->getMessage(),
+                    'finished_at' => now(),
+                ])->save();
+            }
+            $this->deleteQueuedImportArtifacts($csvImportJobId);
+        } finally {
+            $lock->release();
+        }
+    }
+
+    /**
+     * Drive the import to completion (afterResponse runner). Uses advance steps so
+     * progress is written to the DB for the UI between chunks.
+     */
+    public function processQueuedImport(int $csvImportJobId): void
+    {
+        $this->raiseImportResourceLimits();
+        // No practical row cap — 15k–30k+ SIS files are expected (many advance steps).
+        $guard = 0;
+        $maxSteps = 200000;
+        while ($guard < $maxSteps) {
+            $guard++;
+            $job = CsvImportJob::query()->find($csvImportJobId);
+            if (! $job || in_array($job->status, ['completed', 'failed'], true)) {
+                return;
+            }
+            $before = $job->status.'|'.$job->phase.'|'.(int) $job->processed_rows.'|'.(string) $job->message;
+            $this->advanceQueuedImport($csvImportJobId);
+            $job->refresh();
+            if (in_array($job->status, ['completed', 'failed'], true)) {
+                return;
+            }
+            $after = $job->status.'|'.$job->phase.'|'.(int) $job->processed_rows.'|'.(string) $job->message;
+            if ($before === $after) {
+                // Lock held by another runner — wait briefly instead of spinning.
+                usleep(250000);
+            }
+        }
+
+        $job = CsvImportJob::query()->find($csvImportJobId);
+        if ($job && ! in_array($job->status, ['completed', 'failed'], true)) {
+            Log::error('CSV import runner exceeded max steps', [
+                'csv_import_job_id' => $csvImportJobId,
+                'status' => $job->status,
+                'phase' => $job->phase,
+                'processed_rows' => $job->processed_rows,
+                'total_rows' => $job->total_rows,
+            ]);
+            $job->forceFill([
+                'status' => 'failed',
+                'phase' => 'failed',
+                'message' => 'Import stopped after too many internal steps — re-try the file (no row-count limit; this is a safety stop).',
+                'finished_at' => now(),
+            ])->save();
+        }
+    }
+
+    private function queuedImportRowsPath(int $jobId): string
+    {
+        return 'imports/pending/job_'.$jobId.'_rows.json';
+    }
+
+    private function queuedImportMetaPath(int $jobId): string
+    {
+        return 'imports/pending/job_'.$jobId.'_meta.json';
+    }
+
+    private function deleteQueuedImportArtifacts(int $jobId): void
+    {
+        foreach ([$this->queuedImportRowsPath($jobId), $this->queuedImportMetaPath($jobId)] as $path) {
+            try {
+                if (Storage::disk('local')->exists($path)) {
+                    Storage::disk('local')->delete($path);
+                }
+            } catch (\Throwable) {
+                // ignore
+            }
+        }
+        $job = CsvImportJob::query()->find($jobId);
+        if ($job) {
+            $this->deleteStoredImportFile($job);
+        }
+    }
+
+    private function prepareQueuedImportPayload(CsvImportJob $job): void
+    {
+        $claimed = CsvImportJob::query()
+            ->where('id', $job->id)
+            ->where(function ($q) {
+                $q->where('status', 'pending')
+                    ->orWhereIn('phase', ['queued', 'parsing']);
+            })
+            ->whereNotIn('status', ['completed', 'failed'])
+            ->update([
+                'status' => 'running',
+                'phase' => 'parsing',
+                'started_at' => $job->started_at ?? now(),
+                'message' => 'Parsing import file…',
+                'updated_at' => now(),
+            ]);
+
+        if ($claimed === 0 && Storage::disk('local')->exists($this->queuedImportRowsPath((int) $job->id))) {
+            return;
+        }
+
+        $job->refresh();
+        $user = TblUser::query()->find($job->user_id);
+        $file = $this->makeUploadedFileFromStored($job);
+
+        $isSisGrades = $job->import_type === 'sis_grade_deliberation';
+        if ($isSisGrades) {
+            $parser = new SisGradeDeliberationImportParser;
+            $data = $parser->parseFileToGradeRows(
+                $file,
+                $job->academic_year_id,
+                $job->semester_id,
+                $job->original_filename ?: $file->getClientOriginalName()
+            );
+        } else {
+            $data = $this->parseCsv($file);
+        }
+
+        if ($data === []) {
+            $job->forceFill([
+                'status' => 'failed',
+                'phase' => 'failed',
+                'message' => 'The file is empty or invalid',
+                'finished_at' => now(),
+            ])->save();
+            $this->deleteQueuedImportArtifacts((int) $job->id);
+
+            return;
+        }
+
+        Storage::disk('local')->put(
+            $this->queuedImportRowsPath((int) $job->id),
+            json_encode(array_values($data), JSON_THROW_ON_ERROR)
+        );
+        Storage::disk('local')->put(
+            $this->queuedImportMetaPath((int) $job->id),
+            json_encode(['sids' => [], 'terms' => []], JSON_THROW_ON_ERROR)
+        );
+
+        $job->forceFill([
+            'status' => 'running',
+            'phase' => 'importing',
+            'total_rows' => count($data),
+            'processed_rows' => 0,
+            'imported' => 0,
+            'failed' => 0,
+            'skipped' => 0,
+            'errors' => [],
+            'message' => 'Importing rows… 0%',
+        ])->save();
+    }
+
+    private function importQueuedImportChunk(CsvImportJob $job, int $chunkSize): void
+    {
+        $rowsPath = $this->queuedImportRowsPath((int) $job->id);
+        if (! Storage::disk('local')->exists($rowsPath)) {
+            throw new \RuntimeException('Import payload missing — re-upload the file.');
+        }
+
+        /** @var list<array<string, mixed>> $data */
+        $data = json_decode(Storage::disk('local')->get($rowsPath), true, 512, JSON_THROW_ON_ERROR);
+        $total = count($data);
+        $offset = max(0, (int) $job->processed_rows);
+        if ($offset >= $total) {
+            $job->forceFill([
+                'phase' => 'syncing',
+                'message' => 'Updating student standing…',
+            ])->save();
+
+            return;
+        }
+
+        $chunk = array_slice($data, $offset, $chunkSize);
+        $user = TblUser::query()->find($job->user_id);
+        $request = $this->makeActorRequest($user, $job->import_type);
+
+        $chunkResults = $this->runImportRows(
+            $request,
+            $job->import_type,
+            $chunk,
+            $job->row_fixes,
+            $job->skip_rows,
+            null,
+            $offset,
+            false
+        );
+
+        $metaPath = $this->queuedImportMetaPath((int) $job->id);
+        $meta = ['sids' => [], 'terms' => []];
+        if (Storage::disk('local')->exists($metaPath)) {
+            $meta = json_decode(Storage::disk('local')->get($metaPath), true, 512, JSON_THROW_ON_ERROR) ?: $meta;
+        }
+        foreach ($chunkResults['sids_to_sync'] ?? [] as $sid) {
+            $meta['sids'][(string) $sid] = true;
+        }
+        foreach ($chunkResults['terms_to_sync'] ?? [] as $term) {
+            $ay = (int) ($term['academic_year_id'] ?? 0);
+            $sem = (int) ($term['semester_id'] ?? 0);
+            if ($ay > 0 && $sem > 0) {
+                $meta['terms'][$ay.':'.$sem] = [
+                    'academic_year_id' => $ay,
+                    'semester_id' => $sem,
+                ];
+            }
+        }
+        Storage::disk('local')->put($metaPath, json_encode([
+            'sids' => $meta['sids'],
+            'terms' => $meta['terms'],
+        ], JSON_THROW_ON_ERROR));
+
+        $processed = min($total, $offset + count($chunk));
+        $imported = (int) $job->imported + (int) ($chunkResults['imported'] ?? 0);
+        $failed = (int) $job->failed + (int) ($chunkResults['failed'] ?? 0);
+        $skipped = (int) $job->skipped + (int) ($chunkResults['skipped'] ?? 0);
+        $errors = array_slice(array_merge($job->errors ?? [], $chunkResults['errors'] ?? []), 0, 50);
+        $pct = $total > 0 ? (int) min(99, round(($processed / $total) * 100)) : 0;
+
+        if ($processed >= $total) {
+            $job->forceFill([
+                'phase' => 'syncing',
+                'total_rows' => $total,
+                'processed_rows' => $processed,
+                'imported' => $imported,
+                'failed' => $failed,
+                'skipped' => $skipped,
+                'errors' => $errors,
+                'message' => 'Updating student standing…',
+            ])->save();
+
+            return;
+        }
+
+        $job->forceFill([
+            'phase' => 'importing',
+            'total_rows' => $total,
+            'processed_rows' => $processed,
+            'imported' => $imported,
+            'failed' => $failed,
+            'skipped' => $skipped,
+            'errors' => $errors,
+            'message' => "Importing rows… {$pct}%",
+        ])->save();
+    }
+
+    private function finalizeQueuedImportStanding(CsvImportJob $job): void
+    {
+        $metaPath = $this->queuedImportMetaPath((int) $job->id);
+        $meta = ['sids' => [], 'terms' => [], 'standing_done' => []];
+        if (Storage::disk('local')->exists($metaPath)) {
+            $meta = json_decode(Storage::disk('local')->get($metaPath), true, 512, JSON_THROW_ON_ERROR) ?: $meta;
+        }
+
+        $allSids = array_keys($meta['sids'] ?? []);
+        $done = array_fill_keys(array_map('strval', $meta['standing_done'] ?? []), true);
+        $pendingSids = array_values(array_filter(
+            $allSids,
+            static fn ($sid) => ! isset($done[(string) $sid])
+        ));
+
+        // Standing rebuild is the slow part — batch unique students; progress stays live.
+        // Suppress per-row profile audits (year/standing saves) — one BULK_IMPORT at the end.
+        $batchSize = self::IMPORT_STANDING_BATCH;
+        $batch = array_slice($pendingSids, 0, $batchSize);
+        if ($batch !== []) {
+            AuditTrailService::suppress();
+            try {
+                $this->syncImportedStudentCurriculum($batch, [], false);
+            } finally {
+                AuditTrailService::resume();
+            }
+            foreach ($batch as $sid) {
+                $done[(string) $sid] = true;
+            }
+            $meta['standing_done'] = array_keys($done);
+            Storage::disk('local')->put($metaPath, json_encode($meta, JSON_THROW_ON_ERROR));
+
+            $finished = count($done);
+            $totalStudents = max(1, count($allSids));
+            $pct = (int) min(99, round(($finished / $totalStudents) * 100));
+            $job->forceFill([
+                'phase' => 'syncing',
+                'message' => "Updating student standing… {$finished}/{$totalStudents} ({$pct}%)",
+            ])->save();
+
+            return;
+        }
+
+        $terms = array_values($meta['terms'] ?? []);
+        // Fast enrollment lifecycle (Enrolled / Inactive) — no per-student curriculum rebuild.
+        AuditTrailService::suppress();
+        try {
+            $this->syncImportedStudentEnrollmentOnly($allSids, $terms);
+        } finally {
+            AuditTrailService::resume();
+        }
+
+        if ((int) $job->imported <= 0) {
+            $job->forceFill([
+                'status' => 'failed',
+                'phase' => 'failed',
+                'processed_rows' => (int) $job->total_rows,
+                'message' => 'No records were imported',
+                'finished_at' => now(),
+            ])->save();
+        } else {
+            $job->forceFill([
+                'status' => 'completed',
+                'phase' => 'completed',
+                'processed_rows' => (int) $job->total_rows,
+                'message' => 'Import completed',
+                'finished_at' => now(),
+            ])->save();
+            Log::info("CSV Import (chunked): {$job->imported} {$job->import_type} imported by user {$job->user_id}");
+            $this->writeImportBulkAudit((int) $job->user_id, (string) $job->import_type, [
+                'total_rows' => (int) $job->total_rows,
+                'imported' => (int) $job->imported,
+                'failed' => (int) $job->failed,
+                'skipped' => (int) $job->skipped,
+            ]);
+        }
+
+        $this->deleteQueuedImportArtifacts((int) $job->id);
+    }
+
+    /**
+     * @param  array{import_type: string, academic_year_id?: int|null, semester_id?: int|null, row_fixes?: string|null, skip_rows?: string|null}  $validated
+     */
+    private function queueHeavyImport(Request $request, array $validated)
+    {
+        $file = $request->file('csv_file');
+        $dir = 'imports/pending';
+        Storage::disk('local')->makeDirectory($dir);
+        $storedName = uniqid('imp_', true).'_'.preg_replace('/[^A-Za-z0-9._-]/', '_', $file->getClientOriginalName());
+        $storedPath = $file->storeAs($dir, $storedName, 'local');
+
+        $job = CsvImportJob::query()->create([
+            'user_id' => $request->user()->user_id,
+            'import_type' => $validated['import_type'],
+            'original_filename' => $file->getClientOriginalName(),
+            'stored_path' => $storedPath,
+            'academic_year_id' => $validated['academic_year_id'] ?? null,
+            'semester_id' => $validated['semester_id'] ?? null,
+            'row_fixes' => $validated['row_fixes'] ?? null,
+            'skip_rows' => $validated['skip_rows'] ?? null,
+            'status' => 'pending',
+            'phase' => 'queued',
+            'message' => 'Import accepted — starting…',
+        ]);
+
+        // Queue worker (Railway / local queue:work) processes this when available.
+        // Status polls also advance one chunk at a time so progress moves without a worker
+        // and the API stays free for the next upload (no blocking afterResponse).
+        ProcessCsvImportJob::dispatch($job->id);
+
+        return response()->json([
+            'message' => 'Import accepted. Processing…',
+            'async' => true,
+            'job_id' => $job->public_id,
+            'status' => $job->toStatusPayload(),
+        ], 202);
+    }
+
+    /**
+     * Shared row write + curriculum sync for sync and queued imports.
+     *
+     * @param  list<array<string, mixed>>  $data
+     * @return array{
+     *   total: int,
+     *   imported: int,
+     *   failed: int,
+     *   skipped: int,
+     *   errors: list<array{row: int, errors: list<string>}>,
+     *   sids_to_sync: list<string>,
+     *   terms_to_sync: list<array{academic_year_id: int, semester_id: int}>
+     * }
+     */
+    private function runImportRows(
+        Request $request,
+        string $importTypeKey,
+        array $data,
+        ?string $rowFixesJson,
+        ?string $skipRowsJson,
+        ?CsvImportJob $statusJob,
+        int $rowIndexOffset = 0,
+        bool $finalizeSync = true
+    ): array {
+        $importType = $this->importTypes[$importTypeKey];
+        $isSisGrades = $importTypeKey === 'sis_grade_deliberation';
+
+        $results = [
+            'total' => count($data),
+            'imported' => 0,
+            'failed' => 0,
+            'skipped' => 0,
+            'errors' => [],
+            'sids_to_sync' => [],
+            'terms_to_sync' => [],
+        ];
+
+        // Per-row CREATE/UPDATE audits make large imports crawl; use one BULK_IMPORT entry.
+        AuditTrailService::suppress();
+
+        /** @var array<string, bool> $pendingSisStudentIds */
+        $pendingSisStudentIds = [];
+        /** @var array<string, true> $sidsToSync */
+        $sidsToSync = [];
+        /** @var array<string, array{academic_year_id: int, semester_id: int}> $termsToSync */
+        $termsToSync = [];
+        $rowFixes = $this->parseCsvImportRowFixes($rowFixesJson);
+        $skipRows = $this->parseCsvImportSkipRows($skipRowsJson);
+        $pendingInChunk = 0;
+
+        try {
             DB::beginTransaction();
 
             foreach ($data as $index => $row) {
-                $rowNumber = $index + 1;
+                $rowNumber = $rowIndexOffset + $index + 1;
                 if (isset($skipRows[$rowNumber])) {
                     $results['skipped']++;
+                    $this->touchImportJobProgress($statusJob, $results, $rowNumber, 'importing');
 
                     continue;
                 }
                 $row = $this->normalizeCsvRow($row);
                 $row = $this->applyCsvImportRowFixes($row, $rowNumber, $rowFixes);
 
-                $rowRules = match ($validated['import_type']) {
+                $rowRules = match ($importTypeKey) {
                     'students' => $this->studentAccountImportValidationRules($row),
                     'grades' => $this->gradesImportValidationRules([], false, $row),
                     'sis_grade_deliberation' => $this->gradeDeliberationImportValidationRules($row),
                     'sis_mixed' => $this->sisMixedRowValidationRules($row, $pendingSisStudentIds),
-                    default => $this->validationRulesForImportType($validated['import_type']),
+                    default => $this->validationRulesForImportType($importTypeKey),
                 };
 
                 $validation = $this->validateRow($row, $rowRules, $rowNumber);
@@ -1313,36 +1837,39 @@ class CsvImportController extends Controller
                         'row' => $rowNumber,
                         'errors' => $validation['errors'],
                     ];
+                    $this->touchImportJobProgress($statusJob, $results, $rowNumber, 'importing');
 
                     continue;
                 }
 
-                if (in_array($validated['import_type'], ['grades', 'sis_grade_deliberation'], true)) {
+                if (in_array($importTypeKey, ['grades', 'sis_grade_deliberation'], true)) {
                     $row = $this->resolveGradeImportRowSubjectCode($row);
                 }
 
                 try {
-                    if ($validated['import_type'] === 'students') {
+                    if ($importTypeKey === 'students') {
                         $this->importStudentAccountFromSisRow($row);
-                    } elseif ($validated['import_type'] === 'grades') {
+                    } elseif ($importTypeKey === 'grades') {
                         $this->importGradesEvaluationRow($request, $this->stripSisImportMetadata($row), false);
                         $sid = \App\Support\StudentIdNumber::canonicalize((string) ($row['student_id_number'] ?? ''));
                         if ($sid !== '') {
                             $sidsToSync[$sid] = true;
                         }
+                        $this->rememberImportedGradeTerm($termsToSync, $row);
                     } elseif ($isSisGrades) {
                         $this->importGradeDeliberationRow($request, $row, false);
                         $sid = \App\Support\StudentIdNumber::canonicalize((string) ($row['student_id_number'] ?? ''));
                         if ($sid !== '') {
                             $sidsToSync[$sid] = true;
                         }
-                    } elseif ($validated['import_type'] === 'prerequisite_links') {
+                        $this->rememberImportedGradeTerm($termsToSync, $row);
+                    } elseif ($importTypeKey === 'prerequisite_links') {
                         $this->importPrerequisiteLinkRow($row);
-                    } elseif ($validated['import_type'] === 'sis_mixed') {
+                    } elseif ($importTypeKey === 'sis_mixed') {
                         $this->importSisMixedRow($request, $row);
                         $this->registerPendingSisMixedStudentId($row, $pendingSisStudentIds);
                     } else {
-                        $insertData = $this->transformData($row, $validated['import_type']);
+                        $insertData = $this->transformData($row, $importTypeKey);
                         DB::table($importType['table'])->insert($insertData);
                     }
                     $results['imported']++;
@@ -1351,6 +1878,7 @@ class CsvImportController extends Controller
                         DB::commit();
                         DB::beginTransaction();
                         $pendingInChunk = 0;
+                        $this->touchImportJobProgress($statusJob, $results, $rowNumber, 'importing');
                     }
                 } catch (\Throwable $e) {
                     $results['failed']++;
@@ -1358,46 +1886,132 @@ class CsvImportController extends Controller
                         'row' => $rowNumber,
                         'errors' => ['Insert failed: '.$e->getMessage()],
                     ];
+                    $this->touchImportJobProgress($statusJob, $results, $rowNumber, 'importing');
                 }
             }
 
+            $results['sids_to_sync'] = array_keys($sidsToSync);
+            $results['terms_to_sync'] = array_values($termsToSync);
+
             if ($results['imported'] === 0) {
                 DB::rollBack();
-                if ($auditSuppressed) {
-                    AuditTrailService::resume();
-                    $auditSuppressed = false;
-                }
 
-                return response()->json([
-                    'error' => 'No records were imported',
-                    'results' => $results,
-                ], 400);
+                return $results;
             }
 
             DB::commit();
 
-            $this->syncImportedStudentCurriculum(array_keys($sidsToSync));
-
-            Log::info("CSV Import: {$results['imported']} {$validated['import_type']} imported by user {$request->user()->user_id}");
-
-            return response()->json([
-                'message' => 'Import completed',
-                'results' => $results,
-            ]);
-        } catch (\Exception $e) {
-            if (DB::transactionLevel() > 0) {
-                DB::rollBack();
+            if ($finalizeSync && $sidsToSync !== []) {
+                if ($statusJob) {
+                    $statusJob->forceFill([
+                        'phase' => 'syncing',
+                        'processed_rows' => $results['total'],
+                        'imported' => $results['imported'],
+                        'failed' => $results['failed'],
+                        'skipped' => $results['skipped'],
+                        'errors' => array_slice($results['errors'], 0, 50),
+                        'message' => 'Updating student standing…',
+                    ])->save();
+                }
+                $this->syncImportedStudentCurriculum(array_keys($sidsToSync), array_values($termsToSync));
             }
-            Log::error('CSV Import Error: '.$e->getMessage());
 
-            return response()->json([
-                'error' => 'Import failed',
-                'message' => $e->getMessage(),
-            ], 500);
+            return $results;
         } finally {
-            if ($auditSuppressed) {
-                AuditTrailService::resume();
+            AuditTrailService::resume();
+        }
+    }
+
+    /**
+     * Single audit trail row for a finished CSV/Excel import (no per-student noise).
+     *
+     * @param  array{total?: int, total_rows?: int, imported?: int, failed?: int, skipped?: int}  $stats
+     */
+    private function writeImportBulkAudit(int $userId, string $importTypeKey, array $stats): void
+    {
+        $table = $this->importTypes[$importTypeKey]['table'] ?? 'import';
+        $imported = (int) ($stats['imported'] ?? 0);
+        $failed = (int) ($stats['failed'] ?? 0);
+        $skipped = (int) ($stats['skipped'] ?? 0);
+        $total = (int) ($stats['total'] ?? $stats['total_rows'] ?? ($imported + $failed + $skipped));
+
+        AuditTrailService::logBulk(
+            'BULK_IMPORT',
+            $table,
+            [
+                'import_type' => $importTypeKey,
+                'total_rows' => $total,
+                'imported' => $imported,
+                'failed' => $failed,
+                'skipped' => $skipped,
+                'note' => 'Batch import summary. Per-row audit was skipped for performance.',
+            ],
+            $userId
+        );
+    }
+
+    /**
+     * @param  array{total: int, imported: int, failed: int, skipped: int, errors: list<array{row: int, errors: list<string>}>}  $results
+     */
+    private function touchImportJobProgress(?CsvImportJob $job, array $results, int $processedRows, string $phase): void
+    {
+        if (! $job) {
+            return;
+        }
+
+        // Avoid writing status on every single row (large files).
+        $isBoundary = $processedRows % self::IMPORT_COMMIT_CHUNK === 0
+            || $processedRows >= (int) $results['total'];
+        if (! $isBoundary && $job->phase === $phase) {
+            return;
+        }
+
+        $job->forceFill([
+            'phase' => $phase,
+            'total_rows' => $results['total'],
+            'processed_rows' => $processedRows,
+            'imported' => $results['imported'],
+            'failed' => $results['failed'],
+            'skipped' => $results['skipped'],
+            'errors' => array_slice($results['errors'], 0, 50),
+            'message' => 'Importing rows…',
+        ])->save();
+    }
+
+    private function makeActorRequest(?TblUser $user, string $importType): Request
+    {
+        $request = Request::create('/api/csv-import/import', 'POST', [
+            'import_type' => $importType,
+        ]);
+        $request->setUserResolver(static fn () => $user);
+
+        return $request;
+    }
+
+    private function makeUploadedFileFromStored(CsvImportJob $job): UploadedFile
+    {
+        $absolute = Storage::disk('local')->path($job->stored_path);
+        if (! is_file($absolute)) {
+            throw new \RuntimeException('Stored import file is missing: '.$job->stored_path);
+        }
+
+        return new UploadedFile(
+            $absolute,
+            $job->original_filename ?: basename($job->stored_path),
+            null,
+            null,
+            true
+        );
+    }
+
+    private function deleteStoredImportFile(CsvImportJob $job): void
+    {
+        try {
+            if ($job->stored_path && Storage::disk('local')->exists($job->stored_path)) {
+                Storage::disk('local')->delete($job->stored_path);
             }
+        } catch (\Throwable $e) {
+            Log::warning('Could not delete stored import file: '.$e->getMessage());
         }
     }
 
@@ -2121,18 +2735,53 @@ class CsvImportController extends Controller
     }
 
     /**
-     * Rebuild Regular/Irregular standing once per student after a bulk grade import.
+     * Track unique academic year + semester pairs seen in a grade import batch.
+     *
+     * @param  array<string, array{academic_year_id: int, semester_id: int}>  $termsToSync
+     * @param  array<string, mixed>  $row
+     */
+    private function rememberImportedGradeTerm(array &$termsToSync, array $row): void
+    {
+        $ay = isset($row['academic_year_id']) && $row['academic_year_id'] !== '' && $row['academic_year_id'] !== null
+            ? (int) $row['academic_year_id']
+            : 0;
+        $sem = isset($row['semester_id']) && $row['semester_id'] !== '' && $row['semester_id'] !== null
+            ? (int) $row['semester_id']
+            : 0;
+        if ($ay < 1 || $sem < 1) {
+            return;
+        }
+        $termsToSync[$ay.':'.$sem] = [
+            'academic_year_id' => $ay,
+            'semester_id' => $sem,
+        ];
+    }
+
+    /**
+     * Rebuild Regular/Irregular standing once per student after a bulk grade import,
+     * mark those students Enrolled, Graduate when units are done, and set previous-term
+     * classmates (same campus) who are missing from this term to Inactive.
      *
      * @param  list<string>  $studentIdNumbers
+     * @param  list<array{academic_year_id: int, semester_id: int}>  $importedTerms
      */
-    private function syncImportedStudentCurriculum(array $studentIdNumbers): void
-    {
+    /**
+     * @param  list<string>  $studentIdNumbers
+     * @param  list<array{academic_year_id: int, semester_id: int}>  $importedTerms
+     */
+    private function syncImportedStudentCurriculum(
+        array $studentIdNumbers,
+        array $importedTerms = [],
+        bool $updateEnrollmentLifecycle = true
+    ): void {
         $ids = array_values(array_filter(array_unique($studentIdNumbers)));
         if ($ids === []) {
             return;
         }
 
         $builder = app(StudentCurriculumEvaluationBuilder::class);
+        $profilePks = [];
+        $campusIds = [];
         foreach (array_chunk($ids, HeavyRequest::STUDENT_CHUNK) as $chunk) {
             $profiles = StudentProfile::query()
                 ->whereIn('student_id_number', $chunk)
@@ -2145,6 +2794,10 @@ class CsvImportController extends Controller
                     continue;
                 }
                 $seen[$sid] = true;
+                $profilePks[] = (int) $profile->student_id;
+                if ($profile->campus_id !== null && (int) $profile->campus_id > 0) {
+                    $campusIds[(int) $profile->campus_id] = true;
+                }
                 try {
                     $builder->syncStudentProfileFromCurriculumProgress($profile);
                 } catch (\Throwable $e) {
@@ -2152,6 +2805,84 @@ class CsvImportController extends Controller
                 }
             }
             unset($profiles, $seen);
+        }
+
+        if ($updateEnrollmentLifecycle) {
+            $this->applyEnrollmentLifecycleAfterImport($profilePks, array_keys($campusIds), $importedTerms);
+        }
+    }
+
+    /**
+     * Fast Enrolled/Inactive updates after standing batches finish (no curriculum rebuilds).
+     *
+     * @param  list<string>  $studentIdNumbers
+     * @param  list<array{academic_year_id: int, semester_id: int}>  $importedTerms
+     */
+    private function syncImportedStudentEnrollmentOnly(array $studentIdNumbers, array $importedTerms = []): void
+    {
+        $ids = array_values(array_filter(array_unique($studentIdNumbers)));
+        if ($ids === []) {
+            return;
+        }
+
+        $profilePks = [];
+        $campusIds = [];
+        foreach (array_chunk($ids, HeavyRequest::STUDENT_CHUNK) as $chunk) {
+            $rows = StudentProfile::query()
+                ->whereIn('student_id_number', $chunk)
+                ->get(['student_id', 'student_id_number', 'campus_id']);
+            $seen = [];
+            foreach ($rows as $profile) {
+                $sid = (string) $profile->student_id_number;
+                if (isset($seen[$sid])) {
+                    continue;
+                }
+                $seen[$sid] = true;
+                $profilePks[] = (int) $profile->student_id;
+                if ($profile->campus_id !== null && (int) $profile->campus_id > 0) {
+                    $campusIds[(int) $profile->campus_id] = true;
+                }
+            }
+        }
+
+        $this->applyEnrollmentLifecycleAfterImport($profilePks, array_keys($campusIds), $importedTerms);
+    }
+
+    /**
+     * @param  list<int>  $profilePks
+     * @param  list<int>  $campusIdList
+     * @param  list<array{academic_year_id: int, semester_id: int}>  $importedTerms
+     */
+    private function applyEnrollmentLifecycleAfterImport(
+        array $profilePks,
+        array $campusIdList,
+        array $importedTerms
+    ): void {
+        $enrollmentSync = app(StudentEnrollmentStatusSync::class);
+
+        try {
+            $enrollmentSync->markPresentStudentsEnrolled($profilePks, false);
+        } catch (\Throwable $e) {
+            report($e);
+        }
+
+        foreach ($importedTerms as $term) {
+            $ay = (int) ($term['academic_year_id'] ?? 0);
+            $sem = (int) ($term['semester_id'] ?? 0);
+            if ($ay < 1 || $sem < 1) {
+                continue;
+            }
+            try {
+                if ($campusIdList === []) {
+                    $enrollmentSync->markMissingFromCompletedTerm($ay, $sem, null);
+                } else {
+                    foreach ($campusIdList as $campusId) {
+                        $enrollmentSync->markMissingFromCompletedTerm($ay, $sem, (int) $campusId);
+                    }
+                }
+            } catch (\Throwable $e) {
+                report($e);
+            }
         }
     }
 
@@ -2167,7 +2898,8 @@ class CsvImportController extends Controller
         return [
             'required',
             'file',
-            'max:102400',
+            // 512 MB — multi-campus SIS exports (15k+ rows) must not be rejected by size.
+            'max:524288',
             function (string $attribute, mixed $value, \Closure $fail) use ($allowed): void {
                 if (! $value instanceof \Illuminate\Http\UploadedFile) {
                     $fail('A data file is required.');

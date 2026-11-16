@@ -434,7 +434,7 @@ const UserManagement = ({ userScope = 'staff' }) => {
     return ['dean', 'program head', 'secretary'].includes(roleName);
   };
 
-  /** Staff who sign in with Employee ID (email is for mail / reset only). */
+  /** Staff who can sign in with Employee ID (email also works). */
   const isEmployeeIdLoginRole = () => {
     const roleName = selectedRoleName().toLowerCase();
     return ['dean', 'adviser', 'evaluator', 'program head', 'secretary'].includes(roleName);
@@ -841,7 +841,7 @@ const UserManagement = ({ userScope = 'staff' }) => {
       if (isEmployeeIdLoginRole() && !String(submitData.employee_id || '').trim()) {
         await swalError(
           'Employee ID required',
-          'Faculty and staff sign in with their Employee ID. Email is only for verification and password reset.'
+          'Faculty and staff need an Employee ID on file. They can sign in with email or Employee ID.'
         );
         return;
       }
@@ -1679,7 +1679,7 @@ const UserManagement = ({ userScope = 'staff' }) => {
                 </>
               )}
 
-              {/* Staff: Role first, then Employee ID (portal login), password, email (mail only) */}
+              {/* Staff: Role first, then Employee ID (also portal login), password, email */}
               {userScope !== 'students' && (
               <div className="form-group">
                 <label>Role</label>
@@ -1755,7 +1755,7 @@ const UserManagement = ({ userScope = 'staff' }) => {
                   }
                   placeholder={
                     isEmployeeIdLoginRole()
-                      ? 'Required — this is their portal login ID'
+                      ? 'Required — also usable as portal login'
                       : 'Optional for Admin'
                   }
                   required={isEmployeeIdLoginRole()}
@@ -1763,7 +1763,7 @@ const UserManagement = ({ userScope = 'staff' }) => {
                 />
                 <small style={{ color: '#666', fontSize: '0.85rem', marginTop: '0.25rem', display: 'block' }}>
                   {isEmployeeIdLoginRole()
-                    ? 'Faculty and staff sign in with this ID only. Do not use email on the login screen.'
+                    ? 'Faculty and staff can sign in with this Employee ID or their email.'
                     : 'Admin accounts sign in with email. Employee ID is optional.'}
                 </small>
               </div>

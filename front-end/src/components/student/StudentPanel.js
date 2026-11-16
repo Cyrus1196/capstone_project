@@ -91,14 +91,24 @@ const StudentPanel = () => {
         <h1>Student Portal</h1>
         <div className="header-info">
           <span>Welcome, {userDisplayName(user)}</span>
-          <button onClick={handleLogout} className="logout-button">
+          <GuideButton />
+          <button
+            type="button"
+            onClick={handleLogout}
+            className="logout-button"
+            data-tour="student-logout"
+          >
             Logout
           </button>
-          <GuideButton />
         </div>
       </header>
 
-      <div className="student-tabs" role="tablist" aria-label="Student portal sections">
+      <div
+        className="student-tabs"
+        role="tablist"
+        aria-label="Student portal sections"
+        data-tour="student-tabs"
+      >
         <button
           type="button"
           role="tab"

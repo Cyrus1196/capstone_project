@@ -84,12 +84,166 @@ class StudentEvaluationController extends Controller
                 }
             }
 
-            $payload = app(StudentCurriculumEvaluationBuilder::class)->buildPayload($profile);
+            $builder = app(StudentCurriculumEvaluationBuilder::class);
+            // Keep year_level / promotion_target aligned with earned-units standing
+            // so Year Level filters match the Standing label on this screen.
+            $builder->syncStudentProfileFromCurriculumProgress($profile);
+            $profile->refresh();
+            $payload = $builder->buildPayload($profile);
+            $this->markCurriculumCompleteIfFullyEarned(
+                $profile,
+                $user->user_id ?? null,
+                $payload
+            );
 
             return response()->json($payload);
         } catch (\Exception $e) {
             return response()->json([
                 'error' => 'Failed to compute student evaluation',
+                'message' => $e->getMessage(),
+            ], 500);
+        }
+    }
+
+    /**
+     * When remaining units hit 0, store under Evaluated students (completion log)
+     * so Curriculum Evaluation (pending list) no longer shows them.
+     *
+     * @param  array{summary?: array{lacking_units?: int|float}}|null  $payload
+     */
+    private function markCurriculumCompleteIfFullyEarned(
+        StudentProfile $profile,
+        mixed $completedByUserId,
+        ?array $payload = null
+    ): void {
+        $lacking = (float) ($payload['summary']['lacking_units'] ?? -1);
+        if ($lacking > 0) {
+            return;
+        }
+        if ($lacking < 0) {
+            return;
+        }
+
+        $exists = AcademicRecordEvaluationComplete::query()
+            ->where('student_id', $profile->student_id)
+            ->exists();
+        if ($exists) {
+            return;
+        }
+
+        AcademicRecordEvaluationComplete::create([
+            'student_id' => $profile->student_id,
+            'completed_at' => now(),
+            'completed_by' => $completedByUserId ? (int) $completedByUserId : null,
+            'notes' => 'Curriculum complete — all required units earned.',
+        ] + AcademicRecordEvaluationComplete::currentTermAttributes());
+    }
+
+    /**
+     * Preview another curriculum Effective SY for the same program (grades carry for matching subjects).
+     */
+    public function previewStudentCurriculum(Request $request, string $studentIdNumber)
+    {
+        try {
+            $user = $request->user();
+            if (! $user) {
+                return response()->json(['message' => 'Unauthorized'], 401);
+            }
+
+            $validated = $request->validate([
+                'curriculum_header_id' => 'required|integer|exists:tbl_curriculum_header,curriculum_header_id',
+            ]);
+
+            if ($user->hasRole('Student') || ! $user->canWorkOnStudentEvaluations()) {
+                return response()->json(['message' => 'Forbidden'], 403);
+            }
+
+            $profile = StudentProfile::whereStudentIdNumber($studentIdNumber)
+                ->with(['program', 'track', 'previousProgram'])
+                ->first();
+
+            if (! $profile) {
+                return response()->json(['message' => 'Student not found'], 404);
+            }
+
+            if ($denied = $this->gateStaffStudentEvaluation($user, $profile, null, true)) {
+                return $denied;
+            }
+
+            $builder = app(StudentCurriculumEvaluationBuilder::class);
+            $payload = $builder->buildPayloadForCurriculumPreview(
+                $profile,
+                (int) $validated['curriculum_header_id']
+            );
+
+            return response()->json($payload);
+        } catch (ValidationException $e) {
+            throw $e;
+        } catch (\InvalidArgumentException $e) {
+            return response()->json(['message' => $e->getMessage()], 422);
+        } catch (\Exception $e) {
+            return response()->json([
+                'error' => 'Failed to preview curriculum',
+                'message' => $e->getMessage(),
+            ], 500);
+        }
+    }
+
+    /**
+     * Persist curriculum Effective SY for a student (taken subjects with matching codes keep grades).
+     */
+    public function changeStudentCurriculum(Request $request)
+    {
+        try {
+            $user = $request->user();
+            if (! $user) {
+                return response()->json(['message' => 'Unauthorized'], 401);
+            }
+
+            $validated = $request->validate([
+                'student_id' => 'required|integer|exists:tbl_student_profile,student_id',
+                'curriculum_header_id' => 'required|integer|exists:tbl_curriculum_header,curriculum_header_id',
+            ]);
+
+            $profile = StudentProfile::where('student_id', $validated['student_id'])
+                ->with(['program', 'track', 'previousProgram'])
+                ->firstOrFail();
+
+            if ($denied = $this->gateStaffStudentEvaluation($user, $profile)) {
+                return $denied;
+            }
+
+            $headerId = (int) $validated['curriculum_header_id'];
+            $programId = (int) ($profile->current_program ?? 0);
+            $header = \App\Models\CurriculumHeader::query()
+                ->where('curriculum_header_id', $headerId)
+                ->where('program_id', $programId)
+                ->first();
+
+            if (! $header) {
+                return response()->json([
+                    'message' => 'That curriculum version is not available for this student’s program.',
+                ], 422);
+            }
+
+            $profile->curriculum_header_id = $headerId;
+            $profile->save();
+
+            $builder = app(StudentCurriculumEvaluationBuilder::class);
+            $builder->syncStudentProfileFromCurriculumProgress($profile);
+            $fresh = StudentProfile::where('student_id', $profile->student_id)
+                ->with(['program', 'track', 'previousProgram'])
+                ->firstOrFail();
+
+            return response()->json([
+                'message' => 'Student curriculum updated. Matching taken subjects keep their grades.',
+                'evaluation' => $builder->buildPayload($fresh),
+            ]);
+        } catch (ValidationException $e) {
+            throw $e;
+        } catch (\Exception $e) {
+            return response()->json([
+                'error' => 'Failed to change curriculum',
                 'message' => $e->getMessage(),
             ], 500);
         }
@@ -231,15 +385,31 @@ class StudentEvaluationController extends Controller
                 }
             }
 
-            // Apply search filter if provided
+            // Apply search filter if provided (name / ID — no result cap; full filtered set returned).
             $search = trim((string) $request->query('search', ''));
             if ($search !== '') {
                 $like = '%'.$search.'%';
-                $query->where(function ($q) use ($like) {
+                $query->where(function ($q) use ($like, $search) {
                     $q->where('student_id_number', 'like', $like)
                         ->orWhere('first_name', 'like', $like)
                         ->orWhere('middle_name', 'like', $like)
-                        ->orWhere('last_name', 'like', $like);
+                        ->orWhere('last_name', 'like', $like)
+                        ->orWhereRaw(
+                            "CONCAT(COALESCE(last_name,''), ', ', COALESCE(first_name,''), ' ', COALESCE(middle_name,'')) LIKE ?",
+                            [$like]
+                        )
+                        ->orWhereRaw(
+                            "CONCAT(COALESCE(first_name,''), ' ', COALESCE(last_name,'')) LIKE ?",
+                            [$like]
+                        );
+                    // Also match when staff types the ID without dashes.
+                    $digits = preg_replace('/\D+/', '', $search);
+                    if ($digits !== null && strlen($digits) >= 4) {
+                        $q->orWhereRaw(
+                            "REPLACE(REPLACE(COALESCE(student_id_number,''), '-', ''), ' ', '') LIKE ?",
+                            ['%'.$digits.'%']
+                        );
+                    }
                 });
             }
 
@@ -261,25 +431,23 @@ class StudentEvaluationController extends Controller
                 }
             }
 
+            // Year Level = earned-units standing stored on year_level_id.
+            // When the user is typing a name/ID search, do not also lock year —
+            // search must still find the student (filters stay for browse-only).
             $yearLevelFilter = trim((string) $request->query('year_level_id', ''));
-            if ($yearLevelFilter === '__unassigned__') {
+            $applyYearFilter = $search === '';
+            if ($applyYearFilter && $yearLevelFilter === '__unassigned__') {
                 $query->where(function ($q) {
-                    $q->whereNull('promotion_target_year_level_id')
-                        ->where(function ($inner) {
-                            $inner->whereNull('year_level_id')->orWhere('year_level_id', '');
-                        });
+                    $q->whereNull('year_level_id')->orWhere('year_level_id', '');
                 });
-            } elseif ($yearLevelFilter !== '' && ctype_digit($yearLevelFilter)) {
-                $query->whereRaw(
-                    'COALESCE(promotion_target_year_level_id, year_level_id) = ?',
-                    [(int) $yearLevelFilter]
-                );
+            } elseif ($applyYearFilter && $yearLevelFilter !== '' && ctype_digit($yearLevelFilter)) {
+                $query->where('year_level_id', (int) $yearLevelFilter);
             }
 
             $standingFilter = strtolower(trim((string) $request->query('standing', '')));
             $excludeSimulationsForStanding = in_array(
                 $standingFilter,
-                ['regular', 'irregular', 'unevaluated', 'unevaluated_irregular'],
+                ['regular', 'irregular', 'unevaluated', 'evaluated', 'unevaluated_irregular'],
                 true
             );
             if ($excludeSimulationsForStanding && CachedSchema::hasColumn('tbl_student_profile', 'is_simulation')) {
@@ -294,6 +462,38 @@ class StudentEvaluationController extends Controller
                 });
             } elseif ($standingFilter === 'irregular' || $standingFilter === 'unevaluated_irregular') {
                 $query->whereRaw('LOWER(TRIM(academic_status)) = ?', ['irregular']);
+            }
+
+            $enrollmentFilter = trim((string) $request->query('enrollment_status', ''));
+            $enrollmentGroup = strtolower(trim((string) $request->query('enrollment_group', '')));
+            if (CachedSchema::hasColumn('tbl_student_profile', 'enrollment_status')) {
+                $normalizedEnrollment = $enrollmentFilter !== ''
+                    ? \App\Support\EnrollmentStatus::normalize($enrollmentFilter)
+                    : null;
+                $nonActiveStatuses = ['inactive', 'graduate', 'transferred'];
+
+                if ($enrollmentGroup === 'non_active') {
+                    // Inactive & Graduates tab: optional Status filter within non-active set.
+                    if ($normalizedEnrollment && in_array(strtolower($normalizedEnrollment), $nonActiveStatuses, true)) {
+                        $query->whereRaw('LOWER(TRIM(enrollment_status)) = ?', [strtolower($normalizedEnrollment)]);
+                    } else {
+                        $query->where(function ($q) use ($nonActiveStatuses) {
+                            $q->whereRaw(
+                                'LOWER(TRIM(enrollment_status)) IN ('.implode(',', array_fill(0, count($nonActiveStatuses), '?')).')',
+                                $nonActiveStatuses
+                            );
+                        });
+                    }
+                } elseif ($enrollmentGroup === 'active') {
+                    // Student tab: currently enrolled (or unset → treat as enrolled).
+                    $query->where(function ($q) {
+                        $q->whereNull('enrollment_status')
+                            ->orWhereRaw("TRIM(enrollment_status) = ''")
+                            ->orWhereRaw('LOWER(TRIM(enrollment_status)) = ?', ['enrolled']);
+                    });
+                } elseif ($normalizedEnrollment) {
+                    $query->whereRaw('LOWER(TRIM(enrollment_status)) = ?', [strtolower($normalizedEnrollment)]);
+                }
             }
 
             $academicRecord = $request->query('academic_record', 'all');
@@ -318,7 +518,7 @@ class StudentEvaluationController extends Controller
                 } elseif ($academicRecord === 'completed') {
                     $scopeFilters[] = function ($q) use ($allowedYears, $user) {
                         $q->where(function ($inner) use ($allowedYears, $user) {
-                            $inner->whereIn(DB::raw('COALESCE(promotion_target_year_level_id, year_level_id)'), $allowedYears)
+                            $inner->whereIn(DB::raw('('.EvaluationStanding::sqlEffectiveYearLevelIdExpr().')'), $allowedYears)
                                 ->orWhereIn('student_id', AcademicRecordEvaluationComplete::query()
                                     ->select('student_id')
                                     ->where('completed_by', $user->user_id));
@@ -326,7 +526,7 @@ class StudentEvaluationController extends Controller
                     };
                 } else {
                     $scopeFilters[] = function ($q) use ($allowedYears) {
-                        $q->whereIn(DB::raw('COALESCE(promotion_target_year_level_id, year_level_id)'), $allowedYears);
+                        $q->whereIn(DB::raw('('.EvaluationStanding::sqlEffectiveYearLevelIdExpr().')'), $allowedYears);
                     };
                 }
             }
@@ -384,6 +584,9 @@ class StudentEvaluationController extends Controller
                 'promoted_next_sem_at',
                 'is_simulation',
             ];
+            if (CachedSchema::hasColumn('tbl_student_profile', 'enrollment_status')) {
+                $selectCols[] = 'enrollment_status';
+            }
             if ($hasCampusColumn) {
                 $selectCols[] = 'campus_id';
             }
@@ -415,26 +618,9 @@ class StudentEvaluationController extends Controller
                 }
             }
 
-            $extraYearIds = [];
-            foreach ($students as $student) {
-                $effectiveYearLevelId = $this->effectiveEvaluationYearLevelId($student);
-                if (
-                    $effectiveYearLevelId !== null
-                    && (int) ($student->year_level_id ?? 0) !== (int) $effectiveYearLevelId
-                ) {
-                    $extraYearIds[] = (int) $effectiveYearLevelId;
-                }
-            }
-            $extraYearNames = $extraYearIds === []
-                ? collect()
-                : YearLevel::query()
-                    ->whereIn('year_level_id', array_values(array_unique($extraYearIds)))
-                    ->pluck('year_level', 'year_level_id');
-
             $students = $students->map(function ($student) use (
                 $lastCompletedByStudent,
-                $completionNotesByStudent,
-                $extraYearNames
+                $completionNotesByStudent
             ) {
                 $fullName = trim(
                     ($student->last_name ? $student->last_name.', ' : '').
@@ -449,14 +635,9 @@ class StudentEvaluationController extends Controller
                     $completionNotesByStudent[$sid] ?? [],
                     $student->promoted_next_sem_at
                 ) !== null;
+                // year_level_id is earned-units standing (kept by curriculum sync).
                 $effectiveYearLevelId = $this->effectiveEvaluationYearLevelId($student);
                 $effectiveYearLevelName = $student->yearLevel?->year_level;
-                if (
-                    $effectiveYearLevelId !== null
-                    && (int) ($student->year_level_id ?? 0) !== (int) $effectiveYearLevelId
-                ) {
-                    $effectiveYearLevelName = $extraYearNames[(int) $effectiveYearLevelId] ?? $effectiveYearLevelName;
-                }
 
                 $campus = $student->relationLoaded('campus') ? $student->campus : null;
 
@@ -468,6 +649,7 @@ class StudentEvaluationController extends Controller
                     'last_name' => $student->last_name,
                     'full_name' => $fullName ?: 'N/A',
                     'academic_status' => $student->academic_status,
+                    'enrollment_status' => $student->enrollment_status,
                     'student_entry_type' => $student->student_entry_type,
                     'program' => $student->program,
                     'program_name' => $student->program->program_name ?? 'N/A',
@@ -489,6 +671,10 @@ class StudentEvaluationController extends Controller
             if ($standingFilter === 'unevaluated' || $standingFilter === 'unevaluated_irregular') {
                 $students = $students
                     ->filter(static fn ($row) => empty($row['is_simulation']) && empty($row['academic_record_evaluated']))
+                    ->values();
+            } elseif ($standingFilter === 'evaluated') {
+                $students = $students
+                    ->filter(static fn ($row) => empty($row['is_simulation']) && ! empty($row['academic_record_evaluated']))
                     ->values();
             }
 
@@ -1439,6 +1625,53 @@ class StudentEvaluationController extends Controller
         } catch (\Exception $e) {
             return response()->json([
                 'error' => 'Failed to update major standing override',
+                'message' => $e->getMessage(),
+            ], 500);
+        }
+    }
+
+    /**
+     * Manual enrollment lifecycle: Enrolled / Inactive / Transferred / Graduate.
+     * Distinct from academic_status (Regular/Irregular).
+     */
+    public function setStudentEnrollmentStatus(Request $request)
+    {
+        try {
+            $user = $request->user();
+            if (! $user) {
+                return response()->json(['message' => 'Unauthorized'], 401);
+            }
+
+            $validated = $request->validate([
+                'student_id' => 'required|integer|exists:tbl_student_profile,student_id',
+                'enrollment_status' => 'required|string|in:Enrolled,Inactive,Transferred,Graduate',
+            ]);
+
+            $profile = StudentProfile::where('student_id', $validated['student_id'])
+                ->with(['program', 'track', 'previousProgram'])
+                ->firstOrFail();
+
+            if ($denied = $this->gateStaffStudentEvaluation($user, $profile)) {
+                return $denied;
+            }
+
+            $profile->enrollment_status = $validated['enrollment_status'];
+            $profile->save();
+
+            $builder = app(StudentCurriculumEvaluationBuilder::class);
+            $fresh = StudentProfile::where('student_id', $profile->student_id)
+                ->with(['program', 'track', 'previousProgram'])
+                ->firstOrFail();
+
+            return response()->json([
+                'message' => 'Enrollment status updated.',
+                'evaluation' => $builder->buildPayload($fresh),
+            ]);
+        } catch (ValidationException $e) {
+            throw $e;
+        } catch (\Exception $e) {
+            return response()->json([
+                'error' => 'Failed to update enrollment status',
                 'message' => $e->getMessage(),
             ], 500);
         }

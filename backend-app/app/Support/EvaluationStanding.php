@@ -7,18 +7,57 @@ use App\Models\StudentProfile;
 /**
  * Standing rules shared by the Student evaluation list and Dean analytics,
  * so both screens always count the same students the same way.
+ *
+ * Year Level filters / list badges use {@see StudentProfile::$year_level_id},
+ * which is kept in sync with earned curriculum units
+ * (46→2nd, 94→3rd, 132→4th). Promotion-target fields are for promote placement only.
  */
 final class EvaluationStanding
 {
-    /** Year level the student is evaluated under (promotion target first). */
-    public static function effectiveYearLevelId(StudentProfile $profile): ?int
+    /** Study-map thresholds — same as the evaluation hero Standing label. */
+    public static function yearOrdinalFromEarnedUnits(float|int|null $earnedUnits): int
     {
-        $target = $profile->promotion_target_year_level_id ?? null;
-        if ($target !== null && $target !== '') {
-            return (int) $target;
+        $earned = (float) ($earnedUnits ?? 0);
+        if ($earned >= 132) {
+            return 4;
+        }
+        if ($earned >= 94) {
+            return 3;
+        }
+        if ($earned >= 46) {
+            return 2;
         }
 
-        return $profile->year_level_id !== null ? (int) $profile->year_level_id : null;
+        return 1;
+    }
+
+    /**
+     * Year level for list filters / Dean analytics = units-synced profile year.
+     * Do not prefer promotion_target (that can lag or lead earned-units standing).
+     */
+    public static function effectiveYearLevelId(StudentProfile $profile): ?int
+    {
+        return self::resolveEffectiveYearLevelId(
+            null,
+            $profile->year_level_id
+        );
+    }
+
+    public static function resolveEffectiveYearLevelId(mixed $target, mixed $year): ?int
+    {
+        // $target kept in the signature for call sites; filters ignore it on purpose.
+        unset($target);
+        $yearId = ($year !== null && $year !== '') ? (int) $year : null;
+
+        return $yearId;
+    }
+
+    /**
+     * SQL expression matching {@see effectiveYearLevelId()} for WHERE / GROUP BY.
+     */
+    public static function sqlEffectiveYearLevelIdExpr(): string
+    {
+        return 'year_level_id';
     }
 
     public static function isIrregular(StudentProfile $profile): bool

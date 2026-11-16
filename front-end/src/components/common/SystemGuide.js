@@ -55,11 +55,97 @@ function clearGuideSeen(userId) {
 
 function portalNameForRole(role) {
   const r = String(role || '').trim().toLowerCase();
+  if (r === 'student') return 'Student Portal';
   if (r === 'dean') return 'Dean Portal';
   if (r === 'program head') return 'Program Head portal';
   if (r === 'secretary') return 'Secretary portal';
   if (r === 'adviser' || r === 'evaluator' || r === 'faculty') return 'Adviser Portal';
   return 'Academic Evaluation Portal';
+}
+
+/**
+ * Student-facing user manual (interactive Guide).
+ * Read-only academic record; students update contact/profile and view grades.
+ */
+function studentUserManualSteps() {
+  return [
+    {
+      title: 'Student Portal user manual',
+      body: 'Welcome. This short guide shows how to use your Student Portal: check your term, update your profile, review grades and curriculum, and download an evaluation report. You cannot change grades here — your Dean, Program Head, Adviser, or Secretary records those.',
+      target: null,
+    },
+    {
+      title: 'Portal tabs',
+      body: 'Use the tabs under the header to move around: Dashboard (home), My Profile (your details), and My Curriculum (subjects and grades).',
+      target: '[data-tour="student-tabs"]',
+    },
+    {
+      title: '1. Dashboard overview',
+      body: 'Your home page. The cards show enrolled subjects, completed subjects, failed subjects, and your current school term.',
+      openTab: 'student-dashboard',
+      target:
+        '[data-tour="student-dashboard-stats"], [data-tour="page-student-dashboard"]',
+    },
+    {
+      title: '2. Quick shortcuts',
+      body: 'Use View grades / View evaluation to open My Curriculum, or Update profile to open My Profile. Recent activity lists the latest enrollment and grade updates.',
+      openTab: 'student-dashboard',
+      target:
+        '[data-tour="student-dashboard-actions"], [data-tour="page-student-dashboard"]',
+    },
+    {
+      title: '3. My Profile',
+      body: 'Keep your personal information current. You can edit name, contact number, and address. Student ID is locked once set. Program, academic status, year level, and track are set by school staff — they appear here for viewing only.',
+      openTab: 'student-profile',
+      target:
+        '[data-tour="student-profile-form"], [data-tour="page-student-profile"]',
+    },
+    {
+      title: '4. Save your profile',
+      body: 'After editing, click Save profile. If your connection drops, typed fields are kept on this device so you can try again.',
+      openTab: 'student-profile',
+      target:
+        '[data-tour="student-profile-save"], [data-tour="page-student-profile"]',
+    },
+    {
+      title: '5. Change password',
+      body: 'Scroll to Change password on My Profile when you need a new login password. Use a strong password you do not share.',
+      openTab: 'student-profile',
+      target:
+        '[data-tour="student-change-password"], [data-tour="page-student-profile"]',
+    },
+    {
+      title: '6. My Curriculum',
+      body: 'This is your program checklist: subjects by year and semester, prerequisites, units, and pass/fail status. Grades appear after staff evaluate you.',
+      openTab: 'student-curriculum',
+      target: '[data-tour="page-student-curriculum"]',
+    },
+    {
+      title: '7. Browse by year',
+      body: 'Use the year pills (1st Year, 2nd Year, …) to switch levels. Open each semester section to see subject code, description, units, and Status.',
+      openTab: 'student-curriculum',
+      target:
+        '[data-tour="student-curriculum-years"], [data-tour="page-student-curriculum"]',
+    },
+    {
+      title: '8. Download evaluation report',
+      body: 'Click Download evaluation report to save a PDF of your academic evaluation. Choose the school year / semester when asked, then confirm the download.',
+      openTab: 'student-curriculum',
+      target:
+        '[data-tour="student-curriculum-download"], [data-tour="page-student-curriculum"]',
+    },
+    {
+      title: 'What you cannot do here',
+      body: 'Students cannot enter grades, promote standing, or change enrollment status. If a grade looks wrong or a subject is missing, contact your adviser, dean, or registrar — they use the staff portals to correct records.',
+      openTab: 'student-curriculum',
+      target: '[data-tour="page-student-curriculum"]',
+    },
+    {
+      title: 'Guide anytime',
+      body: 'Click Guide in the header whenever you need this walkthrough again. Use Logout when you are done.',
+      target: '[data-tour="guide-button"]',
+    },
+  ];
 }
 
 /**
@@ -175,7 +261,7 @@ function evaluationWalkthroughSteps({ portalName = 'portal' } = {}) {
     },
     {
       title: 'Evaluation complete',
-      body: 'Recheck Year/Semester, irregular vs regular status, remaining units, and This term load. Open Evaluated students later to review stored irregular evaluations.',
+      body: 'Recheck Year/Semester, irregular vs regular status, remaining units, and This term load. Use Standing → Evaluated to find completed records, or Inactive & Graduates for stopped/graduate students.',
       openTab: 'academic-record',
       target: '[data-tour="evaluation-summary"]',
       closeEvalPanels: true,
@@ -197,38 +283,9 @@ function evaluationWalkthroughSteps({ portalName = 'portal' } = {}) {
 function tourStepsForRole(role) {
   const r = String(role || '').trim().toLowerCase();
 
-  // Students see their own portal tour (they do not evaluate others).
+  // Students see their own user manual (they do not evaluate others).
   if (r === 'student') {
-    return [
-      {
-        title: 'How it works',
-        body: 'Welcome to the Student Portal. Each step opens a tab and explains what is inside.',
-        target: null,
-      },
-      {
-        title: 'Dashboard',
-        body: 'Your home page: enrolled subjects, current term, and shortcuts to grades and profile.',
-        openTab: 'student-dashboard',
-        target: '[data-tour="page-student-dashboard"]',
-      },
-      {
-        title: 'My Profile',
-        body: 'Update contact number, address, and personal details on this page.',
-        openTab: 'student-profile',
-        target: '[data-tour="page-student-profile"]',
-      },
-      {
-        title: 'My Curriculum',
-        body: 'Browse program subjects, status, and remaining requirements here.',
-        openTab: 'student-curriculum',
-        target: '[data-tour="page-student-curriculum"]',
-      },
-      {
-        title: 'Guide anytime',
-        body: 'Click Guide in the header whenever you need this walkthrough again. Logout is in the sidebar.',
-        target: '[data-tour="guide-button"]',
-      },
-    ];
+    return studentUserManualSteps();
   }
 
   // Admin manages the system — no student-evaluation walkthrough.

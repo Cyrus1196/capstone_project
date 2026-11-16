@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Evaluation;
 
 use App\Http\Controllers\Controller;
+use App\Models\AcademicRecordEvaluationComplete;
 use App\Models\Evaluation;
 use App\Models\StudentProfile;
 use App\Services\GradeScaleHelper;
@@ -577,9 +578,31 @@ class EvaluationController extends Controller
     private function syncStudentYearLevelFromEvaluations(int $studentTableId): void
     {
         $profile = StudentProfile::query()->where('student_id', $studentTableId)->first();
-        if ($profile) {
-            app(StudentCurriculumEvaluationBuilder::class)->syncStudentProfileFromCurriculumProgress($profile);
+        if (! $profile) {
+            return;
         }
+
+        $builder = app(StudentCurriculumEvaluationBuilder::class);
+        $built = $builder->buildPayload($profile);
+        $builder->syncStudentProfileFromCurriculumProgress($profile, $built);
+
+        // All curriculum units earned → Evaluated students; leave Curriculum Evaluation.
+        $lacking = (float) ($built['summary']['lacking_units'] ?? -1);
+        if ($lacking !== 0.0) {
+            return;
+        }
+        $exists = AcademicRecordEvaluationComplete::query()
+            ->where('student_id', $profile->student_id)
+            ->exists();
+        if ($exists) {
+            return;
+        }
+        AcademicRecordEvaluationComplete::create([
+            'student_id' => $profile->student_id,
+            'completed_at' => now(),
+            'completed_by' => auth()->user()?->user_id,
+            'notes' => 'Curriculum complete — all required units earned.',
+        ] + AcademicRecordEvaluationComplete::currentTermAttributes());
     }
 
     private function requiresAssignedProgramScope($user): bool

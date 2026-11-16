@@ -338,7 +338,7 @@ const Login = () => {
                     <span className="login-page__req" aria-hidden>
                       *
                     </span>{' '}
-                    Username
+                    Email
                   </label>
                   <div className="login-page__input-wrap">
                     <input

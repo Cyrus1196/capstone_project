@@ -13,7 +13,8 @@ final class HeavyRequest
 
     public const MEMORY_ANALYTICS = '512M';
 
-    public const MEMORY_IMPORT = '1024M';
+    /** Large SIS files (15k–20k+ rows) need headroom for parse + payload. */
+    public const MEMORY_IMPORT = '2048M';
 
     public const MEMORY_BATCH = '512M';
 
@@ -59,6 +60,12 @@ final class HeavyRequest
     {
         self::raise(self::MEMORY_IMPORT, self::SECONDS_IMPORT);
         @ignore_user_abort(true);
+        // Best-effort — some hosts only honor these in php.ini / Apache config.
+        if (function_exists('ini_set')) {
+            @ini_set('post_max_size', '512M');
+            @ini_set('upload_max_filesize', '512M');
+            @ini_set('max_input_time', '0');
+        }
     }
 
     public static function forBatch(): void

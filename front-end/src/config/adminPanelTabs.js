@@ -8,7 +8,7 @@ import {
   lookupGranularPermissionNames,
 } from './lookupDataSidebarPanels';
 
-/** Dean (and any role): “Academic record evaluation” + “Evaluated students” tabs. */
+/** Dean (and any role): Student evaluation + Inactive & Graduates tabs. */
 export const STUDENT_EVALUATION_TAB_PERMISSIONS = [
   'Student Evaluation',
   'evaluation.view',

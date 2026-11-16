@@ -222,6 +222,49 @@
   white-space: nowrap;
 }
 
+/* OFFSEM / retake — same cues as Dean evaluation */
+.student-curriculum-desc-with-retake {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.25rem;
+}
+
+.student-curriculum-retake-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.3rem 0.45rem;
+}
+
+.student-curriculum-offsem-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.1rem 0.4rem;
+  border-radius: 999px;
+  border: 1px solid #c2410c;
+  background: #fff7ed;
+  color: #c2410c;
+  font-size: 0.62rem;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
+.student-curriculum-offsem-badge--semestral {
+  border-color: #1d4f91;
+  background: #eff6ff;
+  color: #1d4f91;
+}
+
+.student-curriculum-offsem-term {
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: #475569;
+  line-height: 1.3;
+}
+
 /* Curriculum card: contains horizontal scroll table, no page-level overflow */
 .student-curriculum-panel {
   width: 100%;

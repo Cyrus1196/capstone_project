@@ -159,7 +159,7 @@ const StudentDashboard = ({ onNavigate }) => {
           <div className="student-dashboard-loading">Loading your dashboard…</div>
         ) : (
           <>
-            <div className="student-dashboard-stats">
+            <div className="student-dashboard-stats" data-tour="student-dashboard-stats">
               <article className="student-stat-card">
                 <span className="student-stat-icon student-stat-icon--book" aria-hidden>
                   <i className="fa-solid fa-book-open" />
@@ -198,7 +198,7 @@ const StudentDashboard = ({ onNavigate }) => {
               </article>
             </div>
 
-            <div className="student-dashboard-actions">
+            <div className="student-dashboard-actions" data-tour="student-dashboard-actions">
               <button
                 type="button"
                 className="student-action-card student-action-card--green"

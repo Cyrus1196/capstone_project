@@ -88,7 +88,8 @@ fi
 # Override in Railway Variables if you want database sessions after a full SQL import.
 export SESSION_DRIVER="${SESSION_DRIVER:-file}"
 export CACHE_STORE="${CACHE_STORE:-file}"
-export QUEUE_CONNECTION="${QUEUE_CONNECTION:-sync}"
+# Database queue so heavy SIS/grades imports leave the HTTP process free for login.
+export QUEUE_CONNECTION="${QUEUE_CONNECTION:-database}"
 
 # Migrations are NOT run on boot (existing Railway tables / SQL dump).
 if [[ "${RUN_MIGRATIONS:-false}" == "true" ]]; then
@@ -143,22 +144,30 @@ php artisan migrate --path=database/migrations/2026_10_12_130000_subject_crediti
 php artisan migrate --path=database/migrations/2026_10_12_140000_import_export_and_curriculum_header_permissions.php --force \
   || echo "WARN: import/export + curriculum header permission migration skipped or failed."
 
+php artisan migrate --path=database/migrations/2026_11_13_180000_create_queue_and_csv_import_jobs_tables.php --force \
+  || echo "WARN: queue / csv_import_jobs migration skipped or failed."
+
 php artisan config:cache || true
 php artisan route:cache || true
 
 PORT="${PORT:-8000}"
 echo "Starting Academic Evaluation System on 0.0.0.0:${PORT}"
-echo "APP_URL=${APP_URL:-unset} DB_HOST=${DB_HOST:-unset} DB_DATABASE=${DB_DATABASE:-unset}"
+echo "APP_URL=${APP_URL:-unset} DB_HOST=${DB_HOST:-unset} DB_DATABASE=${DB_DATABASE:-unset} QUEUE_CONNECTION=${QUEUE_CONNECTION:-unset}"
 
 # Laravel scheduler must run for backup:run-scheduled (daily 00:01) and INC expiry.
-# Railway has no system cron — keep schedule:work alive beside the HTTP server.
-# Do not use `exec` here: the shell must stay alive so the EXIT trap can stop the scheduler.
+# Queue worker processes heavy CSV/SIS imports so php artisan serve stays free for login.
+# Railway has no system cron — keep schedule:work + queue:work alive beside the HTTP server.
+# Do not use `exec` here: the shell must stay alive so the EXIT trap can stop children.
 php artisan schedule:work --verbose &
 SCHEDULER_PID=$!
+php artisan queue:work --sleep=1 --tries=1 --timeout=3600 --memory=512 &
+QUEUE_PID=$!
 cleanup() {
   kill "${SCHEDULER_PID}" 2>/dev/null || true
+  kill "${QUEUE_PID}" 2>/dev/null || true
 }
 trap cleanup EXIT INT TERM
 
 echo "Laravel scheduler started (pid ${SCHEDULER_PID})"
+echo "Laravel queue worker started (pid ${QUEUE_PID})"
 php artisan serve --host=0.0.0.0 --port="${PORT}"

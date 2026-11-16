@@ -13,8 +13,16 @@ import {
   isCompleteGrade,
   isCompleteOnlySubject,
 } from '../../utils/gradePercentageConversion';
+import { evaluationRowKey, formatOffSemesterTakenTerm } from '../../utils/offSemesterTerm';
 import '../admin/CurriculumManagement.css';
 import './StudentCurriculum.css';
+
+function formatTakenTermLabel(academicYearName, semesterName) {
+  const sy = String(academicYearName || '').trim();
+  const sem = String(semesterName || '').trim();
+  const syLabel = sy ? (/^sy\b/i.test(sy) ? sy : `SY ${sy}`) : '';
+  return [syLabel, sem].filter(Boolean).join(' · ');
+}
 
 /** e.g. 1 → "1st Year", 4 → "4th Year" (fallback when API has no year_level_name). */
 function ordinalYearLabel(yearNum) {
@@ -164,6 +172,8 @@ const StudentCurriculum = () => {
   const [curriculumEmptyHint, setCurriculumEmptyHint] = useState({ message: '', reason: null });
   /** Staff “Promote to next semester” — caps which terms appear in My Curriculum. */
   const [promotion, setPromotion] = useState(null);
+  /** Dean Subject placement OFFSEM / Semestral flags (retake term). */
+  const [standingTermLoad, setStandingTermLoad] = useState(null);
 
   /** API may return { curriculum: [...] } or error-shaped objects; never assume .map exists. */
   const normalizeList = useCallback((payload, key) => {
@@ -195,6 +205,8 @@ const StudentCurriculum = () => {
             }
           : null
       );
+      const load = response.data?.standing_term_load;
+      setStandingTermLoad(load && typeof load === 'object' ? load : null);
       setCurriculumEmptyHint({
         message: (response.data && response.data.curriculum_message) || '',
         reason: (response.data && response.data.curriculum_unavailable_reason) || null,
@@ -231,6 +243,7 @@ const StudentCurriculum = () => {
       setYearLevels([]);
       setSelectedYearLevel(null);
       setPromotion(null);
+      setStandingTermLoad(null);
       setCurriculumEmptyHint({ message: '', reason: null });
     } finally {
       setLoading(false);
@@ -327,7 +340,64 @@ const StudentCurriculum = () => {
       grade: enrollment.grade,
       inc_compliance_deadline: enrollment.inc_compliance_deadline,
       completed: passedByStatus || passedByPercent,
+      academic_year_name: enrollment.academic_year_name || enrollment.academic_year?.academic_year_name || null,
+      semester_name: enrollment.semester_name || enrollment.semester?.semester_name || null,
+      semester_id: enrollment.semester_id ?? enrollment.semester?.semester_id ?? null,
+      academic_year_id: enrollment.academic_year_id ?? enrollment.academic_year?.academic_year_id ?? null,
     };
+  };
+
+  const retakeInfoForRow = (row) => {
+    const key = evaluationRowKey(row);
+    const flags = standingTermLoad?.prior_flags;
+    const flag = flags && typeof flags === 'object' ? flags[key] : null;
+    if (flag && typeof flag === 'object') {
+      const mode = String(flag.mode || 'offsem').toLowerCase() === 'semestral' ? 'semestral' : 'offsem';
+      const term = formatOffSemesterTakenTerm(
+        { off_semester_standing: flag },
+        null
+      );
+      return {
+        mode,
+        label: mode === 'semestral' ? 'SEMESTRAL' : 'OFFSEM / RETAKE',
+        term:
+          term ||
+          formatTakenTermLabel(flag.schoolYearLabel, flag.takenSemLabel || flag.standingSemLabel),
+      };
+    }
+
+    // Fallback: any graded attempt in a different semester than curriculum home = retake.
+    const homeSem =
+      row.semester_id != null && row.semester_id !== '' ? Number(row.semester_id) : null;
+    const sid =
+      row.subject_id != null && row.subject_id !== '' ? Number(row.subject_id) : null;
+    if (sid == null || homeSem == null) return null;
+
+    const otherTakes = enrollments.filter((e) => {
+      const eSid = Number(e.subject_id ?? e.subject?.subject_id);
+      const eSem = e.semester_id != null && e.semester_id !== '' ? Number(e.semester_id) : null;
+      if (eSid !== sid || eSem == null || eSem === homeSem) return false;
+      const st = String(e.evaluation_status || e.status || '').trim();
+      const g = e.grade;
+      return (
+        st !== '' ||
+        (g != null && String(g).trim() !== '' && !Number.isNaN(parseFloat(g)))
+      );
+    });
+    if (otherTakes.length === 0) return null;
+
+    otherTakes.sort((a, b) => {
+      const ta = Date.parse(a.evaluation_date || a.enrolled_date || 0) || 0;
+      const tb = Date.parse(b.evaluation_date || b.enrolled_date || 0) || 0;
+      return tb - ta;
+    });
+    const latest = otherTakes[0];
+    const term = formatTakenTermLabel(
+      latest.academic_year_name || latest.academic_year?.academic_year_name,
+      latest.semester_name || latest.semester?.semester_name
+    );
+    if (!term) return null;
+    return { mode: 'offsem', label: 'RETAKE', term };
   };
 
   const getEnrollmentStatus = (subjectId, semesterId = null, minPassing = 70) => {
@@ -899,6 +969,7 @@ const StudentCurriculum = () => {
           <button
             type="button"
             className="student-curriculum-download-eval"
+            data-tour="student-curriculum-download"
             onClick={openEvalPdfModal}
             disabled={evaluationPdfLoading}
           >
@@ -934,6 +1005,7 @@ const StudentCurriculum = () => {
         <nav
           className="curriculum-pagination curriculum-year-pagination student-curriculum-year-nav"
           aria-label="Year level"
+          data-tour="student-curriculum-years"
         >
           <div className="curriculum-year-pagination__pills" role="tablist">
             {visibleYearLevels.map((yearLevelId) => {
@@ -1091,6 +1163,29 @@ const StudentCurriculum = () => {
                               ? getGradeDisplayParts(enrollment.grade, passing)
                               : null;
 
+                          const retakeInfo = retakeInfoForRow(row);
+                          const retakeBadge = retakeInfo?.label ? (
+                            <span className="student-curriculum-retake-meta">
+                              <span
+                                className={`student-curriculum-offsem-badge${
+                                  retakeInfo.mode === 'semestral'
+                                    ? ' student-curriculum-offsem-badge--semestral'
+                                    : ''
+                                }`}
+                                title={
+                                  retakeInfo.mode === 'semestral'
+                                    ? 'Taken as semestral retake'
+                                    : 'Retaken / taken off-semester'
+                                }
+                              >
+                                {retakeInfo.label}
+                              </span>
+                              {retakeInfo.term ? (
+                                <span className="student-curriculum-offsem-term">{retakeInfo.term}</span>
+                              ) : null}
+                            </span>
+                          ) : null;
+
                           return (
                             <div
                               key={row.curriculum_id || `${sid}-${semester.id}`}
@@ -1109,7 +1204,10 @@ const StudentCurriculum = () => {
                               </div>
                               <div className="curriculum-data-grid__cell" role="cell">
                                 <span className="curriculum-data-grid__mobile-label">Description</span>
-                                <span className="curriculum-data-grid__cell-value">{title}</span>
+                                <span className="curriculum-data-grid__cell-value student-curriculum-desc-with-retake">
+                                  <span>{title}</span>
+                                  {retakeBadge}
+                                </span>
                               </div>
                               <div className="curriculum-data-grid__cell" role="cell">
                                 <span className="curriculum-data-grid__mobile-label">Units</span>
@@ -1198,7 +1296,11 @@ const StudentCurriculum = () => {
                                           {incByDateSuffix}
                                         </span>
                                       ) : null}
+                                      {/* Mirror Dean: OFFSEM/retake term also beside status/grade */}
+                                      {retakeBadge}
                                     </span>
+                                  ) : retakeBadge ? (
+                                    <span className="student-curriculum-status-inline">{retakeBadge}</span>
                                   ) : (
                                     <span className="muted-status">—</span>
                                   )}

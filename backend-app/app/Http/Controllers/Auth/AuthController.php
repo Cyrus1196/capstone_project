@@ -57,7 +57,7 @@ class AuthController extends Controller
     }
 
     /**
-     * Staff roles that sign in with Employee ID (email is for mail only).
+     * Staff roles that may sign in with Employee ID (email also works).
      *
      * @return list<string>
      */
@@ -105,30 +105,12 @@ class AuthController extends Controller
     }
 
     /**
-     * Portal login: staff with an Employee ID must use that ID (not email).
-     * Email remains for password reset / verification / device OTP.
+     * Portal login accepts email or Employee ID for staff (and Student ID for students).
+     * Kept for call-site compatibility; no longer blocks email when an Employee ID exists.
      */
     public static function assertPortalLoginUsesEmployeeIdWhenRequired(TblUser $user, string $login): void
     {
-        if (! self::usesEmployeeIdLogin($user)) {
-            return;
-        }
-
-        $employeeId = self::resolveStaffEmployeeId($user);
-        if ($employeeId === null) {
-            // Legacy accounts without Employee ID can still use email until an admin sets one.
-            return;
-        }
-
-        if (strcasecmp(trim($login), $employeeId) === 0) {
-            return;
-        }
-
-        throw ValidationException::withMessages([
-            'email' => [
-                'Sign in with your Employee ID. Email is only for password reset and verification codes.',
-            ],
-        ]);
+        // Intentionally empty — staff may sign in with email OR Employee ID.
     }
 
     /**

@@ -71,7 +71,7 @@ const FacultyPanel = () => {
     if (showEvalModules) {
       evaluationItems.push(
         { id: 'academic-record', label: 'Student', icon: 'fa-solid fa-user-graduate' },
-        { id: 'evaluated-students', label: 'Evaluated students', icon: 'fa-solid fa-clipboard-check' }
+        { id: 'evaluated-students', label: 'Inactive & Graduates', icon: 'fa-solid fa-user-clock' }
       );
     }
     if (showCreditEval) {
@@ -209,10 +209,10 @@ const FacultyPanel = () => {
             />
           )}
           {activeTab === 'academic-record' && showEvalModules && (
-            <StudentEvaluationView listMode="need-evaluation" />
+            <StudentEvaluationView listMode="need-evaluation" listScope="all" />
           )}
           {activeTab === 'evaluated-students' && showEvalModules && (
-            <StudentEvaluationView listMode="already-evaluated" />
+            <StudentEvaluationView listMode="inactive-roster" listScope="all" />
           )}
           {activeTab === 'analytics' && <DeanAnalytics showEvalModules={showEvalModules} />}
           {activeTab === 'credit-evaluation' && showCreditEval && <AcademicManagement />}

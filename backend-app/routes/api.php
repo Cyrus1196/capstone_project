@@ -350,6 +350,7 @@ Route::middleware('auth:api')->group(function () {
         Route::get('/students', [StudentEvaluationController::class, 'listStudents']);
         Route::get('/student/{studentIdNumber}', [StudentEvaluationController::class, 'getByStudentIdNumber']);
         Route::get('/student/{studentIdNumber}/program-preview', [StudentEvaluationController::class, 'previewStudentProgram']);
+        Route::get('/student/{studentIdNumber}/curriculum-preview', [StudentEvaluationController::class, 'previewStudentCurriculum']);
 
         // Comprehensive evaluation management with role-based access control
         Route::middleware('evaluation.access')->group(function () {
@@ -362,7 +363,9 @@ Route::middleware('auth:api')->group(function () {
             Route::put('/student/simulation-dummy/profile', [StudentEvaluationController::class, 'updateSimulationDummyProfile']);
             Route::delete('/student/simulation-dummy/{studentId}', [StudentEvaluationController::class, 'deleteSimulationDummy']);
             Route::post('/student/track', [StudentEvaluationController::class, 'setStudentTrack']);
+            Route::post('/student/enrollment-status', [StudentEvaluationController::class, 'setStudentEnrollmentStatus']);
             Route::post('/student/change-program', [StudentEvaluationController::class, 'changeStudentProgram']);
+            Route::post('/student/change-curriculum', [StudentEvaluationController::class, 'changeStudentCurriculum']);
             Route::post('/academic-record/complete', [StudentEvaluationController::class, 'markAcademicRecordComplete']);
             Route::get('/academic-record/completions', [StudentEvaluationController::class, 'listAcademicRecordCompletions']);
             Route::delete('/academic-record/complete/{recordId}', [StudentEvaluationController::class, 'deleteAcademicRecordCompletion']);
@@ -393,7 +396,11 @@ Route::middleware('auth:api')->group(function () {
         Route::get('/types', [CsvImportController::class, 'getImportTypes']);
         Route::post('/preview', [CsvImportController::class, 'preview']);
         Route::post('/import', [CsvImportController::class, 'import']);
+        Route::get('/jobs/{jobId}', [CsvImportController::class, 'importJobStatus']);
         Route::get('/template/{importType}', [CsvImportController::class, 'downloadTemplate']);
+        Route::get('/term-complete', [\App\Http\Controllers\Administration\TermImportCompletionController::class, 'index']);
+        Route::post('/term-complete', [\App\Http\Controllers\Administration\TermImportCompletionController::class, 'store']);
+        Route::delete('/term-complete/{id}', [\App\Http\Controllers\Administration\TermImportCompletionController::class, 'destroy']);
     });
 
     // Directory CSV exports (Import / Export module)

@@ -3,6 +3,7 @@ import {
   beginRequestLoading,
   endRequestLoading,
   loadingMessageFor,
+  resetRequestLoading,
   shouldTrackRequestLoading,
 } from './requestLoading';
 import { findUnsafeInPayload } from '../utils/inputValidation';
@@ -17,6 +18,14 @@ import {
   expireClientSessionIfIdle,
   touchSessionActivity,
 } from '../utils/sessionActivity';
+
+function forceLogoutToLogin() {
+  resetRequestLoading();
+  removeToken();
+  if (!window.location.pathname.startsWith('/login')) {
+    window.location.href = '/login';
+  }
+}
 
 const API_BASE_URL =
   process.env.REACT_APP_API_URL ||
@@ -160,13 +169,13 @@ api.interceptors.response.use(
 
     if (error?.isSessionIdleExpired) {
       finishTrackedLoading(config);
-      if (!window.location.pathname.startsWith('/login')) {
-        window.location.href = '/login';
-      }
+      forceLogoutToLogin();
       return Promise.reject(error);
     }
 
-    if (isAxiosNetworkError(error)) {
+    // Silent polls (import peek/advance, heartbeats) already retry locally —
+    // do not flash the global "Connection problem" banner for those.
+    if (isAxiosNetworkError(error) && !config?.silent) {
       if (!isBrowserOnline()) {
         emitNetworkOffline({ url: config?.url });
       } else {
@@ -193,28 +202,26 @@ api.interceptors.response.use(
     }
 
     if (config._jwtRetry) {
-      removeToken();
-      window.location.href = '/login';
+      forceLogoutToLogin();
       return Promise.reject(error);
     }
 
     const url = config.url || '';
     if (url.includes('/jwt/refresh') || url.endsWith('/login')) {
-      removeToken();
-      window.location.href = '/login';
+      forceLogoutToLogin();
       return Promise.reject(error);
     }
 
     const token = getToken();
     if (!token) {
-      window.location.href = '/login';
+      forceLogoutToLogin();
       return Promise.reject(error);
     }
 
     // Do not silently mint a new JWT after the idle window already elapsed.
     if (expireClientSessionIfIdle(removeToken)) {
       finishTrackedLoading(config);
-      window.location.href = '/login';
+      forceLogoutToLogin();
       return Promise.reject(error);
     }
 
@@ -230,8 +237,7 @@ api.interceptors.response.use(
       return api(config);
     } catch (refreshErr) {
       finishTrackedLoading(config);
-      removeToken();
-      window.location.href = '/login';
+      forceLogoutToLogin();
       return Promise.reject(refreshErr);
     }
   }
