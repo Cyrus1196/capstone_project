@@ -1,0 +1,2 @@
+"use strict";(globalThis.webpackChunkfront_end||=[]).push([[369],{4650(e,r,a){a.r(r);a(5043);var t=a(8885),s=a(579);const c=()=>(0,s.jsx)(t.A,{expectedRole:"Secretary",sidebarVariant:"secretary",collapsedStorageKey:"portalSidebarCollapsed_secretary",sidebarBrand:"Secretary portal",workspaceTitle:"Secretary workspace",roleChipLabel:"Secretary"});a.d(r,["default",0,c])}}]);
+//# sourceMappingURL=369.bf881855.chunk.js.map

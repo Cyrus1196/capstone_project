@@ -21,12 +21,9 @@ class Role extends Model
         'status',
     ];
 
-    protected function casts(): array
-    {
-        return [
-            'evaluation_year_level_ids' => 'array',
-        ];
-    }
+    protected $casts = [
+        'evaluation_year_level_ids' => 'array',
+    ];
 
     public function users()
     {

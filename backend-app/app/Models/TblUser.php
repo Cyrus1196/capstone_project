@@ -126,18 +126,15 @@ class TblUser extends Authenticatable implements JWTSubject
         'password',
     ];
 
-    protected function casts(): array
-    {
-        return [
-            'password' => 'hashed',
-            'locked_until' => 'datetime',
-            'password_changed_at' => 'datetime',
-            'email_verified_at' => 'datetime',
-            'last_login_at' => 'datetime',
-            'use_custom_permissions' => 'boolean',
-            'evaluation_year_level_ids' => 'array',
-        ];
-    }
+    protected $casts = [
+        'password' => 'hashed',
+        'locked_until' => 'datetime',
+        'password_changed_at' => 'datetime',
+        'email_verified_at' => 'datetime',
+        'last_login_at' => 'datetime',
+        'use_custom_permissions' => 'boolean',
+        'evaluation_year_level_ids' => 'array',
+    ];
 
     public function getAttribute($key)
     {

@@ -1,0 +1,2 @@
+"use strict";(globalThis.webpackChunkfront_end||=[]).push([[856],{8725(a,r,e){e.r(r);e(5043);var o=e(8885),d=e(579);const l=()=>(0,d.jsx)(o.A,{expectedRole:"Program Head",sidebarVariant:"program-head",collapsedStorageKey:"portalSidebarCollapsed_program_head",sidebarBrand:"Program head portal",workspaceTitle:"Program head workspace",roleChipLabel:"Program head"});e.d(r,["default",0,l])}}]);
+//# sourceMappingURL=856.eb64e3f6.chunk.js.map

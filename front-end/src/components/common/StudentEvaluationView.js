@@ -7894,7 +7894,8 @@ const StudentEvaluationView = ({
                 className="eval-hero__name-link"
                 onClick={() => {
                   if (!selectedIdNumber) return;
-                  const url = `/dean/student-records/${encodeURIComponent(String(selectedIdNumber))}`;
+                  const base = (process.env.PUBLIC_URL || '').replace(/\/$/, '');
+                  const url = `${base}/dean/student-records/${encodeURIComponent(String(selectedIdNumber))}`;
                   window.open(url, '_blank', 'noopener,noreferrer');
                 }}
                 title="Open full student records in a new tab"

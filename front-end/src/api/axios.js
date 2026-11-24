@@ -22,8 +22,10 @@ import {
 function forceLogoutToLogin() {
   resetRequestLoading();
   removeToken();
-  if (!window.location.pathname.startsWith('/login')) {
-    window.location.href = '/login';
+  const base = (process.env.PUBLIC_URL || '').replace(/\/$/, '');
+  const loginPath = `${base}/login`;
+  if (!window.location.pathname.startsWith(loginPath)) {
+    window.location.href = loginPath;
   }
 }
 

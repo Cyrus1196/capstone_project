@@ -23,12 +23,9 @@ class AcademicRecordEvaluationComplete extends Model
         'semester_id',
     ];
 
-    protected function casts(): array
-    {
-        return [
-            'completed_at' => 'datetime',
-        ];
-    }
+    protected $casts = [
+        'completed_at' => 'datetime',
+    ];
 
     /**
      * School year + semester active right now, for tagging a new evaluation mark.

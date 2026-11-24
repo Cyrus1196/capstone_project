@@ -2,7 +2,6 @@
 
 use Illuminate\Foundation\Inspiring;
 use Illuminate\Support\Facades\Artisan;
-use Illuminate\Support\Facades\Schedule;
 
 Artisan::command('inspire', function () {
     $this->comment(Inspiring::quote());
@@ -95,14 +94,7 @@ Artisan::command('evaluations:expire-overdue-inc', function () {
     $this->info("Marked {$n} overdue INC evaluation(s) as failed (grade 49).");
 })->purpose('Expire INC evaluations past their comply-by date');
 
-Schedule::command('evaluations:expire-overdue-inc')->dailyAt('00:15');
-
 Artisan::command('sessions:close-stale', function () {
     $n = \App\Services\UserSessionLogger::closeStaleOpenSessions();
     $this->info("Closed {$n} stale open session(s) as idle timeout.");
 })->purpose('Mark abandoned Active login sessions as idle timeout');
-
-Schedule::command('sessions:close-stale')->everyFiveMinutes();
-
-// Check every minute whether a configured daily DB backup is due.
-Schedule::command('backup:run-scheduled')->everyMinute();

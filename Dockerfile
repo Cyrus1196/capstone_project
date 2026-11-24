@@ -11,7 +11,7 @@ ENV REACT_APP_API_URL=/api
 ENV CI=true
 RUN npm run build
 
-FROM php:8.2-cli-bookworm AS backend
+FROM php:8.1-cli-bookworm AS backend
 WORKDIR /app
 
 RUN apt-get update && apt-get install -y --no-install-recommends \

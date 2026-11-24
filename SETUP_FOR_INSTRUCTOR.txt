@@ -1,0 +1,83 @@
+================================================================================
+Academic Evaluation System — cPanel setup (NO Terminal / NO SSH / NO npm)
+School URL: https://coc-studentinfo.net/saes/
+PHP required: 8.1  (this package is Laravel 10)
+================================================================================
+
+Upload this whole project folder to /saes (or extract the zip there).
+You only need File Manager + phpMyAdmin + MultiPHP.
+
+--------------------------------------------------------------------------------
+STEP 1 — PHP 8.1
+--------------------------------------------------------------------------------
+cPanel → MultiPHP Manager → set this site / saes to PHP 8.1 → Apply.
+
+--------------------------------------------------------------------------------
+STEP 2 — Document root (important — fixes 403)
+--------------------------------------------------------------------------------
+Set the document root for /saes to:
+
+  saes/backend-app/public
+
+NOT the folder that contains both backend-app and front-end.
+
+--------------------------------------------------------------------------------
+STEP 3 — Database
+--------------------------------------------------------------------------------
+1. Create MySQL database + user (grant ALL).
+2. phpMyAdmin → Import:  capstone_db_deploy.sql
+3. Prefer database name:  capstone_db_deploy
+   (or change DB_DATABASE in .env to match your DB name)
+
+--------------------------------------------------------------------------------
+STEP 4 — Create .env
+--------------------------------------------------------------------------------
+Inside  backend-app/ :
+
+1. Copy file  .env.cpanel  → rename the copy to  .env
+2. Edit .env and set your real MySQL user/password:
+
+   DB_USERNAME=...
+   DB_PASSWORD=...
+   DB_DATABASE=capstone_db_deploy
+
+APP_URL and FRONTEND_URL are already set to:
+  https://coc-studentinfo.net/saes
+
+--------------------------------------------------------------------------------
+STEP 5 — Permissions
+--------------------------------------------------------------------------------
+Make writable (755 or 775):
+
+  backend-app/storage
+  backend-app/bootstrap/cache
+
+--------------------------------------------------------------------------------
+STEP 6 — Confirm these already exist (included in this package)
+--------------------------------------------------------------------------------
+  backend-app/public/index.php
+  backend-app/public/spa.html
+  backend-app/public/static/     (built React app for /saes)
+  backend-app/public/.htaccess   (contains RewriteBase /saes/)
+  backend-app/vendor/autoload.php
+
+You do NOT need to run composer or npm.
+
+--------------------------------------------------------------------------------
+STEP 7 — Test
+--------------------------------------------------------------------------------
+Open: https://coc-studentinfo.net/saes/
+
+Login API: https://coc-studentinfo.net/saes/api/login
+
+403  → document root is wrong (Step 2)
+Vendor/Composer error → vendor folder missing from upload
+Blank / no CSS → public/spa.html or public/static missing
+
+--------------------------------------------------------------------------------
+NOTE — CSV queue
+--------------------------------------------------------------------------------
+Large CSV imports work best with a queue worker. Shared cPanel often cannot
+run long workers. App may still advance imports via status polling.
+
+================================================================================

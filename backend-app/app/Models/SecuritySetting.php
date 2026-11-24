@@ -24,19 +24,16 @@ class SecuritySetting extends Model
         'lockout_duration_minutes',
     ];
 
-    protected function casts(): array
-    {
-        return [
-            'max_password_length' => 'integer',
-            'min_password_length' => 'integer',
-            'password_expiry_days' => 'integer',
-            'session_timeout_minutes' => 'integer',
-            'student_session_timeout_minutes' => 'integer',
-            'session_warning_minutes_left' => 'integer',
-            'lockout_attempts' => 'integer',
-            'lockout_duration_minutes' => 'integer',
-        ];
-    }
+    protected $casts = [
+        'max_password_length' => 'integer',
+        'min_password_length' => 'integer',
+        'password_expiry_days' => 'integer',
+        'session_timeout_minutes' => 'integer',
+        'student_session_timeout_minutes' => 'integer',
+        'session_warning_minutes_left' => 'integer',
+        'lockout_attempts' => 'integer',
+        'lockout_duration_minutes' => 'integer',
+    ];
 
     /** @var self|null Request-scoped cache (login hits this several times). */
     private static ?self $requestCache = null;

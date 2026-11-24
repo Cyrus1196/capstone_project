@@ -120,6 +120,16 @@ class CsvImportController extends Controller
             'validation_rules' => [
             ],
         ],
+        'enrollment_status' => [
+            'label' => 'Enrollment status (Enrolled / Inactive / Transferred / Graduate)',
+            'table' => 'tbl_student_profile',
+            'required_columns' => ['student_id_number', 'enrollment_status'],
+            'optional_columns' => [],
+            'validation_rules' => [
+                'student_id_number' => 'required|string|max:50',
+                'enrollment_status' => 'required|string|in:Enrolled,Inactive,Transferred,Graduate',
+            ],
+        ],
         'grades' => [
             'label' => 'Student grades (evaluations)',
             'table' => 'tbl_evaluation',
@@ -618,6 +628,28 @@ class CsvImportController extends Controller
      *
      * @param  array<string, mixed>  $row  Normalized row
      */
+    /**
+     * Update enrollment_status only. Does not create students and does not mark anyone Inactive.
+     *
+     * @param  array<string, mixed>  $row
+     */
+    private function importEnrollmentStatusRow(array $row): void
+    {
+        $sid = \App\Support\StudentIdNumber::canonicalize((string) ($row['student_id_number'] ?? ''));
+        $status = \App\Support\EnrollmentStatus::normalize((string) ($row['enrollment_status'] ?? ''));
+        if ($sid === '' || $status === null) {
+            throw new \RuntimeException('student_id_number and enrollment_status are required.');
+        }
+
+        $updated = StudentProfile::query()
+            ->whereStudentIdNumber($sid)
+            ->update(['enrollment_status' => $status]);
+
+        if ($updated < 1) {
+            throw new \RuntimeException('No student found for student_id_number '.$sid.'.');
+        }
+    }
+
     private function importStudentAccountFromSisRow(array $row): void
     {
         $studentRoleId = Role::query()->where('role_name', 'Student')->value('role_id');
@@ -1849,6 +1881,8 @@ class CsvImportController extends Controller
                 try {
                     if ($importTypeKey === 'students') {
                         $this->importStudentAccountFromSisRow($row);
+                    } elseif ($importTypeKey === 'enrollment_status') {
+                        $this->importEnrollmentStatusRow($row);
                     } elseif ($importTypeKey === 'grades') {
                         $this->importGradesEvaluationRow($request, $this->stripSisImportMetadata($row), false);
                         $sid = \App\Support\StudentIdNumber::canonicalize((string) ($row['student_id_number'] ?? ''));
@@ -2064,6 +2098,12 @@ class CsvImportController extends Controller
                     $sampleData = [
                         ['2025-SIS-0001', 'Alex', 'Rivera', 'alex@school.edu', '1', '1', '09123456789', 'Manila', 'active', 'active', ''],
                         ['2025-SIS-NEW-01', 'Sam', 'New', 'sam.new@school.edu', '1', '1', '', '', 'active', 'active', 'ChangeMe123!'],
+                    ];
+                    break;
+                case 'enrollment_status':
+                    $sampleData = [
+                        ['02-2425-000431', 'Enrolled'],
+                        ['02-2425-000432', 'Inactive'],
                     ];
                     break;
                 case 'grades':

@@ -16,6 +16,9 @@ import './App.css';
 
 installGlobalInputGuards();
 
+/** Subdirectory hosting (e.g. cPanel /saes) — set PUBLIC_URL at build time. */
+const routerBasename = (process.env.PUBLIC_URL || '').replace(/\/$/, '') || undefined;
+
 const AdminPanel = lazy(() => import('./components/admin/AdminPanel'));
 const SecuritySettings = lazy(() => import('./components/admin/SecuritySettings'));
 const StudentPanel = lazy(() => import('./components/student/StudentPanel'));
@@ -109,7 +112,7 @@ function App() {
       <GlobalRequestLoading />
       <SessionIdleController />
       <ForcePasswordChangeModal />
-      <Router>
+      <Router basename={routerBasename}>
         <Suspense fallback={<RouteFallback />}>
           <Routes>
             <Route path="/" element={<Landing />} />

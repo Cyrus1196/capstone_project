@@ -1,0 +1,118 @@
+================================================================================
+Academic Evaluation System — cPanel setup (NO command line / no SSH)
+URL: https://coc-studentinfo.net/saes/
+PHP: 8.1 only (this build is Laravel 10 / PHP 8.1)
+================================================================================
+
+You only need: File Manager + phpMyAdmin + MultiPHP. No Terminal required.
+
+--------------------------------------------------------------------------------
+BEFORE YOU START — give the instructor this folder
+--------------------------------------------------------------------------------
+Path on student PC:
+  Documents\capstone_project\cpanel-ready\
+
+Contents:
+1) INSTRUCTOR_SETUP.txt              → this guide
+2) cpanel-saes-public.zip            → extract into backend-app/public/
+3) cpanel-saes-vendor.zip            → extract into backend-app/ (creates vendor/)
+4) COPY-TO-backend-app-as.env        → rename to .env inside backend-app/
+5) capstone_db_deploy.sql            → import in phpMyAdmin
+
+Also upload the project’s backend-app/ folder (source) if not already on the server.
+
+--------------------------------------------------------------------------------
+STEP 1 — PHP version
+--------------------------------------------------------------------------------
+cPanel → MultiPHP Manager → select the domain / saes → PHP 8.1 → Apply.
+
+--------------------------------------------------------------------------------
+STEP 2 — Document root (fixes 403 Forbidden)
+--------------------------------------------------------------------------------
+Point the website for /saes to:
+
+  .../saes/backend-app/public
+
+NOT the repo root (not the folder that contains both backend-app and front-end).
+
+--------------------------------------------------------------------------------
+STEP 3 — Database
+--------------------------------------------------------------------------------
+1. Create a MySQL database (or use existing).
+2. Create a DB user and grant ALL on that database.
+3. phpMyAdmin → Import file:  capstone_db_deploy.sql
+   (Database name inside dump: capstone_db_deploy — create/select that DB name,
+    OR import into your DB then set DB_DATABASE in .env to match.)
+
+--------------------------------------------------------------------------------
+STEP 4 — .env file
+--------------------------------------------------------------------------------
+1. Upload COPY-TO-backend-app-as.env into backend-app/
+2. Rename it to:  .env
+3. Edit these lines to match phpMyAdmin credentials:
+
+   DB_HOST=127.0.0.1
+   DB_DATABASE=capstone_db_deploy
+   DB_USERNAME=...your mysql user...
+   DB_PASSWORD=...your mysql password...
+
+4. Leave APP_URL and FRONTEND_URL as:
+   https://coc-studentinfo.net/saes
+
+--------------------------------------------------------------------------------
+STEP 5 — Upload built frontend (public files)
+--------------------------------------------------------------------------------
+File Manager → open:  backend-app/public/
+
+1. Upload cpanel-saes-public.zip
+2. Extract here (overwrite when asked)
+3. Confirm these exist:
+   - index.php
+   - spa.html
+   - static/  (folder)
+   - .htaccess   (must contain: RewriteBase /saes/)
+
+--------------------------------------------------------------------------------
+STEP 6 — Upload PHP vendor (no Composer on server)
+--------------------------------------------------------------------------------
+File Manager → open:  backend-app/
+
+1. If a vendor/ folder already exists and is incomplete, delete it
+2. Upload cpanel-saes-vendor.zip
+3. Extract so you get:  backend-app/vendor/autoload.php
+
+--------------------------------------------------------------------------------
+STEP 7 — Folder permissions
+--------------------------------------------------------------------------------
+Set writable (755 or 775) on:
+
+  backend-app/storage
+  backend-app/storage/* (subfolders)
+  backend-app/bootstrap/cache
+
+--------------------------------------------------------------------------------
+STEP 8 — Test
+--------------------------------------------------------------------------------
+Open:  https://coc-studentinfo.net/saes/
+
+- Landing / login should load (not 403, not blank JSON).
+- API login uses:  https://coc-studentinfo.net/saes/api/login
+
+If you see “vendor” / Composer errors → Step 6 incomplete.
+If you see 403 → Step 2 document root wrong.
+If CSS/JS 404 → Step 5 incomplete (missing static/ or wrong .htaccess).
+
+--------------------------------------------------------------------------------
+OPTIONAL — Queue worker (CSV large imports)
+--------------------------------------------------------------------------------
+Shared cPanel often cannot run:  php artisan queue:work
+Large CSV imports may stay pending without a worker. Smaller imports can still
+progress via the app’s status polling. Ask hosting for a cron/worker if needed.
+
+--------------------------------------------------------------------------------
+DO NOT
+--------------------------------------------------------------------------------
+- Do not set document root to front-end/
+- Do not run npm on the server (frontend is already built in the public zip)
+- Do not require Terminal / SSH for this setup
+================================================================================
